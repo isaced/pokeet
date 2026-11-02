@@ -1,29 +1,55 @@
 import PokeetCore
 import SwiftUI
 
+struct ReviewItemState: Equatable {
+    var isIncluded = true
+    var selectedHunkIDs: Set<DiffHunk.ID> = []
+    var note = ""
+
+    func hasRejectedHunks(in proposal: FileProposal) -> Bool {
+        guard isIncluded else { return true }
+        let allHunkIDs = Set(proposal.diff.hunks.map(\.id))
+        return !allHunkIDs.isEmpty && selectedHunkIDs != allHunkIDs
+    }
+}
+
 struct DiffReviewView: View {
     let proposals: [FileProposal]
     let onResolve: ([ProposalDecision]) -> Void
 
-    @State private var decisions: [UUID: ReviewDecision] = [:]
-    @State private var rejecting: FileProposal?
-    @State private var rejectNote = ""
+    @State private var states: [UUID: ReviewItemState]
+    @State private var noting: FileProposal?
+    @State private var noteDraft = ""
+
+    init(proposals: [FileProposal], onResolve: @escaping ([ProposalDecision]) -> Void) {
+        self.proposals = proposals
+        self.onResolve = onResolve
+        _states = State(initialValue: Dictionary(
+            uniqueKeysWithValues: proposals.map { proposal in
+                (
+                    proposal.id,
+                    ReviewItemState(selectedHunkIDs: Set(proposal.diff.hunks.map(\.id)))
+                )
+            }
+        ))
+    }
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 LazyVStack(spacing: 16) {
+                    Text("Tap a hunk to include or exclude it.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
                     ForEach(proposals) { proposal in
                         ProposalCard(
                             proposal: proposal,
-                            decision: decisions[proposal.id],
-                            onAccept: {
-                                decisions[proposal.id] = .accepted
-                            },
-                            onReject: {
-                                rejectNote = ""
-                                rejecting = proposal
-                            }
+                            state: state(for: proposal),
+                            onToggleHunk: { toggleHunk($0, for: proposal) },
+                            onToggleFile: { toggleFile(for: proposal) },
+                            onEditNote: { openNote(for: proposal) }
                         )
                     }
                 }
@@ -41,42 +67,100 @@ struct DiffReviewView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Submit") { submit() }
-                        .disabled(decisions.count < proposals.count)
                 }
             }
             .interactiveDismissDisabled()
-            .sheet(item: $rejecting) { proposal in
-                RejectNoteSheet(
-                    note: $rejectNote,
-                    onReject: {
-                        let trimmed = rejectNote.trimmingCharacters(in: .whitespacesAndNewlines)
-                        decisions[proposal.id] = .rejected(note: trimmed.isEmpty ? nil : trimmed)
-                        rejecting = nil
+            .sheet(item: $noting) { proposal in
+                ReviewNoteSheet(
+                    note: $noteDraft,
+                    onSave: {
+                        var state = state(for: proposal)
+                        state.note = noteDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                        states[proposal.id] = state
+                        noting = nil
                     },
-                    onCancel: { rejecting = nil }
+                    onCancel: { noting = nil }
                 )
             }
         }
     }
 
-    private func submit() {
-        let result = proposals.map { proposal -> ProposalDecision in
-            guard let decision = decisions[proposal.id] else {
-                return ProposalDecision(proposalID: proposal.id, accepted: false)
-            }
-            switch decision {
-            case .accepted:
-                return ProposalDecision(proposalID: proposal.id, accepted: true)
-            case .rejected(let note):
-                return ProposalDecision(proposalID: proposal.id, accepted: false, note: note)
-            }
+    private func state(for proposal: FileProposal) -> ReviewItemState {
+        states[proposal.id]
+            ?? ReviewItemState(selectedHunkIDs: Set(proposal.diff.hunks.map(\.id)))
+    }
+
+    private func toggleHunk(_ hunkID: DiffHunk.ID, for proposal: FileProposal) {
+        var state = state(for: proposal)
+        if state.selectedHunkIDs.contains(hunkID) {
+            state.selectedHunkIDs.remove(hunkID)
+        } else {
+            state.selectedHunkIDs.insert(hunkID)
         }
-        onResolve(result)
+
+        if !proposal.diff.hunks.isEmpty {
+            state.isIncluded = !state.selectedHunkIDs.isEmpty
+        }
+
+        states[proposal.id] = state
+    }
+
+    private func toggleFile(for proposal: FileProposal) {
+        var state = state(for: proposal)
+        let allHunkIDs = Set(proposal.diff.hunks.map(\.id))
+        let fullySelected = state.isIncluded
+            && (allHunkIDs.isEmpty || state.selectedHunkIDs == allHunkIDs)
+
+        if fullySelected {
+            state.isIncluded = false
+            state.selectedHunkIDs = []
+        } else {
+            state.isIncluded = true
+            state.selectedHunkIDs = allHunkIDs
+        }
+
+        states[proposal.id] = state
+    }
+
+    private func openNote(for proposal: FileProposal) {
+        noteDraft = state(for: proposal).note
+        noting = proposal
+    }
+
+    private func submit() {
+        onResolve(proposals.map { decision(for: $0) })
+    }
+
+    private func decision(for proposal: FileProposal) -> ProposalDecision {
+        let state = state(for: proposal)
+        let allHunkIDs = Set(proposal.diff.hunks.map(\.id))
+        let trimmedNote = state.note.trimmingCharacters(in: .whitespacesAndNewlines)
+        let note = trimmedNote.isEmpty ? nil : trimmedNote
+
+        guard state.isIncluded else {
+            return .reject(proposalID: proposal.id, note: note)
+        }
+        guard !allHunkIDs.isEmpty else {
+            return .acceptAll(proposalID: proposal.id)
+        }
+        guard !state.selectedHunkIDs.isEmpty else {
+            return .reject(proposalID: proposal.id, note: note)
+        }
+        guard state.selectedHunkIDs != allHunkIDs else {
+            return .acceptAll(proposalID: proposal.id)
+        }
+        return .acceptHunks(
+            proposalID: proposal.id,
+            hunkIDs: state.selectedHunkIDs,
+            note: note
+        )
     }
 
     private func approveAll() {
         for proposal in proposals {
-            decisions[proposal.id] = .accepted
+            states[proposal.id] = ReviewItemState(
+                selectedHunkIDs: Set(proposal.diff.hunks.map(\.id))
+            )
         }
         submit()
     }
@@ -84,11 +168,7 @@ struct DiffReviewView: View {
     private func cancelReview() {
         onResolve(
             proposals.map {
-                ProposalDecision(
-                    proposalID: $0.id,
-                    accepted: false,
-                    note: "User cancelled the review."
-                )
+                .reject(proposalID: $0.id, note: "User cancelled the review.")
             }
         )
     }

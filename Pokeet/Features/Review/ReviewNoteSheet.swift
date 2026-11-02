@@ -1,8 +1,8 @@
 import SwiftUI
 
-struct RejectNoteSheet: View {
+struct ReviewNoteSheet: View {
     @Binding var note: String
-    let onReject: () -> Void
+    let onSave: () -> Void
     let onCancel: () -> Void
 
     var body: some View {
@@ -11,18 +11,20 @@ struct RejectNoteSheet: View {
                 Section {
                     TextField("Optional note for the agent", text: $note, axis: .vertical)
                         .lineLimit(3...6)
+                } header: {
+                    Text("Note for rejected hunks")
                 } footer: {
-                    Text("The note is sent back to the agent so it can revise the change.")
+                    Text("The note is sent back to the agent for the hunks you leave out.")
                 }
             }
-            .navigationTitle("Reject change")
+            .navigationTitle("Review note")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel", action: onCancel)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Reject", role: .destructive, action: onReject)
+                    Button("Save", action: onSave)
                 }
             }
         }
