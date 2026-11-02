@@ -3,6 +3,8 @@ import Foundation
 public enum AgentEvent: Sendable, Equatable {
     case contextCompactionStarted
     case contextCompactionFinished(success: Bool)
+    case retryScheduled(attempt: Int, maxAttempts: Int, delayMilliseconds: Int, reason: String)
+    case assistantResponseRestarted
     case usage(ModelUsage)
     case assistantReasoningDelta(String)
     case assistantTextDelta(String)
@@ -37,19 +39,28 @@ public struct AgentConfiguration: Sendable {
     public var contextCharacterBudget: Int
     public var retainedTurns: Int
     public var compactedToolOutputCharacters: Int
+    public var maxRetries: Int
+    public var retryBaseDelayMilliseconds: Int
+    public var maxOverflowRecoveries: Int
 
     public init(
         maxIterations: Int = 20,
         maxToolOutputBytes: Int = 24_000,
         contextCharacterBudget: Int = 80_000,
         retainedTurns: Int = 10,
-        compactedToolOutputCharacters: Int = 8_000
+        compactedToolOutputCharacters: Int = 8_000,
+        maxRetries: Int = 3,
+        retryBaseDelayMilliseconds: Int = 500,
+        maxOverflowRecoveries: Int = 1
     ) {
         self.maxIterations = maxIterations
         self.maxToolOutputBytes = maxToolOutputBytes
         self.contextCharacterBudget = contextCharacterBudget
         self.retainedTurns = retainedTurns
         self.compactedToolOutputCharacters = compactedToolOutputCharacters
+        self.maxRetries = max(0, maxRetries)
+        self.retryBaseDelayMilliseconds = max(0, retryBaseDelayMilliseconds)
+        self.maxOverflowRecoveries = max(0, maxOverflowRecoveries)
     }
 }
 

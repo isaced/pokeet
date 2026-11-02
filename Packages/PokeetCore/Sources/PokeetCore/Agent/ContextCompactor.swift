@@ -40,13 +40,14 @@ public struct ContextCompactor: Sendable {
 
     /// Returns a plan when the history exceeds the character budget, otherwise nil.
     /// Summarizable messages are the older turns; kept messages are recent turns
-    /// with oversized tool output already truncated.
-    public func plan(_ messages: [ChatMessage]) -> CompactionPlan? {
+    /// with oversized tool output already truncated. Pass `force` to compact even
+    /// when the local estimate fits, for example after a provider overflow error.
+    public func plan(_ messages: [ChatMessage], force: Bool = false) -> CompactionPlan? {
         let systemMessages = messages.filter { $0.role == .system }
         let conversation = messages.filter { $0.role != .system }
 
         guard !conversation.isEmpty else { return nil }
-        guard characterCount(of: messages) > maxCharacters else { return nil }
+        guard force || characterCount(of: messages) > maxCharacters else { return nil }
 
         let turns = makeTurns(from: conversation)
         var keptTurns = Array(turns.suffix(retainedTurns))
@@ -80,8 +81,8 @@ public struct ContextCompactor: Sendable {
 
     /// Deterministic fallback: drop older turns and truncate large tool output
     /// without asking the model for a summary.
-    public func compact(_ messages: [ChatMessage]) -> [ChatMessage] {
-        guard let plan = plan(messages) else { return messages }
+    public func compact(_ messages: [ChatMessage], force: Bool = false) -> [ChatMessage] {
+        guard let plan = plan(messages, force: force) else { return messages }
 
         var keptMessages = plan.keptMessages
         let note: String

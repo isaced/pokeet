@@ -7,6 +7,7 @@ public actor AgentSession {
     private let config: AgentConfiguration
     private let compactor: ContextCompactor
     private let summarizer: any ContextSummarizer
+    private let instructions: ProjectInstructions
     private var messages: [ChatMessage]
 
     public init(
@@ -27,19 +28,25 @@ public actor AgentSession {
             toolOutputCharacters: config.compactedToolOutputCharacters
         )
         self.summarizer = summarizer ?? ModelContextSummarizer(client: client)
-        self.messages = [.system(systemPrompt)]
+        self.instructions = ProjectInstructions.load(from: workspace)
+        self.messages = [.system(instructions.compose(with: systemPrompt))]
     }
 
     public var history: [ChatMessage] {
         messages
     }
 
+    public var loadedInstructions: ProjectInstructions {
+        instructions
+    }
+
     public func reset(systemPrompt: String = AgentPrompts.system) {
-        messages = [.system(systemPrompt)]
+        messages = [.system(instructions.compose(with: systemPrompt))]
     }
 
     public func restore(_ history: [ChatMessage], systemPrompt: String = AgentPrompts.system) {
-        messages = [.system(systemPrompt)] + history.filter { $0.role != .system }
+        messages = [.system(instructions.compose(with: systemPrompt))]
+            + history.filter { $0.role != .system }
     }
 
     public func send(
@@ -50,6 +57,7 @@ public actor AgentSession {
         messages.append(.user(text))
 
         var iteration = 0
+        var overflowRecoveries = 0
         while true {
             if Task.isCancelled {
                 throw AgentError.cancelled
@@ -62,37 +70,59 @@ public actor AgentSession {
             }
             iteration += 1
 
-            let requestMessages = try await messagesForRequest(onEvent: onEvent)
-            let request = ChatRequest(
-                messages: requestMessages,
+            var request = ChatRequest(
+                messages: try await messagesForRequest(onEvent: onEvent),
                 tools: registry.schemas
             )
-            var assistantContent = ""
-            var assistantToolCalls: [ToolCall] = []
-            var assistantUsage: ModelUsage?
+            var retryAttempt = 0
+            var response: StreamResult?
 
             do {
-                for try await event in client.stream(request) {
-                    if Task.isCancelled {
-                        throw AgentError.cancelled
-                    }
+                while response == nil {
+                    do {
+                        response = try await consume(client.stream(request), onEvent: onEvent)
+                    } catch let error as ModelError {
+                        if case .cancelled = error {
+                            throw AgentError.cancelled
+                        }
 
-                    switch event {
-                    case .reasoningDelta(let delta):
-                        if !delta.isEmpty {
-                            await onEvent(.assistantReasoningDelta(delta))
+                        if isContextOverflow(error), overflowRecoveries < config.maxOverflowRecoveries {
+                            overflowRecoveries += 1
+                            await onEvent(.assistantResponseRestarted)
+                            try await compactForOverflow(onEvent: onEvent)
+                            request = ChatRequest(
+                                messages: messages,
+                                tools: registry.schemas
+                            )
+                            continue
                         }
-                    case .textDelta(let delta):
-                        assistantContent += delta
-                        if !delta.isEmpty {
-                            await onEvent(.assistantTextDelta(delta))
+
+                        if isRetryable(error), retryAttempt < config.maxRetries {
+                            retryAttempt += 1
+                            await onEvent(.assistantResponseRestarted)
+                            let delay = retryDelayMilliseconds(attempt: retryAttempt)
+                            await onEvent(.retryScheduled(
+                                attempt: retryAttempt,
+                                maxAttempts: config.maxRetries,
+                                delayMilliseconds: delay,
+                                reason: error.errorDescription ?? "Model request failed."
+                            ))
+                            if delay > 0 {
+                                do {
+                                    try await Task.sleep(
+                                        nanoseconds: UInt64(delay) * 1_000_000
+                                    )
+                                } catch {
+                                    throw AgentError.cancelled
+                                }
+                            }
+                            if Task.isCancelled {
+                                throw AgentError.cancelled
+                            }
+                            continue
                         }
-                    case .completed(let response):
-                        if let content = response.message.content {
-                            assistantContent = content
-                        }
-                        assistantToolCalls = response.message.toolCalls ?? []
-                        assistantUsage = response.usage
+
+                        throw error
                     }
                 }
             } catch let error as ModelError {
@@ -112,15 +142,19 @@ public actor AgentSession {
                 throw AgentError.model(message)
             }
 
-            if let assistantUsage {
-                await onEvent(.usage(assistantUsage))
+            guard let response else {
+                throw AgentError.model("Model request produced no response.")
+            }
+
+            if let usage = response.usage {
+                await onEvent(.usage(usage))
             }
 
             let assistantMessage = ChatMessage.assistant(
-                assistantContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                response.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     ? nil
-                    : assistantContent,
-                toolCalls: assistantToolCalls.isEmpty ? nil : assistantToolCalls
+                    : response.content,
+                toolCalls: response.toolCalls.isEmpty ? nil : response.toolCalls
             )
             messages.append(assistantMessage)
 
@@ -232,6 +266,108 @@ public actor AgentSession {
         }
     }
 
+    private func consume(
+        _ stream: AsyncThrowingStream<ModelStreamEvent, Error>,
+        onEvent: EventHandler
+    ) async throws -> StreamResult {
+        var result = StreamResult()
+
+        for try await event in stream {
+            if Task.isCancelled {
+                throw AgentError.cancelled
+            }
+
+            switch event {
+            case .reasoningDelta(let delta):
+                if !delta.isEmpty {
+                    await onEvent(.assistantReasoningDelta(delta))
+                }
+            case .textDelta(let delta):
+                result.content += delta
+                if !delta.isEmpty {
+                    await onEvent(.assistantTextDelta(delta))
+                }
+            case .completed(let response):
+                if let content = response.message.content {
+                    result.content = content
+                }
+                result.toolCalls = response.message.toolCalls ?? []
+                result.usage = response.usage
+            }
+        }
+
+        return result
+    }
+
+    private func isRetryable(_ error: ModelError) -> Bool {
+        switch error {
+        case .network:
+            true
+        case .http(let status, _):
+            status == 408 || status == 429 || (500...599).contains(status)
+        default:
+            false
+        }
+    }
+
+    private func isContextOverflow(_ error: ModelError) -> Bool {
+        guard case .http(let status, let message) = error else { return false }
+        guard status == 400 || status == 413 || status == 422 else { return false }
+
+        let lowercased = message.lowercased()
+        let markers = [
+            "context length",
+            "context_length_exceeded",
+            "maximum context",
+            "context window",
+            "prompt is too long",
+            "input is too long",
+            "too many tokens",
+            "reduce the length"
+        ]
+        return markers.contains { lowercased.contains($0) }
+    }
+
+    private func retryDelayMilliseconds(attempt: Int) -> Int {
+        guard config.retryBaseDelayMilliseconds > 0 else { return 0 }
+        let exponent = min(max(0, attempt - 1), 5)
+        return min(config.retryBaseDelayMilliseconds * (1 << exponent), 8_000)
+    }
+
+    /// Shrink the history harder than the normal budget after the provider
+    /// rejects the request as too large, then let the caller resend once.
+    private func compactForOverflow(
+        onEvent: @escaping EventHandler
+    ) async throws {
+        let emergency = ContextCompactor(
+            maxCharacters: max(1_000, config.contextCharacterBudget / 2),
+            retainedTurns: config.retainedTurns,
+            toolOutputCharacters: config.compactedToolOutputCharacters
+        )
+        guard let plan = emergency.plan(messages, force: true) else { return }
+
+        await onEvent(.contextCompactionStarted)
+
+        if plan.hasMessagesToSummarize {
+            do {
+                let summary = try await summarizer.summarize(plan.messagesToSummarize)
+                applyCompaction(summary: summary, plan: plan)
+                await onEvent(.contextCompactionFinished(success: true))
+                return
+            } catch let error as ModelError {
+                if case .cancelled = error {
+                    throw AgentError.cancelled
+                }
+            } catch is CancellationError {
+                throw AgentError.cancelled
+            } catch {
+            }
+        }
+
+        messages = emergency.compact(messages, force: true)
+        await onEvent(.contextCompactionFinished(success: false))
+    }
+
     private func messagesForRequest(
         onEvent: @escaping EventHandler
     ) async throws -> [ChatMessage] {
@@ -337,6 +473,12 @@ public actor AgentSession {
         let prefix = text.utf8.prefix(config.maxToolOutputBytes)
         return String(decoding: prefix, as: UTF8.self) + "\n[truncated]"
     }
+}
+
+private struct StreamResult {
+    var content = ""
+    var toolCalls: [ToolCall] = []
+    var usage: ModelUsage?
 }
 
 private struct ToolExecution {
