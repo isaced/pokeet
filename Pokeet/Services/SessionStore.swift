@@ -49,11 +49,17 @@ struct SessionSnapshot: Codable, Sendable, Equatable {
     let version: Int
     let messages: [StoredMessage]
     let bubbles: [StoredBubble]
+    let cacheStats: CacheStats?
 
-    init(messages: [ChatMessage], bubbles: [StoredBubble]) {
+    init(
+        messages: [ChatMessage],
+        bubbles: [StoredBubble],
+        cacheStats: CacheStats? = nil
+    ) {
         version = Self.currentVersion
         self.messages = messages.map { StoredMessage($0) }
         self.bubbles = bubbles
+        self.cacheStats = cacheStats
     }
 
     var restoredMessages: [ChatMessage] {

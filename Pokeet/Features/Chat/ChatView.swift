@@ -73,11 +73,21 @@ struct ChatView: View {
 
             Spacer(minLength: 8)
 
-            Text(project.name)
-                .font(.footnote.weight(.medium))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
+            VStack(spacing: 1) {
+                Text(project.name)
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
+                if let cacheSummary = model.cacheSummary {
+                    Text(cacheSummary)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+            }
 
             Spacer(minLength: 8)
 
@@ -366,6 +376,15 @@ struct ChatView: View {
         } else {
             lines.append("Git: none (local project)")
         }
+
+        if model.cacheStats.hasData {
+            lines.append(
+                "Cache: \(model.cacheStats.cachedTokens) read / "
+                    + "\(model.cacheStats.promptTokens) prompt, "
+                    + "\(model.cacheStats.missedTokens) missed"
+            )
+        }
+
         return lines.joined(separator: "\n")
     }
 

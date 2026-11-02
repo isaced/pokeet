@@ -32,7 +32,17 @@ final class SessionStoreTests: XCTestCase {
             StoredBubble(id: UUID(), role: "reasoning", text: "thinking"),
             StoredBubble(id: UUID(), role: "assistant", text: "done")
         ]
-        let snapshot = SessionSnapshot(messages: messages, bubbles: bubbles)
+        var cacheStats = CacheStats()
+        cacheStats.record(ModelUsage(
+            inputTokens: 100,
+            outputTokens: 10,
+            cachedInputTokens: 60
+        ))
+        let snapshot = SessionSnapshot(
+            messages: messages,
+            bubbles: bubbles,
+            cacheStats: cacheStats
+        )
 
         await store.save(snapshot, projectName: "demo")
 

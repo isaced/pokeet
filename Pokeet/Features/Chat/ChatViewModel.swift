@@ -43,6 +43,7 @@ final class ChatViewModel {
     var isShowingReview = false
     private(set) var hasChanges = false
     private(set) var isCommitting = false
+    private(set) var cacheStats = CacheStats()
     var commitMessage = ""
     var isShowingCommitPrompt = false
     var banner: String?
@@ -86,6 +87,23 @@ final class ChatViewModel {
             && pendingProposals.isEmpty
             && !isRunning
             && !isCommitting
+    }
+
+    var cacheSummary: String? {
+        guard cacheStats.hasData else { return nil }
+        guard cacheStats.cachedTokens > 0, let hitRate = cacheStats.hitRate else {
+            return "Cache –"
+        }
+
+        let percent = Int((hitRate * 100).rounded())
+        return "Cache \(percent)% · \(Self.tokenLabel(cacheStats.missedTokens)) missed"
+    }
+
+    private static func tokenLabel(_ count: Int) -> String {
+        if count >= 1_000 {
+            return String(format: "%.1fk", Double(count) / 1_000)
+        }
+        return "\(count)"
     }
 
     func loadInitialState() async {
@@ -142,6 +160,7 @@ final class ChatViewModel {
         input = ""
         streamingBubbleID = nil
         reasoningBubbleID = nil
+        cacheStats = CacheStats()
         errorMessage = nil
         banner = nil
         pendingProposals = []
@@ -243,6 +262,9 @@ final class ChatViewModel {
         case .contextCompactionStarted:
             status = "Compacting context…"
         case .contextCompactionFinished(let success):
+            var stats = cacheStats
+            stats.resetWindow()
+            cacheStats = stats
             status = "Thinking…"
             bubbles.append(Bubble(
                 role: .tool,
@@ -250,6 +272,10 @@ final class ChatViewModel {
                     ? "Context summarized to fit the model window."
                     : "Context summary failed; using truncation."
             ))
+        case .usage(let usage):
+            var stats = cacheStats
+            stats.record(usage)
+            cacheStats = stats
         case .assistantReasoningDelta(let delta):
             appendReasoningDelta(delta)
             status = nil
@@ -363,6 +389,7 @@ final class ChatViewModel {
             guard let role = Bubble.Role(rawValue: stored.role) else { return nil }
             return Bubble(id: stored.id, role: role, text: stored.text)
         }
+        cacheStats = snapshot.cacheStats ?? CacheStats()
         lastRequest = bubbles.last(where: { $0.role == .user })?.text ?? ""
         await session.restore(snapshot.restoredMessages)
     }
@@ -374,7 +401,11 @@ final class ChatViewModel {
         }
 
         await environment.sessions.save(
-            SessionSnapshot(messages: history, bubbles: storedBubbles),
+            SessionSnapshot(
+                messages: history,
+                bubbles: storedBubbles,
+                cacheStats: cacheStats
+            ),
             projectName: project.name
         )
     }
