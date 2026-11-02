@@ -118,6 +118,37 @@ struct OpenAIResponsesClientTests {
         #expect(tools.first?["name"] as? String == "read_file")
     }
 
+    @Test func encodesUserImagesAsInputParts() async throws {
+        let captured = LockedBox<URLRequest?>(nil)
+        StubURLProtocol.setHandler(forHost: host) { request in
+            captured.set(request)
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            return (response, Data(#"{"status":"completed","output":[]}"#.utf8))
+        }
+        defer { StubURLProtocol.setHandler(forHost: host, nil) }
+
+        let image = ChatImage(mimeType: "image/jpeg", data: Data("img".utf8))
+        _ = try await client().complete(ChatRequest(
+            messages: [ChatMessage(role: .user, content: "Describe", images: [image])],
+            tools: []
+        ))
+
+        let urlRequest = try #require(captured.get())
+        let body = try #require(requestBody(from: urlRequest))
+        let object = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let input = try #require(object["input"] as? [[String: Any]])
+        let content = try #require(input.first?["content"] as? [[String: Any]])
+
+        #expect(content[0]["type"] as? String == "input_text")
+        #expect(content[1]["type"] as? String == "input_image")
+        #expect(content[1]["image_url"] as? String == "data:image/jpeg;base64,aW1n")
+    }
+
     @Test func streamsTextReasoningAndToolArguments() async throws {
         let stream = """
         data: {"type":"response.reasoning_summary_text.delta","delta":"Think"}

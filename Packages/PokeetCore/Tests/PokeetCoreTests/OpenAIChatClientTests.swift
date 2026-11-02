@@ -69,6 +69,35 @@ struct OpenAIChatClientTests {
         #expect(messages.first?["content"] as? String == "hi")
     }
 
+    @Test func encodesUserImagesAsContentParts() async throws {
+        let capturedBody = LockedBox<Data?>(nil)
+        StubURLProtocol.setHandler { request in
+            capturedBody.set(requestBody(from: request))
+            return stubJSONResponse(#"""
+            {"choices":[{"message":{"role":"assistant","content":"Seen"},"finish_reason":"stop"}]}
+            """#)
+        }
+        defer { StubURLProtocol.setHandler(nil) }
+
+        let image = ChatImage(mimeType: "image/png", data: Data("img".utf8))
+        _ = try await stubClient().complete(ChatRequest(
+            messages: [ChatMessage(role: .user, content: "What is this?", images: [image])],
+            tools: []
+        ))
+
+        let data = try #require(capturedBody.get())
+        let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let messages = try #require(object["messages"] as? [[String: Any]])
+        let content = try #require(messages.first?["content"] as? [[String: Any]])
+
+        #expect(content.count == 2)
+        #expect(content[0]["type"] as? String == "text")
+        #expect(content[0]["text"] as? String == "What is this?")
+        #expect(content[1]["type"] as? String == "image_url")
+        let imageURL = try #require(content[1]["image_url"] as? [String: Any])
+        #expect(imageURL["url"] as? String == "data:image/png;base64,aW1n")
+    }
+
     @Test func decodesToolCalls() async throws {
         StubURLProtocol.setHandler { _ in
             stubJSONResponse(#"""

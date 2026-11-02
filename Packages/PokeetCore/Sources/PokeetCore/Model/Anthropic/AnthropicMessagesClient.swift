@@ -246,11 +246,22 @@ public struct AnthropicMessagesClient: ModelClient {
         for message in request.messages where message.role != .system {
             switch message.role {
             case .user:
-                guard let content = message.content, !content.isEmpty else { continue }
-                turns.append(role: "user", block: .object([
-                    "type": .string("text"),
-                    "text": .string(content)
-                ]))
+                for image in message.images ?? [] {
+                    turns.append(role: "user", block: .object([
+                        "type": .string("image"),
+                        "source": .object([
+                            "type": .string("base64"),
+                            "media_type": .string(image.mimeType),
+                            "data": .string(image.base64)
+                        ])
+                    ]))
+                }
+                if let content = message.content, !content.isEmpty {
+                    turns.append(role: "user", block: .object([
+                        "type": .string("text"),
+                        "text": .string(content)
+                    ]))
+                }
 
             case .assistant:
                 var blocks: [JSONValue] = []

@@ -68,7 +68,11 @@ public struct ModelContextSummarizer: ContextSummarizer {
         messages.compactMap { message -> String? in
             switch message.role {
             case .user:
-                return "[User]: \(truncated(message.content ?? "", limit: maxContentCharacters))"
+                var text = "[User]: \(truncated(message.content ?? "", limit: maxContentCharacters))"
+                if let images = message.images, !images.isEmpty {
+                    text += "\n[\(images.count) image(s) attached]"
+                }
+                return text
             case .assistant:
                 var parts: [String] = []
 

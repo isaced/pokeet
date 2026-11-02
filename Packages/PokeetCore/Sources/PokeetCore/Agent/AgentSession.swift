@@ -54,10 +54,15 @@ public actor AgentSession {
 
     public func send(
         _ text: String,
+        images: [ChatImage] = [],
         approval: @escaping ApprovalHandler,
         onEvent: @escaping EventHandler
     ) async throws {
-        messages.append(.user(text))
+        messages.append(ChatMessage(
+            role: .user,
+            content: text.isEmpty ? nil : text,
+            images: images.isEmpty ? nil : images
+        ))
 
         var iteration = 0
         var overflowRecoveries = 0

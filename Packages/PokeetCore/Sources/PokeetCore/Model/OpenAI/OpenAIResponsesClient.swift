@@ -235,11 +235,32 @@ public struct OpenAIResponsesClient: ModelClient {
         for message in request.messages where message.role != .system {
             switch message.role {
             case .user:
-                guard let content = message.content, !content.isEmpty else { continue }
-                input.append(.object([
-                    "role": .string("user"),
-                    "content": .string(content)
-                ]))
+                let images = message.images ?? []
+                if images.isEmpty {
+                    guard let content = message.content, !content.isEmpty else { continue }
+                    input.append(.object([
+                        "role": .string("user"),
+                        "content": .string(content)
+                    ]))
+                } else {
+                    var parts: [JSONValue] = []
+                    if let content = message.content, !content.isEmpty {
+                        parts.append(.object([
+                            "type": .string("input_text"),
+                            "text": .string(content)
+                        ]))
+                    }
+                    for image in images {
+                        parts.append(.object([
+                            "type": .string("input_image"),
+                            "image_url": .string(image.dataURL)
+                        ]))
+                    }
+                    input.append(.object([
+                        "role": .string("user"),
+                        "content": .array(parts)
+                    ]))
+                }
 
             case .assistant:
                 if let content = message.content, !content.isEmpty {

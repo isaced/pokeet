@@ -119,6 +119,39 @@ struct GeminiGenerateContentClientTests {
         #expect(generation["maxOutputTokens"] as? Int == 8192)
     }
 
+    @Test func encodesUserImagesAsInlineData() async throws {
+        let captured = LockedBox<URLRequest?>(nil)
+        StubURLProtocol.setHandler(forHost: host) { request in
+            captured.set(request)
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, Data(#"{"candidates":[{"content":{"parts":[{"text":"ok"}]}}]}"#.utf8))
+        }
+        defer { StubURLProtocol.setHandler(forHost: host, nil) }
+
+        let image = ChatImage(mimeType: "image/jpeg", data: Data("img".utf8))
+        _ = try await client().complete(ChatRequest(
+            messages: [ChatMessage(role: .user, content: "Describe", images: [image])],
+            tools: []
+        ))
+
+        let urlRequest = try #require(captured.get())
+        let body = try #require(requestBody(from: urlRequest))
+        let object = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let contents = try #require(object["contents"] as? [[String: Any]])
+        let parts = try #require(contents.first?["parts"] as? [[String: Any]])
+
+        #expect(parts.count == 2)
+        let inlineData = try #require(parts[0]["inlineData"] as? [String: Any])
+        #expect(inlineData["mimeType"] as? String == "image/jpeg")
+        #expect(inlineData["data"] as? String == "aW1n")
+        #expect(parts[1]["text"] as? String == "Describe")
+    }
+
     @Test func streamsTextThoughtsAndFunctionCalls() async throws {
         let stream = """
         data: {"candidates":[{"content":{"parts":[{"text":"Think","thought":true}]}}]}

@@ -206,7 +206,7 @@ public struct OpenAIChatClient: ModelClient {
             encoder.outputFormatting = [.sortedKeys]
             urlRequest.httpBody = try encoder.encode(WireRequest(
                 model: model,
-                messages: request.messages.map { WireMessage($0) },
+                messages: request.messages.map { WireRequestMessage($0) },
                 tools: sortedTools.isEmpty ? nil : sortedTools.map { WireTool($0) },
                 toolChoice: sortedTools.isEmpty ? nil : "auto",
                 stream: stream ? true : nil,
@@ -272,7 +272,7 @@ public struct OpenAIChatClient: ModelClient {
 
 private struct WireRequest: Encodable {
     let model: String
-    let messages: [WireMessage]
+    let messages: [WireRequestMessage]
     let tools: [WireTool]?
     let toolChoice: String?
     let stream: Bool?
@@ -293,6 +293,51 @@ private struct WireStreamOptions: Encodable {
 
     enum CodingKeys: String, CodingKey {
         case includeUsage = "include_usage"
+    }
+}
+
+private struct WireRequestMessage: Encodable {
+    let role: String
+    let content: JSONValue?
+    let toolCalls: [WireToolCall]?
+    let toolCallID: String?
+
+    enum CodingKeys: String, CodingKey {
+        case role
+        case content
+        case toolCalls = "tool_calls"
+        case toolCallID = "tool_call_id"
+    }
+
+    init(_ message: ChatMessage) {
+        role = message.role.rawValue
+        toolCalls = message.toolCalls?.map { WireToolCall($0) }
+        toolCallID = message.toolCallID
+
+        if message.role == .user,
+           let images = message.images,
+           !images.isEmpty {
+            var parts: [JSONValue] = []
+            if let text = message.content, !text.isEmpty {
+                parts.append(.object([
+                    "type": .string("text"),
+                    "text": .string(text)
+                ]))
+            }
+            for image in images {
+                parts.append(.object([
+                    "type": .string("image_url"),
+                    "image_url": .object([
+                        "url": .string(image.dataURL)
+                    ])
+                ]))
+            }
+            content = .array(parts)
+        } else if let text = message.content {
+            content = .string(text)
+        } else {
+            content = nil
+        }
     }
 }
 

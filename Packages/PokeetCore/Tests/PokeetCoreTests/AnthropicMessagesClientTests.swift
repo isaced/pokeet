@@ -107,6 +107,41 @@ struct AnthropicMessagesClientTests {
         #expect(toolBlocks.first?["tool_use_id"] as? String == "call_1")
     }
 
+    @Test func encodesUserImagesAsImageBlocks() async throws {
+        let captured = LockedBox<URLRequest?>(nil)
+        StubURLProtocol.setHandler(forHost: host) { request in
+            captured.set(request)
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, Data(#"{"content":[{"type":"text","text":"ok"}]}"#.utf8))
+        }
+        defer { StubURLProtocol.setHandler(forHost: host, nil) }
+
+        let image = ChatImage(mimeType: "image/png", data: Data("img".utf8))
+        _ = try await client().complete(ChatRequest(
+            messages: [ChatMessage(role: .user, content: "Describe", images: [image])],
+            tools: []
+        ))
+
+        let urlRequest = try #require(captured.get())
+        let body = try #require(requestBody(from: urlRequest))
+        let object = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let messages = try #require(object["messages"] as? [[String: Any]])
+        let blocks = try #require(messages.first?["content"] as? [[String: Any]])
+
+        #expect(blocks.count == 2)
+        #expect(blocks[0]["type"] as? String == "image")
+        let source = try #require(blocks[0]["source"] as? [String: Any])
+        #expect(source["type"] as? String == "base64")
+        #expect(source["media_type"] as? String == "image/png")
+        #expect(source["data"] as? String == "aW1n")
+        #expect(blocks[1]["type"] as? String == "text")
+    }
+
     @Test func streamsTextThinkingToolsAndUsage() async throws {
         let stream = """
         event: message_start
