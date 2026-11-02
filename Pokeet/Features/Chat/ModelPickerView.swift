@@ -2,8 +2,6 @@ import PokeetCore
 import SwiftUI
 
 struct ModelPickerView: View {
-    var onSelect: ((ProviderConfiguration, ProviderModel) -> Void)?
-
     @Environment(AppEnvironment.self) private var environment
     @Environment(\.dismiss) private var dismiss
 
@@ -196,7 +194,6 @@ struct ModelPickerView: View {
     private func select(_ option: ModelOption) {
         environment.settings.setActiveProvider(option.provider.id)
         environment.settings.setDefaultModel(option.model.id, for: option.provider.id)
-        onSelect?(option.provider, option.model)
         dismiss()
     }
 }

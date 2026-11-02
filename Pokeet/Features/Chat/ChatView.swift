@@ -78,9 +78,7 @@ struct ChatView: View {
             }
         }
         .sheet(isPresented: $isShowingModelPicker) {
-            ModelPickerView { provider, selectedModel in
-                model.banner = "Using \(selectedModel.label) · \(provider.name)"
-            }
+            ModelPickerView()
         }
         .photosPicker(
             isPresented: $isShowingPhotoPicker,
