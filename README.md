@@ -26,6 +26,7 @@ Pokeet puts the whole loop on your iPhone:
 |---|---|
 | 🤖 **A real agent, not a chatbot** | ReAct loop with tools: read, write, edit, shell, git. It works until the job is done. |
 | 📁 **A real workspace** | Each project lives in its own sandbox, visible in the Files app. Start empty or from a Git repository. |
+| 🗂️ **Multiple sessions** | Every project keeps a list of conversations. Create, rename, switch and delete them independently. |
 | 🌳 **Real git** | Clone, diff, commit, push — libgit2 on the phone, over HTTPS with a personal access token. |
 | 🖥️ **A virtual shell** | A curated set of shell commands for the agent, backed by the workspace. |
 | 🔍 **Diff-first review** | Every edit arrives as a diff card. Approve per hunk, per file. Nothing lands without your poke. |
