@@ -134,6 +134,33 @@ enum ModelHTTP {
     }
 }
 
+enum OpenCodeSession {
+    static let headerName = "x-opencode-session"
+
+    static func headers(baseURL: String, sessionID: String?) -> [String: String] {
+        guard let sessionID = sessionID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !sessionID.isEmpty,
+              !sessionID.unicodeScalars.contains(where: {
+                  $0.value < 0x20 || $0.value == 0x7F
+              }),
+              isOpenCodeEndpoint(baseURL)
+        else {
+            return [:]
+        }
+        return [headerName: sessionID]
+    }
+
+    static func isOpenCodeEndpoint(_ baseURL: String) -> Bool {
+        guard let host = URL(string: baseURL.trimmingCharacters(in: .whitespacesAndNewlines))?
+            .host?
+            .lowercased()
+        else {
+            return false
+        }
+        return host == "opencode.ai" || host.hasSuffix(".opencode.ai")
+    }
+}
+
 enum SSELines {
     static func isDone(_ line: String) -> Bool {
         let trimmed = line.trimmingCharacters(in: .whitespaces)

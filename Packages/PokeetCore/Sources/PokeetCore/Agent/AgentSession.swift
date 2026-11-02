@@ -5,6 +5,7 @@ public actor AgentSession {
     private let registry: ToolRegistry
     private let workspace: any Workspace
     private let git: (any GitInspecting)?
+    private let sessionID: String?
     private let config: AgentConfiguration
     private let compactor: ContextCompactor
     private let summarizer: any ContextSummarizer
@@ -15,6 +16,7 @@ public actor AgentSession {
         client: any ModelClient,
         workspace: any Workspace,
         git: (any GitInspecting)? = nil,
+        sessionID: String? = nil,
         tools: ToolRegistry = .standard,
         systemPrompt: String = AgentPrompts.system,
         config: AgentConfiguration = AgentConfiguration(),
@@ -24,13 +26,17 @@ public actor AgentSession {
         self.registry = tools
         self.workspace = workspace
         self.git = git
+        self.sessionID = sessionID
         self.config = config
         self.compactor = ContextCompactor(
             maxCharacters: config.contextCharacterBudget,
             retainedTurns: config.retainedTurns,
             toolOutputCharacters: config.compactedToolOutputCharacters
         )
-        self.summarizer = summarizer ?? ModelContextSummarizer(client: client)
+        self.summarizer = summarizer ?? ModelContextSummarizer(
+            client: client,
+            sessionID: sessionID
+        )
         self.instructions = ProjectInstructions.load(from: workspace)
         self.messages = [.system(instructions.compose(with: systemPrompt))]
     }
@@ -80,7 +86,8 @@ public actor AgentSession {
 
             var request = ChatRequest(
                 messages: try await messagesForRequest(onEvent: onEvent),
-                tools: registry.schemas
+                tools: registry.schemas,
+                sessionID: sessionID
             )
             var retryAttempt = 0
             var response: StreamResult?
@@ -100,7 +107,8 @@ public actor AgentSession {
                             try await compactForOverflow(onEvent: onEvent)
                             request = ChatRequest(
                                 messages: messages,
-                                tools: registry.schemas
+                                tools: registry.schemas,
+                                sessionID: sessionID
                             )
                             continue
                         }

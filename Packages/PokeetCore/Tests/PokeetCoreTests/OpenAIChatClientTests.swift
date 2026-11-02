@@ -69,6 +69,45 @@ struct OpenAIChatClientTests {
         #expect(messages.first?["content"] as? String == "hi")
     }
 
+    @Test func sendsOpenCodeSessionHeader() async throws {
+        let captured = LockedBox<URLRequest?>(nil)
+        StubURLProtocol.setHandler(forHost: "opencode.ai") { request in
+            captured.set(request)
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            return (response, Data(
+                #"{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}"#.utf8
+            ))
+        }
+        defer { StubURLProtocol.setHandler(forHost: "opencode.ai", nil) }
+
+        let client = OpenAIChatClient(
+            baseURL: "https://opencode.ai/inference/go/openai/v1",
+            model: "deepseek-v4.1-flash",
+            apiKey: "key",
+            session: {
+                let configuration = URLSessionConfiguration.ephemeral
+                configuration.protocolClasses = [StubURLProtocol.self]
+                return URLSession(configuration: configuration)
+            }()
+        )
+
+        _ = try await client.complete(ChatRequest(
+            messages: [.user("hi")],
+            tools: [],
+            sessionID: "sess-42"
+        ))
+
+        #expect(
+            captured.get()?.value(forHTTPHeaderField: "x-opencode-session")
+                == "sess-42"
+        )
+    }
+
     @Test func encodesUserImagesAsContentParts() async throws {
         let capturedBody = LockedBox<Data?>(nil)
         StubURLProtocol.setHandler { request in

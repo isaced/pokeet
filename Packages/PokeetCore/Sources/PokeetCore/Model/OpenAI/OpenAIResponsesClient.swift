@@ -215,6 +215,10 @@ public struct OpenAIResponsesClient: ModelClient {
         if stream {
             headers["Accept"] = "text/event-stream"
         }
+        headers.merge(OpenCodeSession.headers(
+            baseURL: baseURL,
+            sessionID: request.sessionID
+        )) { current, _ in current }
 
         return ModelHTTP.request(url: url, headers: headers, body: data)
     }

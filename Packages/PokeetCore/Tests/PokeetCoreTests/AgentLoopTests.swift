@@ -146,6 +146,25 @@ struct AgentLoopTests {
         #expect(history[2].content == "Done.")
     }
 
+    @Test func forwardsSessionIDToModelRequests() async throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+
+        let client = ScriptedModelClient([
+            ChatResponse(message: .assistant("Done."), finishReason: "stop")
+        ])
+        let session = AgentSession(
+            client: client,
+            workspace: FileWorkspace(root: directory.url),
+            sessionID: "sess-42"
+        )
+
+        try await session.send("hi", approval: { _ in [] }, onEvent: { _ in })
+
+        let requests = await client.recordedRequests()
+        #expect(requests.first?.sessionID == "sess-42")
+    }
+
     @Test func forwardsStreamingTextDeltas() async throws {
         let directory = try TestDirectory()
         defer { directory.cleanup() }

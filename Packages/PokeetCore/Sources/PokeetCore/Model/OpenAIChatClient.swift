@@ -197,6 +197,12 @@ public struct OpenAIChatClient: ModelClient {
         if stream {
             urlRequest.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         }
+        for (header, value) in OpenCodeSession.headers(
+            baseURL: baseURL,
+            sessionID: request.sessionID
+        ) {
+            urlRequest.setValue(value, forHTTPHeaderField: header)
+        }
 
         let sortedTools = request.tools.sorted { $0.name < $1.name }
 

@@ -17,13 +17,15 @@ public enum ContextSummarizerError: Error, Sendable, Equatable, LocalizedError {
 
 public struct ModelContextSummarizer: ContextSummarizer {
     private let client: any ModelClient
+    private let sessionID: String?
 
     private static let maxToolResultCharacters = 2_000
     private static let maxToolArgumentsCharacters = 1_000
     private static let maxContentCharacters = 8_000
 
-    public init(client: any ModelClient) {
+    public init(client: any ModelClient, sessionID: String? = nil) {
         self.client = client
+        self.sessionID = sessionID
     }
 
     public func summarize(_ messages: [ChatMessage]) async throws -> String {
@@ -33,7 +35,8 @@ public struct ModelContextSummarizer: ContextSummarizer {
                 .system(Self.systemPrompt),
                 .user(conversation.isEmpty ? "(No messages)" : conversation)
             ],
-            tools: []
+            tools: [],
+            sessionID: sessionID
         )
 
         let response = try await client.complete(request)

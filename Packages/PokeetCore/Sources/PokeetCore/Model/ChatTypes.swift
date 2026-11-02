@@ -93,10 +93,16 @@ public struct ToolSchema: Sendable, Equatable {
 public struct ChatRequest: Sendable {
     public var messages: [ChatMessage]
     public var tools: [ToolSchema]
+    public var sessionID: String?
 
-    public init(messages: [ChatMessage], tools: [ToolSchema]) {
+    public init(
+        messages: [ChatMessage],
+        tools: [ToolSchema],
+        sessionID: String? = nil
+    ) {
         self.messages = messages
         self.tools = tools
+        self.sessionID = sessionID
     }
 }
 
