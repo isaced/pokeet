@@ -60,6 +60,10 @@ public actor AgentSession {
                     }
 
                     switch event {
+                    case .reasoningDelta(let delta):
+                        if !delta.isEmpty {
+                            await onEvent(.assistantReasoningDelta(delta))
+                        }
                     case .textDelta(let delta):
                         assistantContent += delta
                         if !delta.isEmpty {

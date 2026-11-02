@@ -1,6 +1,7 @@
 import Foundation
 
 public enum ModelStreamEvent: Sendable {
+    case reasoningDelta(String)
     case textDelta(String)
     case completed(ChatResponse)
 }

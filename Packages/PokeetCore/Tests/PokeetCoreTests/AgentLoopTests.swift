@@ -30,6 +30,8 @@ private struct DeltaStreamingClient: ModelClient {
 
     func stream(_ request: ChatRequest) -> AsyncThrowingStream<ModelStreamEvent, Error> {
         AsyncThrowingStream { continuation in
+            continuation.yield(.reasoningDelta("Think"))
+            continuation.yield(.reasoningDelta("ing"))
             continuation.yield(.textDelta("Hel"))
             continuation.yield(.textDelta("lo"))
             continuation.yield(.completed(ChatResponse(
@@ -111,6 +113,8 @@ struct AgentLoopTests {
 
         let events = await recorder.snapshot()
         #expect(events == [
+            .assistantReasoningDelta("Think"),
+            .assistantReasoningDelta("ing"),
             .assistantTextDelta("Hel"),
             .assistantTextDelta("lo"),
             .assistantMessage("Hello"),

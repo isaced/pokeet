@@ -231,6 +231,8 @@ struct OpenAIChatClientTests {
     @Test func streamsTextAndAssemblesToolCalls() async throws {
         let capturedBody = LockedBox<Data?>(nil)
         let body = try sseBody([
+            sseChunk(reasoningContent: "Think"),
+            sseChunk(reasoningContent: "ing"),
             sseChunk(content: "Hel"),
             sseChunk(content: "lo"),
             sseChunk(toolCalls: [
@@ -249,6 +251,7 @@ struct OpenAIChatClientTests {
         defer { StubURLProtocol.setHandler(nil) }
 
         let client = stubClient()
+        var reasoningDeltas: [String] = []
         var deltas: [String] = []
         var completed: ChatResponse?
 
@@ -256,6 +259,8 @@ struct OpenAIChatClientTests {
             ChatRequest(messages: [.user("hi")], tools: [])
         ) {
             switch event {
+            case .reasoningDelta(let delta):
+                reasoningDeltas.append(delta)
             case .textDelta(let delta):
                 deltas.append(delta)
             case .completed(let response):
@@ -263,6 +268,7 @@ struct OpenAIChatClientTests {
             }
         }
 
+        #expect(reasoningDeltas == ["Think", "ing"])
         #expect(deltas == ["Hel", "lo"])
         #expect(completed?.message.content == "Hello")
         #expect(completed?.message.toolCalls?.count == 1)
@@ -290,15 +296,22 @@ private struct StubSSEChunk: Encodable {
 
     struct Delta: Encodable {
         let content: String?
+        let reasoningContent: String?
         let toolCalls: [ToolCall]?
 
-        init(content: String? = nil, toolCalls: [ToolCall]? = nil) {
+        init(
+            content: String? = nil,
+            reasoningContent: String? = nil,
+            toolCalls: [ToolCall]? = nil
+        ) {
             self.content = content
+            self.reasoningContent = reasoningContent
             self.toolCalls = toolCalls
         }
 
         enum CodingKeys: String, CodingKey {
             case content
+            case reasoningContent = "reasoning_content"
             case toolCalls = "tool_calls"
         }
     }
@@ -320,12 +333,17 @@ private struct StubSSEChunk: Encodable {
 
 private func sseChunk(
     content: String? = nil,
+    reasoningContent: String? = nil,
     toolCalls: [StubSSEChunk.ToolCall]? = nil,
     finishReason: String? = nil
 ) -> StubSSEChunk {
     StubSSEChunk(choices: [
         StubSSEChunk.Choice(
-            delta: StubSSEChunk.Delta(content: content, toolCalls: toolCalls),
+            delta: StubSSEChunk.Delta(
+                content: content,
+                reasoningContent: reasoningContent,
+                toolCalls: toolCalls
+            ),
             finishReason: finishReason
         )
     ])

@@ -124,6 +124,10 @@ public struct OpenAIChatClient: ModelClient {
 
             guard let choice = chunk.choices?.first else { continue }
 
+            if let reasoning = choice.delta?.reasoningContent, !reasoning.isEmpty {
+                continuation.yield(.reasoningDelta(reasoning))
+            }
+
             if let delta = choice.delta?.content, !delta.isEmpty {
                 content += delta
                 continuation.yield(.textDelta(delta))
@@ -411,10 +415,12 @@ private struct WireStreamChunk: Decodable {
 
     struct Delta: Decodable {
         let content: String?
+        let reasoningContent: String?
         let toolCalls: [WireToolCallDelta]?
 
         enum CodingKeys: String, CodingKey {
             case content
+            case reasoningContent = "reasoning_content"
             case toolCalls = "tool_calls"
         }
     }
