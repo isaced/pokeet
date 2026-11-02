@@ -155,10 +155,23 @@ struct ModelPickerView: View {
             select(option)
         } label: {
             HStack(spacing: 12) {
-                Image(systemName: option.provider.iconName)
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 28)
+                if let asset = BrandIcon.assetName(
+                    for: option.provider,
+                    model: option.model
+                ) {
+                    Image(asset)
+                        .renderingMode(.template)
+                        .resizable()
+                        .scaledToFit()
+                        .foregroundStyle(.secondary)
+                        .frame(width: 20, height: 20)
+                        .frame(width: 28)
+                } else {
+                    Image(systemName: option.provider.iconName)
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 28)
+                }
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(option.model.label)
