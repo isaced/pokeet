@@ -1,3 +1,4 @@
+import PokeetCore
 import SwiftUI
 
 struct ChatView: View {
@@ -9,7 +10,9 @@ struct ChatView: View {
     @State private var isShowingSettings = false
     @State private var isShowingProjectInfo = false
     @State private var isShowingFiles = false
+    @State private var isShowingChanges = false
     @State private var isConfirmingNewSession = false
+    private let git: any GitInspecting
 
     @MainActor
     init(
@@ -19,6 +22,7 @@ struct ChatView: View {
     ) {
         self.project = project
         self.onToggleSidebar = onToggleSidebar
+        self.git = environment.git
         _model = State(initialValue: ChatViewModel(project: project, environment: environment))
     }
 
@@ -140,6 +144,9 @@ struct ChatView: View {
         }
         .sheet(isPresented: $isShowingFiles) {
             FileBrowserView(project: project)
+        }
+        .sheet(isPresented: $isShowingChanges) {
+            ChangesView(project: project, git: git)
         }
     }
 
@@ -300,6 +307,12 @@ struct ChatView: View {
     private var projectMenu: some View {
         if project.isGitRepository {
             Button {
+                isShowingChanges = true
+            } label: {
+                Label("Changes", systemImage: "plusminus.circle")
+            }
+
+            Button {
                 model.prepareCommit()
             } label: {
                 Label("Commit & Push", systemImage: "arrow.up.circle")
@@ -343,6 +356,12 @@ struct ChatView: View {
                 Label("Commit & Push", systemImage: "arrow.up.circle")
             }
             .disabled(!model.canCommit)
+
+            Button {
+                isShowingChanges = true
+            } label: {
+                Label("Changes", systemImage: "plusminus.circle")
+            }
         }
 
         Button {
