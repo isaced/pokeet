@@ -39,6 +39,40 @@ public enum ProposalApplier {
             selected.intersection(allHunkIDs)
         }
 
+        let isFullyAccepted = decision.selection == .all
+            || (!allHunkIDs.isEmpty && acceptedHunkIDs == allHunkIDs)
+
+        switch proposal.kind {
+        case .delete, .move:
+            guard isFullyAccepted else {
+                return ProposalApplication(
+                    acceptedHunkIDs: acceptedHunkIDs,
+                    totalHunkCount: allHunkIDs.count,
+                    didWrite: false
+                )
+            }
+
+            try verifyBase(proposal, in: workspace)
+
+            if proposal.kind == .delete {
+                try workspace.delete(proposal.path)
+            } else {
+                guard let destination = proposal.destinationPath else {
+                    throw WorkspaceError.invalidPath("Missing move destination")
+                }
+                try workspace.move(proposal.path, to: destination)
+            }
+
+            return ProposalApplication(
+                acceptedHunkIDs: allHunkIDs,
+                totalHunkCount: allHunkIDs.count,
+                didWrite: true
+            )
+
+        case .create, .update:
+            break
+        }
+
         let shouldWrite = proposal.diff.hunks.isEmpty
             ? decision.selection == .all
             : !acceptedHunkIDs.isEmpty
@@ -96,6 +130,31 @@ public enum ProposalApplier {
             )
             guard current == baseContent else {
                 throw WorkspaceError.staleContent(proposal.path)
+            }
+        case .delete, .move:
+            guard workspace.exists(proposal.path) else {
+                throw WorkspaceError.staleContent(proposal.path)
+            }
+
+            if let baseContent = proposal.baseContent {
+                let current = try workspace.read(
+                    proposal.path,
+                    maxBytes: WorkspaceLimits.maxReadBytes
+                )
+                guard current == baseContent else {
+                    throw WorkspaceError.staleContent(proposal.path)
+                }
+            }
+
+            if proposal.kind == .move {
+                guard let destination = proposal.destinationPath,
+                      !destination.isEmpty
+                else {
+                    throw WorkspaceError.invalidPath("Missing move destination")
+                }
+                guard !workspace.exists(destination) else {
+                    throw WorkspaceError.staleContent(destination)
+                }
             }
         }
     }

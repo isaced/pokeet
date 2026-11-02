@@ -4,11 +4,14 @@ public struct FileProposal: Identifiable, Sendable, Equatable {
     public enum Kind: String, Sendable, Equatable {
         case create
         case update
+        case delete
+        case move
     }
 
     public let id: UUID
     public let path: String
     public let kind: Kind
+    public let destinationPath: String?
     public let baseContent: String?
     public let newContent: String
     public let diff: FileDiff
@@ -20,6 +23,7 @@ public struct FileProposal: Identifiable, Sendable, Equatable {
         id: UUID = UUID(),
         path: String,
         kind: Kind,
+        destinationPath: String? = nil,
         baseContent: String?,
         newContent: String,
         diff: FileDiff
@@ -27,6 +31,7 @@ public struct FileProposal: Identifiable, Sendable, Equatable {
         self.id = id
         self.path = path
         self.kind = kind
+        self.destinationPath = destinationPath
         self.baseContent = baseContent
         self.newContent = newContent
         self.diff = diff

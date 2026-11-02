@@ -4,6 +4,7 @@ public actor AgentSession {
     private let client: any ModelClient
     private let registry: ToolRegistry
     private let workspace: any Workspace
+    private let git: (any GitInspecting)?
     private let config: AgentConfiguration
     private let compactor: ContextCompactor
     private let summarizer: any ContextSummarizer
@@ -13,6 +14,7 @@ public actor AgentSession {
     public init(
         client: any ModelClient,
         workspace: any Workspace,
+        git: (any GitInspecting)? = nil,
         tools: ToolRegistry = .standard,
         systemPrompt: String = AgentPrompts.system,
         config: AgentConfiguration = AgentConfiguration(),
@@ -21,6 +23,7 @@ public actor AgentSession {
         self.client = client
         self.registry = tools
         self.workspace = workspace
+        self.git = git
         self.config = config
         self.compactor = ContextCompactor(
             maxCharacters: config.contextCharacterBudget,
@@ -186,7 +189,7 @@ public actor AgentSession {
                 do {
                     let output = try await tool.execute(
                         arguments: Data(call.arguments.utf8),
-                        context: ToolContext(workspace: workspace)
+                        context: ToolContext(workspace: workspace, git: git)
                     )
                     executions.append(ToolExecution(call: call, output: output))
                     await onEvent(.toolFinished(
@@ -439,7 +442,16 @@ public actor AgentSession {
             return message
         }
 
-        if application.totalHunkCount == 0 {
+        switch proposal.kind {
+        case .delete:
+            return "Deleted \(proposal.path)."
+        case .move:
+            return "Moved \(proposal.path) to \(proposal.destinationPath ?? "the new path")."
+        case .create, .update:
+            break
+        }
+
+        if proposal.kind == .create {
             return "Created \(proposal.path)."
         }
 

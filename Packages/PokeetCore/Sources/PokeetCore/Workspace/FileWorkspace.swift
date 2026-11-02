@@ -157,6 +157,52 @@ public struct FileWorkspace: Workspace {
         }
     }
 
+    public func delete(_ relativePath: String) throws {
+        let url = try sandbox.resolve(relativePath)
+        let fileManager = FileManager.default
+
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+            throw WorkspaceError.notFound(relativePath)
+        }
+        guard !isDirectory.boolValue else {
+            throw WorkspaceError.notAFile(relativePath)
+        }
+
+        do {
+            try fileManager.removeItem(at: url)
+        } catch {
+            throw WorkspaceError.io(error.localizedDescription)
+        }
+    }
+
+    public func move(_ relativePath: String, to destinationPath: String) throws {
+        let source = try sandbox.resolve(relativePath)
+        let destination = try sandbox.resolve(destinationPath)
+        let fileManager = FileManager.default
+
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: source.path, isDirectory: &isDirectory) else {
+            throw WorkspaceError.notFound(relativePath)
+        }
+        guard !isDirectory.boolValue else {
+            throw WorkspaceError.notAFile(relativePath)
+        }
+        guard !fileManager.fileExists(atPath: destination.path) else {
+            throw WorkspaceError.staleContent(destinationPath)
+        }
+
+        do {
+            try fileManager.createDirectory(
+                at: destination.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try fileManager.moveItem(at: source, to: destination)
+        } catch {
+            throw WorkspaceError.io(error.localizedDescription)
+        }
+    }
+
     public func exists(_ relativePath: String) -> Bool {
         guard let url = try? sandbox.resolve(relativePath) else { return false }
         return FileManager.default.fileExists(atPath: url.path)

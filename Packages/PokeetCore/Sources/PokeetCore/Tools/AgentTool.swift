@@ -12,9 +12,11 @@ public struct ToolOutput: Sendable {
 
 public struct ToolContext: Sendable {
     public let workspace: any Workspace
+    public let git: (any GitInspecting)?
 
-    public init(workspace: any Workspace) {
+    public init(workspace: any Workspace, git: (any GitInspecting)? = nil) {
         self.workspace = workspace
+        self.git = git
     }
 }
 
@@ -36,8 +38,13 @@ public struct ToolRegistry: Sendable {
             ReadFileTool(),
             WriteFileTool(),
             EditFileTool(),
+            DeleteFileTool(),
+            MoveFileTool(),
             GrepTool(),
-            FindTool()
+            FindTool(),
+            GitStatusTool(),
+            GitDiffTool(),
+            GitLogTool()
         ])
     }
 

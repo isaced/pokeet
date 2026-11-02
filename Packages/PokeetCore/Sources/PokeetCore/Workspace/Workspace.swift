@@ -57,5 +57,7 @@ public protocol Workspace: Sendable {
     func read(_ relativePath: String, maxBytes: Int) throws -> String
     func list(_ relativePath: String, recursive: Bool, maxEntries: Int) throws -> [WorkspaceEntry]
     func write(_ relativePath: String, content: String) throws
+    func delete(_ relativePath: String) throws
+    func move(_ relativePath: String, to destinationPath: String) throws
     func exists(_ relativePath: String) -> Bool
 }
