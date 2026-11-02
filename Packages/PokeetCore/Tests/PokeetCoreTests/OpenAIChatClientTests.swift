@@ -227,4 +227,140 @@ struct OpenAIChatClientTests {
             #expect(error == .notConfigured)
         }
     }
+
+    @Test func streamsTextAndAssemblesToolCalls() async throws {
+        let capturedBody = LockedBox<Data?>(nil)
+        let body = try sseBody([
+            sseChunk(content: "Hel"),
+            sseChunk(content: "lo"),
+            sseChunk(toolCalls: [
+                sseToolCall(id: "call_1", name: "read_file", arguments: "{\"path\":")
+            ]),
+            sseChunk(
+                toolCalls: [sseToolCall(arguments: "\"README.md\"}")],
+                finishReason: "tool_calls"
+            )
+        ])
+
+        StubURLProtocol.setHandler { request in
+            capturedBody.set(requestBody(from: request))
+            return sseResponse(body)
+        }
+        defer { StubURLProtocol.setHandler(nil) }
+
+        let client = stubClient()
+        var deltas: [String] = []
+        var completed: ChatResponse?
+
+        for try await event in client.stream(
+            ChatRequest(messages: [.user("hi")], tools: [])
+        ) {
+            switch event {
+            case .textDelta(let delta):
+                deltas.append(delta)
+            case .completed(let response):
+                completed = response
+            }
+        }
+
+        #expect(deltas == ["Hel", "lo"])
+        #expect(completed?.message.content == "Hello")
+        #expect(completed?.message.toolCalls?.count == 1)
+        #expect(completed?.message.toolCalls?.first?.id == "call_1")
+        #expect(completed?.message.toolCalls?.first?.name == "read_file")
+        #expect(completed?.message.toolCalls?.first?.arguments == "{\"path\":\"README.md\"}")
+
+        let data = try #require(capturedBody.get())
+        let json = try JSONSerialization.jsonObject(with: data)
+        let object = try #require(json as? [String: Any])
+        #expect(object["stream"] as? Bool == true)
+    }
+}
+
+private struct StubSSEChunk: Encodable {
+    struct Choice: Encodable {
+        let delta: Delta
+        let finishReason: String?
+
+        enum CodingKeys: String, CodingKey {
+            case delta
+            case finishReason = "finish_reason"
+        }
+    }
+
+    struct Delta: Encodable {
+        let content: String?
+        let toolCalls: [ToolCall]?
+
+        init(content: String? = nil, toolCalls: [ToolCall]? = nil) {
+            self.content = content
+            self.toolCalls = toolCalls
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case content
+            case toolCalls = "tool_calls"
+        }
+    }
+
+    struct ToolCall: Encodable {
+        struct Function: Encodable {
+            let name: String?
+            let arguments: String?
+        }
+
+        let index: Int
+        let id: String?
+        let type: String?
+        let function: Function?
+    }
+
+    let choices: [Choice]
+}
+
+private func sseChunk(
+    content: String? = nil,
+    toolCalls: [StubSSEChunk.ToolCall]? = nil,
+    finishReason: String? = nil
+) -> StubSSEChunk {
+    StubSSEChunk(choices: [
+        StubSSEChunk.Choice(
+            delta: StubSSEChunk.Delta(content: content, toolCalls: toolCalls),
+            finishReason: finishReason
+        )
+    ])
+}
+
+private func sseToolCall(
+    index: Int = 0,
+    id: String? = nil,
+    name: String? = nil,
+    arguments: String? = nil
+) -> StubSSEChunk.ToolCall {
+    StubSSEChunk.ToolCall(
+        index: index,
+        id: id,
+        type: id == nil ? nil : "function",
+        function: StubSSEChunk.ToolCall.Function(name: name, arguments: arguments)
+    )
+}
+
+private func sseBody(_ chunks: [StubSSEChunk]) throws -> String {
+    var body = ""
+    for chunk in chunks {
+        let data = try JSONEncoder().encode(chunk)
+        body += "data: " + String(decoding: data, as: UTF8.self) + "\n\n"
+    }
+    body += "data: [DONE]\n\n"
+    return body
+}
+
+private func sseResponse(_ body: String) -> (HTTPURLResponse, Data) {
+    let response = HTTPURLResponse(
+        url: URL(string: "https://stub.local/v1/chat/completions")!,
+        statusCode: 200,
+        httpVersion: "HTTP/1.1",
+        headerFields: ["Content-Type": "text/event-stream"]
+    )!
+    return (response, Data(body.utf8))
 }

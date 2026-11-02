@@ -50,9 +50,28 @@ public actor AgentSession {
             iteration += 1
 
             let request = ChatRequest(messages: messages, tools: registry.schemas)
-            let response: ChatResponse
+            var assistantContent = ""
+            var assistantToolCalls: [ToolCall] = []
+
             do {
-                response = try await client.complete(request)
+                for try await event in client.stream(request) {
+                    if Task.isCancelled {
+                        throw AgentError.cancelled
+                    }
+
+                    switch event {
+                    case .textDelta(let delta):
+                        assistantContent += delta
+                        if !delta.isEmpty {
+                            await onEvent(.assistantTextDelta(delta))
+                        }
+                    case .completed(let response):
+                        if let content = response.message.content {
+                            assistantContent = content
+                        }
+                        assistantToolCalls = response.message.toolCalls ?? []
+                    }
+                }
             } catch let error as ModelError {
                 if case .cancelled = error {
                     throw AgentError.cancelled
@@ -62,20 +81,28 @@ public actor AgentSession {
                 throw AgentError.model(message)
             } catch is CancellationError {
                 throw AgentError.cancelled
+            } catch let error as AgentError {
+                throw error
             } catch {
                 let message = error.localizedDescription
                 await onEvent(.failed(message))
                 throw AgentError.model(message)
             }
 
-            messages.append(response.message)
+            let assistantMessage = ChatMessage.assistant(
+                assistantContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? nil
+                    : assistantContent,
+                toolCalls: assistantToolCalls.isEmpty ? nil : assistantToolCalls
+            )
+            messages.append(assistantMessage)
 
-            if let content = response.message.content,
+            if let content = assistantMessage.content,
                !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 await onEvent(.assistantMessage(content))
             }
 
-            guard let toolCalls = response.message.toolCalls, !toolCalls.isEmpty else {
+            guard let toolCalls = assistantMessage.toolCalls, !toolCalls.isEmpty else {
                 await onEvent(.finished)
                 return
             }

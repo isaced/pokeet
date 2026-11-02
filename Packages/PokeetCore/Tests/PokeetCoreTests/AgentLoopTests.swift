@@ -23,6 +23,24 @@ actor ScriptedModelClient: ModelClient {
     }
 }
 
+private struct DeltaStreamingClient: ModelClient {
+    func complete(_ request: ChatRequest) async throws -> ChatResponse {
+        throw ModelError.invalidResponse("complete is not used")
+    }
+
+    func stream(_ request: ChatRequest) -> AsyncThrowingStream<ModelStreamEvent, Error> {
+        AsyncThrowingStream { continuation in
+            continuation.yield(.textDelta("Hel"))
+            continuation.yield(.textDelta("lo"))
+            continuation.yield(.completed(ChatResponse(
+                message: .assistant("Hello"),
+                finishReason: "stop"
+            )))
+            continuation.finish()
+        }
+    }
+}
+
 actor EventRecorder {
     private(set) var events: [AgentEvent] = []
 
@@ -73,6 +91,31 @@ struct AgentLoopTests {
         #expect(history.count == 3)
         #expect(history[1].role == .user)
         #expect(history[2].content == "Done.")
+    }
+
+    @Test func forwardsStreamingTextDeltas() async throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+
+        let session = AgentSession(
+            client: DeltaStreamingClient(),
+            workspace: FileWorkspace(root: directory.url)
+        )
+        let recorder = EventRecorder()
+
+        try await session.send(
+            "hi",
+            approval: { _ in [] },
+            onEvent: { await recorder.record($0) }
+        )
+
+        let events = await recorder.snapshot()
+        #expect(events == [
+            .assistantTextDelta("Hel"),
+            .assistantTextDelta("lo"),
+            .assistantMessage("Hello"),
+            .finished
+        ])
     }
 
     @Test func acceptsProposalAndWritesFile() async throws {

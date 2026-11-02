@@ -1,7 +1,32 @@
 import Foundation
 
+public enum ModelStreamEvent: Sendable {
+    case textDelta(String)
+    case completed(ChatResponse)
+}
+
 public protocol ModelClient: Sendable {
     func complete(_ request: ChatRequest) async throws -> ChatResponse
+    func stream(_ request: ChatRequest) -> AsyncThrowingStream<ModelStreamEvent, Error>
+}
+
+public extension ModelClient {
+    func stream(_ request: ChatRequest) -> AsyncThrowingStream<ModelStreamEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    let response = try await complete(request)
+                    continuation.yield(.completed(response))
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in
+                task.cancel()
+            }
+        }
+    }
 }
 
 public enum ModelError: Error, Sendable, Equatable, LocalizedError {

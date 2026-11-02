@@ -19,28 +19,7 @@ public struct OpenAIChatClient: ModelClient {
     }
 
     public func complete(_ request: ChatRequest) async throws -> ChatResponse {
-        let apiKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        let model = model.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !apiKey.isEmpty, !model.isEmpty, let endpoint = endpointURL else {
-            throw ModelError.notConfigured
-        }
-
-        var urlRequest = URLRequest(url: endpoint)
-        urlRequest.httpMethod = "POST"
-        urlRequest.timeoutInterval = 120
-        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-
-        do {
-            urlRequest.httpBody = try JSONEncoder().encode(WireRequest(
-                model: model,
-                messages: request.messages.map { WireMessage($0) },
-                tools: request.tools.isEmpty ? nil : request.tools.map { WireTool($0) },
-                toolChoice: request.tools.isEmpty ? nil : "auto"
-            ))
-        } catch {
-            throw ModelError.decoding(error.localizedDescription)
-        }
+        let urlRequest = try makeURLRequest(request, stream: false)
 
         do {
             let (data, response) = try await session.data(for: urlRequest)
@@ -70,15 +49,170 @@ public struct OpenAIChatClient: ModelClient {
                 message: choice.message.chatMessage,
                 finishReason: choice.finishReason
             )
-        } catch let error as ModelError {
-            throw error
-        } catch let error as URLError where error.code == .cancelled {
-            throw ModelError.cancelled
-        } catch is CancellationError {
-            throw ModelError.cancelled
         } catch {
-            throw ModelError.network(error.localizedDescription)
+            throw mapTransportError(error)
         }
+    }
+
+    public func stream(_ request: ChatRequest) -> AsyncThrowingStream<ModelStreamEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    try await performStream(request, continuation: continuation)
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: mapTransportError(error))
+                }
+            }
+
+            continuation.onTermination = { _ in
+                task.cancel()
+            }
+        }
+    }
+
+    private func performStream(
+        _ request: ChatRequest,
+        continuation: AsyncThrowingStream<ModelStreamEvent, Error>.Continuation
+    ) async throws {
+        let urlRequest = try makeURLRequest(request, stream: true)
+        let (bytes, response) = try await session.bytes(for: urlRequest)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw ModelError.invalidResponse("Missing HTTP response")
+        }
+        guard (200..<300).contains(httpResponse.statusCode) else {
+            var body = Data()
+            for try await byte in bytes {
+                body.append(byte)
+                if body.count >= 8192 { break }
+            }
+            throw ModelError.http(
+                status: httpResponse.statusCode,
+                message: errorMessage(from: body)
+            )
+        }
+
+        var content = ""
+        var toolCalls: [Int: ToolCallAccumulator] = [:]
+        var finishReason: String?
+
+        for try await line in bytes.lines {
+            try Task.checkCancellation()
+
+            guard line.hasPrefix("data:") else { continue }
+            let payload = line
+                .dropFirst(5)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if payload.isEmpty || payload == "[DONE]" {
+                if payload == "[DONE]" { break }
+                continue
+            }
+
+            guard let data = payload.data(using: .utf8) else { continue }
+
+            let chunk: WireStreamChunk
+            do {
+                chunk = try JSONDecoder().decode(WireStreamChunk.self, from: data)
+            } catch {
+                throw ModelError.decoding(error.localizedDescription)
+            }
+
+            if let error = chunk.error {
+                throw ModelError.invalidResponse(error.message ?? "Stream error")
+            }
+
+            guard let choice = chunk.choices?.first else { continue }
+
+            if let delta = choice.delta?.content, !delta.isEmpty {
+                content += delta
+                continuation.yield(.textDelta(delta))
+            }
+
+            for toolCallDelta in choice.delta?.toolCalls ?? [] {
+                let index = toolCallDelta.index ?? 0
+                var accumulator = toolCalls[index] ?? ToolCallAccumulator(index: index)
+
+                if let id = toolCallDelta.id {
+                    accumulator.id = id
+                }
+                if let name = toolCallDelta.function?.name {
+                    accumulator.name = name
+                }
+                if let arguments = toolCallDelta.function?.arguments {
+                    accumulator.arguments += arguments
+                }
+
+                toolCalls[index] = accumulator
+            }
+
+            if let reason = choice.finishReason {
+                finishReason = reason
+            }
+        }
+
+        let calls = toolCalls.values
+            .sorted { $0.index < $1.index }
+            .compactMap { accumulator -> ToolCall? in
+                guard !accumulator.name.isEmpty else { return nil }
+                return ToolCall(
+                    id: accumulator.id.isEmpty ? UUID().uuidString : accumulator.id,
+                    name: accumulator.name,
+                    arguments: accumulator.arguments
+                )
+            }
+
+        continuation.yield(.completed(ChatResponse(
+            message: .assistant(
+                content.isEmpty ? nil : content,
+                toolCalls: calls.isEmpty ? nil : calls
+            ),
+            finishReason: finishReason
+        )))
+    }
+
+    private func makeURLRequest(_ request: ChatRequest, stream: Bool) throws -> URLRequest {
+        let apiKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let model = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !apiKey.isEmpty, !model.isEmpty, let endpoint = endpointURL else {
+            throw ModelError.notConfigured
+        }
+
+        var urlRequest = URLRequest(url: endpoint)
+        urlRequest.httpMethod = "POST"
+        urlRequest.timeoutInterval = 120
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        if stream {
+            urlRequest.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        }
+
+        do {
+            urlRequest.httpBody = try JSONEncoder().encode(WireRequest(
+                model: model,
+                messages: request.messages.map { WireMessage($0) },
+                tools: request.tools.isEmpty ? nil : request.tools.map { WireTool($0) },
+                toolChoice: request.tools.isEmpty ? nil : "auto",
+                stream: stream ? true : nil
+            ))
+        } catch {
+            throw ModelError.decoding(error.localizedDescription)
+        }
+
+        return urlRequest
+    }
+
+    private func mapTransportError(_ error: Error) -> ModelError {
+        if let error = error as? ModelError {
+            return error
+        }
+        if let error = error as? URLError, error.code == .cancelled {
+            return .cancelled
+        }
+        if error is CancellationError {
+            return .cancelled
+        }
+        return .network(error.localizedDescription)
     }
 
     private var endpointURL: URL? {
@@ -124,12 +258,14 @@ private struct WireRequest: Encodable {
     let messages: [WireMessage]
     let tools: [WireTool]?
     let toolChoice: String?
+    let stream: Bool?
 
     enum CodingKeys: String, CodingKey {
         case model
         case messages
         case tools
         case toolChoice = "tool_choice"
+        case stream
     }
 }
 
@@ -260,4 +396,51 @@ private struct ErrorEnvelope: Decodable {
     }
 
     let error: APIError?
+}
+
+private struct WireStreamChunk: Decodable {
+    struct Choice: Decodable {
+        let delta: Delta?
+        let finishReason: String?
+
+        enum CodingKeys: String, CodingKey {
+            case delta
+            case finishReason = "finish_reason"
+        }
+    }
+
+    struct Delta: Decodable {
+        let content: String?
+        let toolCalls: [WireToolCallDelta]?
+
+        enum CodingKeys: String, CodingKey {
+            case content
+            case toolCalls = "tool_calls"
+        }
+    }
+
+    let choices: [Choice]?
+    let error: WireStreamError?
+}
+
+private struct WireStreamError: Decodable {
+    let message: String?
+}
+
+private struct WireToolCallDelta: Decodable {
+    struct Function: Decodable {
+        let name: String?
+        let arguments: String?
+    }
+
+    let index: Int?
+    let id: String?
+    let function: Function?
+}
+
+private struct ToolCallAccumulator {
+    let index: Int
+    var id = ""
+    var name = ""
+    var arguments = ""
 }
