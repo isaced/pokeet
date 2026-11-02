@@ -1,4 +1,5 @@
 import SwiftUI
+import Textual
 
 struct MessageBubble: View {
     let bubble: ChatViewModel.Bubble
@@ -19,13 +20,14 @@ struct MessageBubble: View {
             ReasoningBubble(text: bubble.text, isStreaming: bubble.isStreaming)
         case .assistant:
             HStack {
-                Text(bubble.text)
+                StructuredText(markdown: bubble.text)
+                    .textual.structuredTextStyle(.gitHub)
+                    .textual.textSelection(.enabled)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
                     .foregroundStyle(.primary)
                     .background(Color(.secondarySystemBackground).opacity(0.7))
                     .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                    .textSelection(.enabled)
                 Spacer(minLength: 32)
             }
         case .tool:
