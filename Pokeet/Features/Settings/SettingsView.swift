@@ -1,3 +1,4 @@
+import PokeetCore
 import SwiftUI
 
 struct SettingsView: View {
@@ -9,19 +10,19 @@ struct SettingsView: View {
 
         NavigationStack {
             Form {
+                activeModelSection(settings)
+
                 Section {
-                    TextField("Base URL", text: $settings.baseURL)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .keyboardType(.URL)
-                    TextField("Model", text: $settings.model)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                    SecureField("API key", text: $settings.apiKey)
+                    NavigationLink {
+                        ProvidersView()
+                    } label: {
+                        Label("Manage providers", systemImage: "server.rack")
+                            .badge("\(settings.providers.count)")
+                    }
                 } header: {
-                    Text("Model")
+                    Text("Providers")
                 } footer: {
-                    Text("Any OpenAI-compatible chat completions endpoint. Use localhost for a local server. The key is stored in the iOS Keychain.")
+                    Text("API keys are stored per provider in the iOS Keychain.")
                 }
 
                 Section {
@@ -43,6 +44,56 @@ struct SettingsView: View {
                     Button("Done") { dismiss() }
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func activeModelSection(_ settings: AppSettings) -> some View {
+        Section {
+            if let provider = settings.activeProvider {
+                Picker(
+                    "Provider",
+                    selection: Binding(
+                        get: { settings.activeProviderID ?? provider.id },
+                        set: { settings.setActiveProvider($0) }
+                    )
+                ) {
+                    ForEach(settings.enabledProviders) { item in
+                        Text(item.name).tag(item.id)
+                    }
+                }
+
+                if provider.selectedModels.isEmpty {
+                    Label("No models selected for this provider.", systemImage: "exclamationmark.circle")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Picker(
+                        "Model",
+                        selection: Binding(
+                            get: { provider.effectiveModelID ?? "" },
+                            set: { settings.setDefaultModel($0, for: provider.id) }
+                        )
+                    ) {
+                        ForEach(provider.selectedModels) { model in
+                            Text(model.label).tag(model.id)
+                        }
+                    }
+                }
+
+                LabeledContent("API format", value: provider.wireProtocol.displayName)
+
+                if !settings.isModelConfigured {
+                    Label("Add a valid base URL, model and API key.", systemImage: "key")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+            } else {
+                Text("Add a provider to get started.")
+                    .foregroundStyle(.secondary)
+            }
+        } header: {
+            Text("Active model")
         }
     }
 }

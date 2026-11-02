@@ -1,6 +1,6 @@
 import Foundation
 
-public enum WireProtocol: String, Codable, Sendable, CaseIterable, Identifiable {
+public enum WireProtocol: String, Codable, Sendable, CaseIterable, Identifiable, Hashable {
     case openAIChatCompletions
     case openAIResponses
     case anthropicMessages
@@ -67,7 +67,7 @@ public struct ProviderModel: Codable, Sendable, Equatable, Identifiable, Hashabl
     }
 }
 
-public struct ProviderConfiguration: Codable, Sendable, Equatable, Identifiable {
+public struct ProviderConfiguration: Codable, Sendable, Equatable, Hashable, Identifiable {
     public var id: UUID
     public var name: String
     public var iconName: String

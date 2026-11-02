@@ -32,6 +32,15 @@ final class ChatViewModel {
         }
     }
 
+    private struct ModelConfigurationSnapshot: Equatable {
+        let providerID: UUID
+        let wireProtocol: WireProtocol
+        let baseURL: String
+        let modelID: String
+        let apiKey: String
+        let maxOutputTokens: Int
+    }
+
     let project: Project
 
     var bubbles: [Bubble] = []
@@ -50,7 +59,10 @@ final class ChatViewModel {
 
     private let environment: AppEnvironment
     private let session: AgentSession
+    private let router = ModelClientRouter()
+    private let usesMockModel: Bool
     private let coordinator = ProposalCoordinator()
+    private var appliedConfiguration: ModelConfigurationSnapshot?
     private var runTask: Task<Void, Never>?
     private var lastRequest = ""
     private var streamingBubbleID: UUID?
@@ -61,14 +73,14 @@ final class ChatViewModel {
         self.project = project
         self.environment = environment
 
-        let client: any ModelClient = MockModelSupport.makeClient()
-            ?? OpenAIChatClient(
-                baseURL: environment.settings.baseURL,
-                model: environment.settings.model,
-                apiKey: environment.settings.apiKey
-            )
+        let mockClient = MockModelSupport.makeClient()
+        self.usesMockModel = mockClient != nil
+        if let mockClient {
+            router.setClient(mockClient)
+        }
+
         self.session = AgentSession(
-            client: client,
+            client: router,
             workspace: FileWorkspace(root: project.directory),
             git: project.isGitRepository ? environment.git : nil
         )
@@ -79,6 +91,52 @@ final class ChatViewModel {
         coordinator.onCleared = { [weak self] in
             self?.pendingProposals = []
             self?.isShowingReview = false
+        }
+
+        _ = applyActiveConfiguration(reportErrors: false)
+    }
+
+    private func applyActiveConfiguration(reportErrors: Bool = true) -> Bool {
+        guard !usesMockModel else { return true }
+
+        let settings = environment.settings
+        guard let provider = settings.activeProvider,
+              provider.isEnabled,
+              let modelID = provider.effectiveModelID,
+              !modelID.isEmpty
+        else {
+            if reportErrors {
+                errorMessage = ModelError.notConfigured.errorDescription
+            }
+            return false
+        }
+
+        let apiKey = settings.apiKey(for: provider.id)
+        let snapshot = ModelConfigurationSnapshot(
+            providerID: provider.id,
+            wireProtocol: provider.wireProtocol,
+            baseURL: provider.baseURL,
+            modelID: modelID,
+            apiKey: apiKey,
+            maxOutputTokens: provider.maxOutputTokens
+        )
+
+        guard snapshot != appliedConfiguration else { return true }
+
+        do {
+            let client = try LLMClientFactory.makeClient(
+                provider: provider,
+                apiKey: apiKey
+            )
+            router.setClient(client)
+            appliedConfiguration = snapshot
+            return true
+        } catch {
+            if reportErrors {
+                errorMessage = (error as? LocalizedError)?.errorDescription
+                    ?? error.localizedDescription
+            }
+            return false
         }
     }
 
@@ -108,6 +166,7 @@ final class ChatViewModel {
     }
 
     func loadInitialState() async {
+        _ = applyActiveConfiguration(reportErrors: false)
         if !didLoadSession {
             didLoadSession = true
             await restoreSession()
@@ -120,10 +179,12 @@ final class ChatViewModel {
         let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
 
-        input = ""
-        lastRequest = text
         errorMessage = nil
         banner = nil
+        guard applyActiveConfiguration() else { return }
+
+        input = ""
+        lastRequest = text
         bubbles.append(Bubble(role: .user, text: text))
 
         runTask = Task { [weak self] in
