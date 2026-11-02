@@ -45,12 +45,20 @@ struct StoredBubble: Codable, Sendable, Equatable {
     let role: String
     let text: String
     let images: [ChatImage]?
+    let filePaths: [String]?
 
-    init(id: UUID, role: String, text: String, images: [ChatImage]? = nil) {
+    init(
+        id: UUID,
+        role: String,
+        text: String,
+        images: [ChatImage]? = nil,
+        filePaths: [String]? = nil
+    ) {
         self.id = id
         self.role = role
         self.text = text
         self.images = images
+        self.filePaths = filePaths
     }
 }
 

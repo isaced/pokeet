@@ -13,6 +13,10 @@ struct MessageBubble: View {
                 Spacer(minLength: 48)
 
                 VStack(alignment: .trailing, spacing: 8) {
+                    if !bubble.filePaths.isEmpty {
+                        FileReferenceChips(paths: bubble.filePaths)
+                    }
+
                     if !bubble.images.isEmpty {
                         UserImageGrid(images: bubble.images)
                     }
@@ -58,6 +62,28 @@ struct MessageBubble: View {
             .font(.caption)
             .foregroundStyle(.red)
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+private struct FileReferenceChips: View {
+    let paths: [String]
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 4) {
+            ForEach(paths, id: \.self) { path in
+                HStack(spacing: 5) {
+                    Image(systemName: "doc.text")
+                    Text("@\(path)")
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                .font(.caption)
+                .foregroundStyle(Color.accentColor)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 5)
+                .background(Color.accentColor.opacity(0.12), in: Capsule())
+            }
         }
     }
 }

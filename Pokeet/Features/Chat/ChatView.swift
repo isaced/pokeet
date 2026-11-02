@@ -9,11 +9,11 @@ struct ChatView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var model: ChatViewModel
-    @State private var isShowingSettings = false
     @State private var isShowingProjectInfo = false
     @State private var isShowingFiles = false
     @State private var isShowingChanges = false
-    @State private var isConfirmingNewSession = false
+    @State private var isShowingFilePicker = false
+    @State private var isShowingPhotoPicker = false
     @State private var photoPickerItems: [PhotosPickerItem] = []
     private let git: any GitInspecting
 
@@ -59,6 +59,23 @@ struct ChatView: View {
         } message: {
             Text("Commits approved changes and pushes the current branch to origin.")
         }
+        .sheet(isPresented: $isShowingFilePicker) {
+            ProjectFilePickerView(project: project) { path in
+                loadContextFile(path)
+            }
+        }
+        .photosPicker(
+            isPresented: $isShowingPhotoPicker,
+            selection: $photoPickerItems,
+            maxSelectionCount: ChatViewModel.maxImages,
+            matching: .images,
+            photoLibrary: .shared()
+        )
+        .onChange(of: photoPickerItems) { _, items in
+            guard !items.isEmpty else { return }
+            photoPickerItems = []
+            Task { await loadImages(items) }
+        }
         .task {
             await model.loadInitialState()
         }
@@ -100,25 +117,13 @@ struct ChatView: View {
 
             Spacer(minLength: 8)
 
-            HStack(spacing: 0) {
-                Button {
-                    requestNewSession()
-                } label: {
-                    headerIcon("pencil")
-                }
-                .buttonStyle(.plain)
-
-                Divider()
-                    .frame(height: 20)
-
-                Menu {
-                    projectMenu
-                } label: {
-                    headerIcon("ellipsis")
-                }
-                .buttonStyle(.plain)
+            Menu {
+                projectMenu
+            } label: {
+                headerIcon("ellipsis")
             }
-            .frame(height: 40)
+            .buttonStyle(.plain)
+            .frame(width: 40, height: 40)
             .background(Color(.systemBackground), in: Capsule())
             .overlay(Capsule().stroke(Color.primary.opacity(0.06), lineWidth: 1))
             .shadow(color: .black.opacity(0.06), radius: 10, y: 3)
@@ -127,30 +132,28 @@ struct ChatView: View {
         .padding(.top, 8)
         .padding(.bottom, 4)
         .alert("Project", isPresented: $isShowingProjectInfo) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(projectInfo)
-        }
-        .confirmationDialog(
-            "Start a new session?",
-            isPresented: $isConfirmingNewSession,
-            titleVisibility: .visible
-        ) {
             Button("Start new session", role: .destructive) {
                 Task { await model.startNewSession() }
             }
-            Button("Cancel", role: .cancel) {}
+            Button("OK", role: .cancel) {}
         } message: {
-            Text("This clears the conversation. Files on disk stay unchanged.")
-        }
-        .sheet(isPresented: $isShowingSettings) {
-            SettingsView()
+            Text(projectInfo + "\n\nA new session clears the conversation. Files on disk stay unchanged.")
         }
         .sheet(isPresented: $isShowingFiles) {
             FileBrowserView(project: project)
         }
         .sheet(isPresented: $isShowingChanges) {
-            ChangesView(project: project, git: git)
+            ChangesView(
+                project: project,
+                git: git,
+                canCommit: model.canCommit,
+                onCommit: {
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(350))
+                        model.prepareCommit()
+                    }
+                }
+            )
         }
     }
 
@@ -242,9 +245,33 @@ struct ChatView: View {
 
     @ViewBuilder
     private var pendingAttachments: some View {
-        if !model.pendingImages.isEmpty {
+        if !model.pendingImages.isEmpty || !model.pendingFiles.isEmpty {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 10) {
+                    ForEach(model.pendingFiles, id: \.path) { file in
+                        HStack(spacing: 6) {
+                            Image(systemName: "doc.text")
+                                .font(.caption)
+                            Text("@\(file.path)")
+                                .font(.caption)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Button {
+                                model.removeContextFile(path: file.path)
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 14))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Remove \(file.path)")
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .frame(maxWidth: 240)
+                        .background(Color(.secondarySystemBackground), in: Capsule())
+                    }
+
                     ForEach(Array(model.pendingImages.enumerated()), id: \.offset) { index, image in
                         ZStack(alignment: .topTrailing) {
                             if let uiImage = UIImage(data: image.data) {
@@ -292,26 +319,6 @@ struct ChatView: View {
             }
             .tint(.primary)
 
-            PhotosPicker(
-                selection: $photoPickerItems,
-                maxSelectionCount: ChatViewModel.maxImages,
-                matching: .images,
-                photoLibrary: .shared()
-            ) {
-                Image(systemName: "photo")
-                    .font(.system(size: 17, weight: .medium))
-                    .foregroundStyle(.primary)
-                    .frame(width: 34, height: 34)
-                    .background(Color(.secondarySystemBackground), in: Circle())
-            }
-            .disabled(model.isRunning)
-            .accessibilityLabel("Attach image")
-            .onChange(of: photoPickerItems) { _, items in
-                guard !items.isEmpty else { return }
-                photoPickerItems = []
-                Task { await loadImages(items) }
-            }
-
             TextField("Ask Pokeet", text: bindable.input, axis: .vertical)
                 .lineLimit(1...5)
                 .textFieldStyle(.plain)
@@ -354,6 +361,23 @@ struct ChatView: View {
     private var canSend: Bool {
         !model.input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || !model.pendingImages.isEmpty
+            || !model.pendingFiles.isEmpty
+    }
+
+    @MainActor
+    private func loadContextFile(_ path: String) {
+        Task {
+            do {
+                let content = try await Task.detached(priority: .userInitiated) {
+                    try FileWorkspace(root: project.directory)
+                        .read(path, maxBytes: 120_000)
+                }.value
+                model.addContextFile(ContextFile(path: path, content: content))
+            } catch {
+                model.errorMessage = "Could not read \(path): "
+                    + ((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
+            }
+        }
     }
 
     @MainActor
@@ -398,15 +422,6 @@ struct ChatView: View {
             } label: {
                 Label("Changes", systemImage: "plusminus.circle")
             }
-
-            Button {
-                model.prepareCommit()
-            } label: {
-                Label("Commit & Push", systemImage: "arrow.up.circle")
-            }
-            .disabled(!model.canCommit)
-
-            Divider()
         }
 
         Button {
@@ -418,49 +433,22 @@ struct ChatView: View {
         Button {
             isShowingProjectInfo = true
         } label: {
-            Label("Project info", systemImage: "info.circle")
-        }
-
-        Button {
-            isShowingSettings = true
-        } label: {
-            Label("Settings", systemImage: "gearshape")
+            Label("Project Info", systemImage: "info.circle")
         }
     }
 
     @ViewBuilder
     private var composerMenu: some View {
         Button {
-            requestNewSession()
+            isShowingPhotoPicker = true
         } label: {
-            Label("New session", systemImage: "square.and.pencil")
-        }
-
-        if project.isGitRepository {
-            Button {
-                model.prepareCommit()
-            } label: {
-                Label("Commit & Push", systemImage: "arrow.up.circle")
-            }
-            .disabled(!model.canCommit)
-
-            Button {
-                isShowingChanges = true
-            } label: {
-                Label("Changes", systemImage: "plusminus.circle")
-            }
+            Label("Upload image", systemImage: "photo")
         }
 
         Button {
-            isShowingFiles = true
+            isShowingFilePicker = true
         } label: {
-            Label("Files", systemImage: "folder")
-        }
-
-        Button {
-            isShowingSettings = true
-        } label: {
-            Label("Settings", systemImage: "gearshape")
+            Label("At file", systemImage: "at")
         }
     }
 
@@ -477,14 +465,6 @@ struct ChatView: View {
             onToggleSidebar()
         } else {
             dismiss()
-        }
-    }
-
-    private func requestNewSession() {
-        if model.bubbles.isEmpty && !model.isRunning {
-            Task { await model.startNewSession() }
-        } else {
-            isConfirmingNewSession = true
         }
     }
 

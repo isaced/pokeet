@@ -87,6 +87,7 @@ public enum AgentPrompts {
     Rules:
     - All paths are relative to the repository root. Never use absolute paths, "~", "..", or .git paths.
     - Use grep and find to locate code instead of reading many files blindly.
+    - User messages may include <file path="..."> blocks with file contents. Treat them as provided context.
     - Read before you write. Keep changes focused and minimal.
     - Prefer edit_file for targeted changes; batch disjoint edits to one file in a single call.
     - Use move_file instead of deleting and rewriting a file that you are relocating.

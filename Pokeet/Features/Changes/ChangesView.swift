@@ -3,12 +3,21 @@ import SwiftUI
 
 struct ChangesView: View {
     let project: Project
+    let canCommit: Bool
+    let onCommit: (() -> Void)?
 
     @Environment(\.dismiss) private var dismiss
     @State private var model: ChangesModel
 
-    init(project: Project, git: any GitInspecting) {
+    init(
+        project: Project,
+        git: any GitInspecting,
+        canCommit: Bool = false,
+        onCommit: (() -> Void)? = nil
+    ) {
         self.project = project
+        self.canCommit = canCommit
+        self.onCommit = onCommit
         _model = State(initialValue: ChangesModel(project: project, git: git))
     }
 
@@ -54,6 +63,14 @@ struct ChangesView: View {
             .navigationTitle("Changes")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                if canCommit, let onCommit {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button("Commit") {
+                            dismiss()
+                            onCommit()
+                        }
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") {
                         dismiss()

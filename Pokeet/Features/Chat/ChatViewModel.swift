@@ -2,6 +2,11 @@ import Foundation
 import Observation
 import PokeetCore
 
+struct ContextFile: Sendable, Equatable {
+    let path: String
+    let content: String
+}
+
 @MainActor
 @Observable
 final class ChatViewModel {
@@ -19,19 +24,22 @@ final class ChatViewModel {
         var text: String
         var isStreaming: Bool
         var images: [ChatImage]
+        var filePaths: [String]
 
         init(
             id: UUID = UUID(),
             role: Role,
             text: String,
             isStreaming: Bool = false,
-            images: [ChatImage] = []
+            images: [ChatImage] = [],
+            filePaths: [String] = []
         ) {
             self.id = id
             self.role = role
             self.text = text
             self.isStreaming = isStreaming
             self.images = images
+            self.filePaths = filePaths
         }
     }
 
@@ -45,12 +53,14 @@ final class ChatViewModel {
     }
 
     static let maxImages = 4
+    static let maxContextFiles = 5
 
     let project: Project
 
     var bubbles: [Bubble] = []
     var input = ""
     var pendingImages: [ChatImage] = []
+    var pendingFiles: [ContextFile] = []
     private(set) var isRunning = false
     private(set) var status: String?
     var errorMessage: String?
@@ -198,11 +208,28 @@ final class ChatViewModel {
         pendingImages.remove(at: index)
     }
 
+    func addContextFile(_ file: ContextFile) {
+        if let index = pendingFiles.firstIndex(where: { $0.path == file.path }) {
+            pendingFiles[index] = file
+            return
+        }
+        guard pendingFiles.count < Self.maxContextFiles else {
+            errorMessage = "You can reference up to \(Self.maxContextFiles) files."
+            return
+        }
+        pendingFiles.append(file)
+    }
+
+    func removeContextFile(path: String) {
+        pendingFiles.removeAll { $0.path == path }
+    }
+
     func send() {
         guard !isRunning else { return }
         let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
         let images = pendingImages
-        guard !text.isEmpty || !images.isEmpty else { return }
+        let files = pendingFiles
+        guard !text.isEmpty || !images.isEmpty || !files.isEmpty else { return }
 
         errorMessage = nil
         banner = nil
@@ -210,12 +237,36 @@ final class ChatViewModel {
 
         input = ""
         pendingImages = []
-        lastRequest = text.isEmpty ? "Image" : text
-        bubbles.append(Bubble(role: .user, text: text, images: images))
+        pendingFiles = []
 
+        lastRequest = text.isEmpty
+            ? (files.isEmpty ? "Image" : files.map(\.path).joined(separator: ", "))
+            : text
+
+        bubbles.append(Bubble(
+            role: .user,
+            text: text,
+            images: images,
+            filePaths: files.map(\.path)
+        ))
+
+        let sessionText = Self.composedText(text, files: files)
         runTask = Task { [weak self] in
-            await self?.run(text, images: images)
+            await self?.run(sessionText, images: images)
         }
+    }
+
+    private static func composedText(_ text: String, files: [ContextFile]) -> String {
+        guard !files.isEmpty else { return text }
+
+        let blocks = files.map { file in
+            "<file path=\"\(file.path)\">\n\(file.content)\n</file>"
+        }.joined(separator: "\n\n")
+
+        if text.isEmpty {
+            return blocks + "\n\nUse the referenced files as context."
+        }
+        return blocks + "\n\n" + text
     }
 
     func cancelRun() {
@@ -247,6 +298,7 @@ final class ChatViewModel {
         bubbles = []
         input = ""
         pendingImages = []
+        pendingFiles = []
         streamingBubbleID = nil
         reasoningBubbleID = nil
         cacheStats = CacheStats()
@@ -499,7 +551,8 @@ final class ChatViewModel {
                 id: stored.id,
                 role: role,
                 text: stored.text,
-                images: stored.images ?? []
+                images: stored.images ?? [],
+                filePaths: stored.filePaths ?? []
             )
         }
         cacheStats = snapshot.cacheStats ?? CacheStats()
@@ -514,7 +567,8 @@ final class ChatViewModel {
                 id: $0.id,
                 role: $0.role.rawValue,
                 text: $0.text,
-                images: $0.images.isEmpty ? nil : $0.images
+                images: $0.images.isEmpty ? nil : $0.images,
+                filePaths: $0.filePaths.isEmpty ? nil : $0.filePaths
             )
         }
 
