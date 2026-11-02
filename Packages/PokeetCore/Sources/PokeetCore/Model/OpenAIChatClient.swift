@@ -191,12 +191,17 @@ public struct OpenAIChatClient: ModelClient {
             urlRequest.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         }
 
+        let sortedTools = request.tools.sorted { $0.name < $1.name }
+
         do {
-            urlRequest.httpBody = try JSONEncoder().encode(WireRequest(
+            let encoder = JSONEncoder()
+            // Stable key and tool order keep upstream prompt caches warm.
+            encoder.outputFormatting = [.sortedKeys]
+            urlRequest.httpBody = try encoder.encode(WireRequest(
                 model: model,
                 messages: request.messages.map { WireMessage($0) },
-                tools: request.tools.isEmpty ? nil : request.tools.map { WireTool($0) },
-                toolChoice: request.tools.isEmpty ? nil : "auto",
+                tools: sortedTools.isEmpty ? nil : sortedTools.map { WireTool($0) },
+                toolChoice: sortedTools.isEmpty ? nil : "auto",
                 stream: stream ? true : nil
             ))
         } catch {

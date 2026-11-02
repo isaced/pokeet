@@ -218,6 +218,62 @@ struct OpenAIChatClientTests {
         #expect(captured.get()?.url?.port == 3425)
     }
 
+    @Test func encodesIdenticalRequestsDeterministicallyAndSortsTools() async throws {
+        let bodies = LockedBox<[Data]>([])
+
+        StubURLProtocol.setHandler { request in
+            if let body = requestBody(from: request) {
+                bodies.set(bodies.get() + [body])
+            }
+            return stubJSONResponse(#"""
+            {"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}
+            """#)
+        }
+        defer { StubURLProtocol.setHandler(nil) }
+
+        let client = stubClient()
+        let beta = ToolSchema(
+            name: "beta_tool",
+            description: "Beta",
+            parameters: .object([
+                "beta": .string("b"),
+                "alpha": .string("a")
+            ])
+        )
+        let alpha = ToolSchema(
+            name: "alpha_tool",
+            description: "Alpha",
+            parameters: .object([
+                "z": .number(1),
+                "a": .bool(true)
+            ])
+        )
+
+        let first = ChatRequest(
+            messages: [.system("stable"), .user("hi")],
+            tools: [beta, alpha]
+        )
+        let second = ChatRequest(
+            messages: [.system("stable"), .user("hi")],
+            tools: [alpha, beta]
+        )
+
+        _ = try await client.complete(first)
+        _ = try await client.complete(second)
+
+        let captured = bodies.get()
+        #expect(captured.count == 2)
+        #expect(captured[0] == captured[1])
+
+        let json = try JSONSerialization.jsonObject(with: captured[0])
+        let object = try #require(json as? [String: Any])
+        let tools = try #require(object["tools"] as? [[String: Any]])
+        let names = tools.compactMap {
+            ($0["function"] as? [String: Any])?["name"] as? String
+        }
+        #expect(names == ["alpha_tool", "beta_tool"])
+    }
+
     @Test func requiresConfiguration() async throws {
         let client = OpenAIChatClient(baseURL: "", model: "", apiKey: "")
         do {
