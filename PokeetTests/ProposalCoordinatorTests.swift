@@ -23,12 +23,12 @@ final class ProposalCoordinatorTests: XCTestCase {
         let task = Task { await coordinator.request([proposal]) }
         await fulfillment(of: [pending], timeout: 1)
         coordinator.resolve([
-            ProposalDecision(proposalID: proposal.id, accepted: true)
+            .acceptAll(proposalID: proposal.id)
         ])
 
         let decisions = await task.value
         XCTAssertEqual(decisions.count, 1)
-        XCTAssertTrue(decisions[0].accepted)
+        XCTAssertEqual(decisions[0].selection, .all)
     }
 
     func testCancelBeforeRequestReturnsEmpty() async {
@@ -71,10 +71,10 @@ final class ProposalCoordinatorTests: XCTestCase {
         let next = Task { await coordinator.request([proposal]) }
         await fulfillment(of: [nextPending], timeout: 1)
         coordinator.resolve([
-            ProposalDecision(proposalID: proposal.id, accepted: false)
+            .reject(proposalID: proposal.id)
         ])
 
         let decisions = await next.value
-        XCTAssertEqual(decisions.first?.accepted, false)
+        XCTAssertEqual(decisions.first?.selection, HunkSelection.none)
     }
 }
