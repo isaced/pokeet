@@ -5,9 +5,7 @@ import UIKit
 
 struct ChatView: View {
     let project: Project
-    let onToggleSidebar: (() -> Void)?
 
-    @Environment(\.dismiss) private var dismiss
     @State private var model: ChatViewModel
     @State private var isShowingProjectInfo = false
     @State private var isShowingFiles = false
@@ -22,21 +20,15 @@ struct ChatView: View {
     init(
         project: Project,
         session: SessionMetadata,
-        environment: AppEnvironment,
-        onToggleSidebar: (() -> Void)? = nil
+        environment: AppEnvironment
     ) {
         self.project = project
-        self.onToggleSidebar = onToggleSidebar
         self.git = environment.git
         _model = State(initialValue: ChatViewModel(
             project: project,
             environment: environment,
             session: session
         ))
-    }
-
-    private var isSplitDetail: Bool {
-        onToggleSidebar != nil
     }
 
     private var subtitle: String {
@@ -50,14 +42,46 @@ struct ChatView: View {
         @Bindable var model = model
 
         VStack(spacing: 0) {
-            header
             messageList
             statusArea
             pendingAttachments
             composer(bindable: $model)
         }
         .background(Color(.systemBackground))
-        .toolbar(.hidden, for: .navigationBar)
+        .navigationTitle(model.title)
+        .navigationBarTitleDisplayMode(.inline)
+        .modifier(NavigationSubtitleModifier(subtitle: subtitle))
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    projectMenu
+                } label: {
+                    Image(systemName: "ellipsis")
+                }
+                .accessibilityLabel("More")
+            }
+        }
+        .alert("Project", isPresented: $isShowingProjectInfo) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(projectInfo)
+        }
+        .sheet(isPresented: $isShowingFiles) {
+            FileBrowserView(project: project)
+        }
+        .sheet(isPresented: $isShowingChanges) {
+            ChangesView(
+                project: project,
+                git: git,
+                canCommit: model.canCommit,
+                onCommit: {
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(350))
+                        model.prepareCommit()
+                    }
+                }
+            )
+        }
         .sheet(isPresented: $model.isShowingReview) {
             DiffReviewView(proposals: model.pendingProposals) { decisions in
                 model.resolve(decisions)
@@ -97,76 +121,6 @@ struct ChatView: View {
         }
         .onDisappear {
             model.cancelRun()
-        }
-    }
-
-    private var header: some View {
-        HStack(spacing: 12) {
-            Button {
-                leadingAction()
-            } label: {
-                headerIcon(isSplitDetail ? "line.3.horizontal" : "chevron.left")
-                    .frame(width: 40, height: 40)
-                    .background(Color(.systemBackground), in: Circle())
-                    .overlay(Circle().stroke(Color.primary.opacity(0.06), lineWidth: 1))
-                    .shadow(color: .black.opacity(0.06), radius: 10, y: 3)
-            }
-            .buttonStyle(.plain)
-
-            Spacer(minLength: 8)
-
-            VStack(spacing: 1) {
-                Text(model.title)
-                    .font(.footnote.weight(.medium))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-
-                Text(subtitle)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 6)
-            .background(Color(.secondarySystemBackground).opacity(0.7), in: Capsule())
-
-            Spacer(minLength: 8)
-
-            Menu {
-                projectMenu
-            } label: {
-                headerIcon("ellipsis")
-            }
-            .buttonStyle(.plain)
-            .frame(width: 40, height: 40)
-            .background(Color(.systemBackground), in: Capsule())
-            .overlay(Capsule().stroke(Color.primary.opacity(0.06), lineWidth: 1))
-            .shadow(color: .black.opacity(0.06), radius: 10, y: 3)
-        }
-        .padding(.horizontal, 16)
-        .padding(.top, 8)
-        .padding(.bottom, 4)
-        .alert("Project", isPresented: $isShowingProjectInfo) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(projectInfo)
-        }
-        .sheet(isPresented: $isShowingFiles) {
-            FileBrowserView(project: project)
-        }
-        .sheet(isPresented: $isShowingChanges) {
-            ChangesView(
-                project: project,
-                git: git,
-                canCommit: model.canCommit,
-                onCommit: {
-                    Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(350))
-                        model.prepareCommit()
-                    }
-                }
-            )
         }
     }
 
@@ -490,22 +444,6 @@ struct ChatView: View {
         }
     }
 
-    private func headerIcon(_ systemName: String) -> some View {
-        Image(systemName: systemName)
-            .font(.system(size: 16, weight: .medium))
-            .foregroundStyle(.primary)
-            .frame(width: 40, height: 40)
-            .contentShape(Rectangle())
-    }
-
-    private func leadingAction() {
-        if let onToggleSidebar {
-            onToggleSidebar()
-        } else {
-            dismiss()
-        }
-    }
-
     private var projectInfo: String {
         var lines = [
             "Name: \(project.name)",
@@ -551,5 +489,18 @@ struct ChatView: View {
         .background(color.opacity(0.08), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .padding(.horizontal, 16)
         .padding(.bottom, 4)
+    }
+}
+
+private struct NavigationSubtitleModifier: ViewModifier {
+    let subtitle: String
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content.navigationSubtitle(subtitle)
+        } else {
+            content
+        }
     }
 }
