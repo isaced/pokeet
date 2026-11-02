@@ -121,6 +121,8 @@ struct ProjectSessionsView: View {
                         createSession()
                     }
                     .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.capsule)
+                    .controlSize(.large)
                 }
             }
         }

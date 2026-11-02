@@ -34,6 +34,8 @@ struct ProjectsView: View {
                         isShowingNewProject = true
                     }
                     .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.capsule)
+                    .controlSize(.large)
                 }
             }
         }
