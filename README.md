@@ -7,7 +7,7 @@
 An agentic coding workshop in your pocket: a Claude Code-style agent that reads, writes and commits code — entirely on your iPhone. No computer needed.
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
-![iOS](https://img.shields.io/badge/iOS-17%2B-black)
+![iOS](https://img.shields.io/badge/iOS-18%2B-black)
 ![Status](https://img.shields.io/badge/status-early%20development-orange)
 
 > ⚠️ Pokeet is in early development. The demo below is the goal, not the reality — yet. We're building it in public; follow along.
@@ -29,7 +29,7 @@ Pokeet puts the whole loop on your iPhone:
 | 🌳 **Real git** | Clone, diff, commit, push — libgit2 on the phone, over HTTPS with a personal access token. |
 | 🖥️ **A virtual shell** | A curated set of shell commands for the agent, backed by the workspace. |
 | 🔍 **Diff-first review** | Every edit arrives as a diff card. Approve per hunk, per file. Nothing lands without your poke. |
-| 🔑 **Your key, your model** | Bring your own API key. Any OpenAI-compatible endpoint: DeepSeek, OpenAI, OpenRouter, your own gateway, or a local server. |
+| 🔑 **Your key, your model** | Bring your own API key. Add any number of providers — OpenAI, Anthropic, Gemini, or an OpenAI-compatible gateway/local server — each with its own key, base URL and model list. |
 | 🔒 **Local-first** | No Pokeet server. No account. Your code leaves your phone only through your own model requests and git push. |
 
 ## How a task flows
@@ -46,12 +46,23 @@ Pokeet:  🔧 revises, commits, pushes to GitHub
 ## Get started
 
 1. **Install**: TestFlight link (coming soon). Or build it yourself — it's open source.
-2. **Add a model**: Settings → Model → paste an API key (any OpenAI-compatible endpoint).
+2. **Add a model**: Settings → Manage providers → pick a template or add a provider. Choose an API format, base URL and key, then fetch the model list or add model IDs manually. Pick the active provider and model.
 3. **Poke it**: create a project — empty, or from an optional Git repository — then say what needs doing. Private repos use an HTTPS personal access token; SSH isn't supported yet.
+
+### Supported API formats
+
+| Format | Endpoint | Auth |
+|---|---|---|
+| OpenAI Chat Completions | `{base}/chat/completions` | `Authorization: Bearer` |
+| OpenAI Responses | `{base}/responses` | `Authorization: Bearer` |
+| Anthropic Messages | `{base}/messages` | `x-api-key` + `anthropic-version` |
+| Gemini generateContent | `{base}/models/{model}:generateContent` | `x-goog-api-key` |
+
+All four support streaming and tool calling. API keys are stored per provider in the iOS Keychain; provider and model settings live in `UserDefaults`.
 
 ## Development
 
-Requirements: Xcode 27+, Swift 6, and [XcodeGen](https://github.com/yonaskolb/XcodeGen). The generated project isn't checked in.
+Requirements: Xcode 27+, iOS 18+, Swift 6, and [XcodeGen](https://github.com/yonaskolb/XcodeGen). The generated project isn't checked in.
 
 ```sh
 xcodegen generate
