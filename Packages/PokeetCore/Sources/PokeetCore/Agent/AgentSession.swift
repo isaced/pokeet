@@ -6,6 +6,7 @@ public actor AgentSession {
     private let workspace: any Workspace
     private let config: AgentConfiguration
     private let compactor: ContextCompactor
+    private let summarizer: any ContextSummarizer
     private var messages: [ChatMessage]
 
     public init(
@@ -13,7 +14,8 @@ public actor AgentSession {
         workspace: any Workspace,
         tools: ToolRegistry = .standard,
         systemPrompt: String = AgentPrompts.system,
-        config: AgentConfiguration = AgentConfiguration()
+        config: AgentConfiguration = AgentConfiguration(),
+        summarizer: (any ContextSummarizer)? = nil
     ) {
         self.client = client
         self.registry = tools
@@ -24,6 +26,7 @@ public actor AgentSession {
             retainedTurns: config.retainedTurns,
             toolOutputCharacters: config.compactedToolOutputCharacters
         )
+        self.summarizer = summarizer ?? ModelContextSummarizer(client: client)
         self.messages = [.system(systemPrompt)]
     }
 
@@ -59,8 +62,9 @@ public actor AgentSession {
             }
             iteration += 1
 
+            let requestMessages = try await messagesForRequest(onEvent: onEvent)
             let request = ChatRequest(
-                messages: compactor.compact(messages),
+                messages: requestMessages,
                 tools: registry.schemas
             )
             var assistantContent = ""
@@ -220,6 +224,62 @@ public actor AgentSession {
                 messages.append(.tool(clip(content), callID: execution.call.id))
             }
         }
+    }
+
+    private func messagesForRequest(
+        onEvent: @escaping EventHandler
+    ) async throws -> [ChatMessage] {
+        guard let plan = compactor.plan(messages) else {
+            return messages
+        }
+        guard plan.hasMessagesToSummarize else {
+            return compactor.compact(messages)
+        }
+
+        if Task.isCancelled {
+            throw AgentError.cancelled
+        }
+
+        await onEvent(.contextCompactionStarted)
+
+        do {
+            let summary = try await summarizer.summarize(plan.messagesToSummarize)
+            applyCompaction(summary: summary, plan: plan)
+            await onEvent(.contextCompactionFinished(success: true))
+            return messages
+        } catch let error as ModelError {
+            if case .cancelled = error {
+                throw AgentError.cancelled
+            }
+            await onEvent(.contextCompactionFinished(success: false))
+            return compactor.compact(messages)
+        } catch is CancellationError {
+            throw AgentError.cancelled
+        } catch {
+            await onEvent(.contextCompactionFinished(success: false))
+            return compactor.compact(messages)
+        }
+    }
+
+    private func applyCompaction(summary: String, plan: CompactionPlan) {
+        var keptMessages = plan.keptMessages
+        let block = "[Context summary from earlier in this session. "
+            + "Earlier messages were compacted to fit the model window.]\n\n"
+            + "\(summary)\n\n"
+            + "[End of context summary]"
+
+        if let firstUserIndex = keptMessages.firstIndex(where: { $0.role == .user }) {
+            var message = keptMessages[firstUserIndex]
+            let existingContent = message.content ?? ""
+            message.content = existingContent.isEmpty
+                ? block
+                : block + "\n\n" + existingContent
+            keptMessages[firstUserIndex] = message
+        } else {
+            keptMessages.insert(.user(block), at: 0)
+        }
+
+        messages = plan.systemMessages + keptMessages
     }
 
     private func resultMessage(

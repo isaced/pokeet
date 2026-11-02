@@ -43,6 +43,30 @@ private struct DeltaStreamingClient: ModelClient {
     }
 }
 
+actor RecordingSummarizer: ContextSummarizer {
+    private let summary: String
+    private(set) var received: [[ChatMessage]] = []
+
+    init(summary: String) {
+        self.summary = summary
+    }
+
+    func summarize(_ messages: [ChatMessage]) async throws -> String {
+        received.append(messages)
+        return summary
+    }
+
+    func receivedMessages() -> [[ChatMessage]] {
+        received
+    }
+}
+
+struct FailingSummarizer: ContextSummarizer {
+    func summarize(_ messages: [ChatMessage]) async throws -> String {
+        throw ContextSummarizerError.emptySummary
+    }
+}
+
 actor EventRecorder {
     private(set) var events: [AgentEvent] = []
 
@@ -272,7 +296,7 @@ struct AgentLoopTests {
         #expect(history[2].content == "hello")
     }
 
-    @Test func compactsRestoredHistoryBeforeRequest() async throws {
+    @Test func compactsRestoredHistoryWithStructuredSummary() async throws {
         let directory = try TestDirectory()
         defer { directory.cleanup() }
 
@@ -286,6 +310,8 @@ struct AgentLoopTests {
         let client = ScriptedModelClient([
             ChatResponse(message: .assistant("done"), finishReason: "stop")
         ])
+        let summarizer = RecordingSummarizer(summary: "## Goal\nContinue the work")
+        let recorder = EventRecorder()
         let session = AgentSession(
             client: client,
             workspace: FileWorkspace(root: directory.url),
@@ -293,21 +319,85 @@ struct AgentLoopTests {
                 contextCharacterBudget: 2_000,
                 retainedTurns: 2,
                 compactedToolOutputCharacters: 100
-            )
+            ),
+            summarizer: summarizer
         )
         await session.restore(history)
 
-        try await session.send("hi", approval: { _ in [] }, onEvent: { _ in })
+        try await session.send(
+            "hi",
+            approval: { _ in [] },
+            onEvent: { await recorder.record($0) }
+        )
 
         let requests = await client.recordedRequests()
         let messages = requests.first?.messages ?? []
         let totalCharacters = messages.reduce(0) { $0 + ($1.content?.count ?? 0) }
 
+        #expect(requests.count == 1)
         #expect(messages.count < history.count)
         #expect(messages.first?.role == .system)
         #expect(messages.first?.content == AgentPrompts.system)
-        #expect(messages.contains { $0.role == .user && $0.content?.contains("Context compacted") == true })
+        #expect(messages.contains {
+            $0.role == .user && $0.content?.contains("## Goal\nContinue the work") == true
+        })
         #expect(totalCharacters <= 2_000)
+
+        let summarized = await summarizer.receivedMessages()
+        #expect(summarized.count == 1)
+        #expect(summarized.first?.contains {
+            $0.content?.contains("question 0") == true
+        } == true)
+
+        let events = await recorder.snapshot()
+        #expect(events.first == .contextCompactionStarted)
+        #expect(events.dropFirst().first == .contextCompactionFinished(success: true))
+    }
+
+    @Test func fallsBackToDeterministicCompactionWhenSummaryFails() async throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+
+        let filler = String(repeating: "x", count: 200)
+        var history: [ChatMessage] = [.system("old prompt")]
+        for index in 0..<20 {
+            history.append(.user("question \(index) \(filler)"))
+            history.append(.assistant("answer \(index) \(filler)"))
+        }
+
+        let client = ScriptedModelClient([
+            ChatResponse(message: .assistant("done"), finishReason: "stop")
+        ])
+        let recorder = EventRecorder()
+        let session = AgentSession(
+            client: client,
+            workspace: FileWorkspace(root: directory.url),
+            config: AgentConfiguration(
+                contextCharacterBudget: 2_000,
+                retainedTurns: 2,
+                compactedToolOutputCharacters: 100
+            ),
+            summarizer: FailingSummarizer()
+        )
+        await session.restore(history)
+
+        try await session.send(
+            "hi",
+            approval: { _ in [] },
+            onEvent: { await recorder.record($0) }
+        )
+
+        let requests = await client.recordedRequests()
+        let messages = requests.first?.messages ?? []
+
+        #expect(messages.first?.content == AgentPrompts.system)
+        #expect(messages.contains {
+            $0.role == .user && $0.content?.contains("Context compacted") == true
+        })
+
+        let events = await recorder.snapshot()
+        #expect(events.first == .contextCompactionStarted)
+        #expect(events.dropFirst().first == .contextCompactionFinished(success: false))
     }
 
     @Test func reportsUnknownTool() async throws {

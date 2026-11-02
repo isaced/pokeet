@@ -1,5 +1,28 @@
 import Foundation
 
+public struct CompactionPlan: Sendable {
+    public let systemMessages: [ChatMessage]
+    public let messagesToSummarize: [ChatMessage]
+    public let keptMessages: [ChatMessage]
+    public let omittedTurnCount: Int
+
+    public var hasMessagesToSummarize: Bool {
+        !messagesToSummarize.isEmpty
+    }
+
+    public init(
+        systemMessages: [ChatMessage],
+        messagesToSummarize: [ChatMessage],
+        keptMessages: [ChatMessage],
+        omittedTurnCount: Int
+    ) {
+        self.systemMessages = systemMessages
+        self.messagesToSummarize = messagesToSummarize
+        self.keptMessages = keptMessages
+        self.omittedTurnCount = omittedTurnCount
+    }
+}
+
 public struct ContextCompactor: Sendable {
     public let maxCharacters: Int
     public let retainedTurns: Int
@@ -15,12 +38,15 @@ public struct ContextCompactor: Sendable {
         self.toolOutputCharacters = max(1, toolOutputCharacters)
     }
 
-    public func compact(_ messages: [ChatMessage]) -> [ChatMessage] {
+    /// Returns a plan when the history exceeds the character budget, otherwise nil.
+    /// Summarizable messages are the older turns; kept messages are recent turns
+    /// with oversized tool output already truncated.
+    public func plan(_ messages: [ChatMessage]) -> CompactionPlan? {
         let systemMessages = messages.filter { $0.role == .system }
         let conversation = messages.filter { $0.role != .system }
 
-        guard !conversation.isEmpty else { return messages }
-        guard characterCount(of: messages) > maxCharacters else { return messages }
+        guard !conversation.isEmpty else { return nil }
+        guard characterCount(of: messages) > maxCharacters else { return nil }
 
         let turns = makeTurns(from: conversation)
         var keptTurns = Array(turns.suffix(retainedTurns))
@@ -39,19 +65,35 @@ public struct ContextCompactor: Sendable {
             compactedTurns.removeFirst()
         }
 
-        let omittedTurns = max(0, turns.count - compactedTurns.count)
+        let omittedTurnCount = max(0, turns.count - compactedTurns.count)
+        let messagesToSummarize = turns
+            .prefix(omittedTurnCount)
+            .flatMap { $0 }
+
+        return CompactionPlan(
+            systemMessages: systemMessages,
+            messagesToSummarize: messagesToSummarize,
+            keptMessages: compactedTurns.flatMap { $0 },
+            omittedTurnCount: omittedTurnCount
+        )
+    }
+
+    /// Deterministic fallback: drop older turns and truncate large tool output
+    /// without asking the model for a summary.
+    public func compact(_ messages: [ChatMessage]) -> [ChatMessage] {
+        guard let plan = plan(messages) else { return messages }
+
+        var keptMessages = plan.keptMessages
         let note: String
 
-        if omittedTurns > 0 {
+        if plan.omittedTurnCount > 0 {
             note = "[Context compacted to fit the model window. "
-                + "\(omittedTurns) older turn(s) were omitted and large outputs may be truncated. "
+                + "\(plan.omittedTurnCount) older turn(s) were omitted and large outputs may be truncated. "
                 + "Re-read files if you need details.]"
         } else {
             note = "[Context compacted to fit the model window. "
                 + "Large outputs were truncated. Re-read files if you need details.]"
         }
-
-        var keptMessages = compactedTurns.flatMap { $0 }
 
         if let firstUserIndex = keptMessages.firstIndex(where: { $0.role == .user }) {
             var message = keptMessages[firstUserIndex]
@@ -65,7 +107,7 @@ public struct ContextCompactor: Sendable {
         }
 
         // Keep the system prompt untouched so the provider's prefix cache stays warm.
-        return systemMessages + keptMessages
+        return plan.systemMessages + keptMessages
     }
 
     private func makeTurns(from messages: [ChatMessage]) -> [[ChatMessage]] {

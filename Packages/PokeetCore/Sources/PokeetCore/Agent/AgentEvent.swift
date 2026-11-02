@@ -1,6 +1,8 @@
 import Foundation
 
 public enum AgentEvent: Sendable, Equatable {
+    case contextCompactionStarted
+    case contextCompactionFinished(success: Bool)
     case assistantReasoningDelta(String)
     case assistantTextDelta(String)
     case assistantMessage(String)

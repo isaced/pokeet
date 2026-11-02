@@ -17,6 +17,47 @@ struct ContextCompactorTests {
         #expect(compactor.compact(messages) == messages)
     }
 
+    @Test func planReturnsNilWhenHistoryFits() {
+        let messages: [ChatMessage] = [
+            .system("sys"),
+            .user("hi"),
+            .assistant("hello")
+        ]
+        let compactor = ContextCompactor(
+            maxCharacters: 1_000,
+            retainedTurns: 10,
+            toolOutputCharacters: 100
+        )
+
+        #expect(compactor.plan(messages) == nil)
+    }
+
+    @Test func planSplitsOlderAndKeptMessages() throws {
+        let filler = String(repeating: "x", count: 200)
+        let messages: [ChatMessage] = [
+            .system("sys"),
+            .user("old \(filler)"),
+            .assistant("old answer \(filler)"),
+            .user("middle \(filler)"),
+            .assistant("middle answer \(filler)"),
+            .user("latest question"),
+            .assistant("latest answer")
+        ]
+        let compactor = ContextCompactor(
+            maxCharacters: 700,
+            retainedTurns: 2,
+            toolOutputCharacters: 100
+        )
+
+        let plan = try #require(compactor.plan(messages))
+
+        #expect(plan.systemMessages == [.system("sys")])
+        #expect(plan.messagesToSummarize.contains { $0.content?.contains("old ") == true })
+        #expect(plan.keptMessages.contains { $0.content == "latest question" })
+        #expect(plan.keptMessages.contains { $0.content?.contains("middle ") == true })
+        #expect(plan.omittedTurnCount == 1)
+    }
+
     @Test func dropsOldTurnsAndKeepsRecentOnes() {
         let filler = String(repeating: "x", count: 200)
         let messages: [ChatMessage] = [
