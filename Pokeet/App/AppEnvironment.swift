@@ -8,7 +8,7 @@ final class AppEnvironment {
     let settings: AppSettings
     let projects: ProjectStore
     let sessions: SessionStore
-    let git: any GitServicing
+    let git: any GitServicing & GitInspecting
 
     init() {
         settings = AppSettings()

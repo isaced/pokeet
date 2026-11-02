@@ -69,7 +69,8 @@ final class ChatViewModel {
             )
         self.session = AgentSession(
             client: client,
-            workspace: FileWorkspace(root: project.directory)
+            workspace: FileWorkspace(root: project.directory),
+            git: project.isGitRepository ? environment.git : nil
         )
 
         coordinator.onPending = { [weak self] proposals in

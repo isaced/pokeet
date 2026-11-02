@@ -2,7 +2,131 @@ import Foundation
 import PokeetCore
 import SwiftGitX
 
-actor SwiftGitXGitService: GitServicing {
+actor SwiftGitXGitService: GitServicing, GitInspecting {
+    nonisolated func isRepository(at root: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        let path = root.appendingPathComponent(".git").path
+        return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
+    }
+
+    func workingTreeStatus(at root: URL) async throws -> [GitFileStatus] {
+        let repository = try open(root)
+        do {
+            return try repository.status().compactMap(inspectFileStatus(from:))
+        } catch {
+            throw GitServiceError.openFailed(sanitizedMessage(error, token: nil))
+        }
+    }
+
+    func diff(at root: URL, path: String?, staged: Bool) async throws -> String {
+        let repository = try open(root)
+        do {
+            let diff = try repository.diff(to: staged ? .index : .workingTree)
+            let patches = diff.patches.filter { patch in
+                guard let path, !path.isEmpty else { return true }
+                return matches(patch: patch, path: path)
+            }
+            return render(patches: patches)
+        } catch {
+            throw GitServiceError.openFailed(sanitizedMessage(error, token: nil))
+        }
+    }
+
+    func log(at root: URL, limit: Int) async throws -> [GitCommitInfo] {
+        let repository = try open(root)
+        do {
+            guard !repository.isHEADUnborn else { return [] }
+            return try repository.log()
+                .prefix(max(1, limit))
+                .map { commit in
+                    GitCommitInfo(
+                        hash: commit.id.hex,
+                        author: commit.author.name,
+                        date: commit.date,
+                        subject: commit.summary
+                    )
+                }
+        } catch {
+            throw GitServiceError.openFailed(sanitizedMessage(error, token: nil))
+        }
+    }
+
+    private func inspectFileStatus(from entry: StatusEntry) -> GitFileStatus? {
+        let delta = entry.workingTree ?? entry.index
+        let path = delta?.newFile.path.isEmpty == false
+            ? delta?.newFile.path
+            : delta?.oldFile.path
+        guard let path, !path.isEmpty else { return nil }
+
+        var state = "modified"
+        for status in entry.status {
+            switch status {
+            case .workingTreeDeleted, .indexDeleted:
+                state = "deleted"
+            case .workingTreeNew, .indexNew:
+                state = "new"
+            case .workingTreeRenamed, .indexRenamed:
+                state = "renamed"
+            case .conflicted:
+                state = "conflicted"
+            case .workingTreeTypeChange, .indexTypeChange:
+                state = "modified"
+            default:
+                break
+            }
+        }
+
+        return GitFileStatus(path: path, state: state)
+    }
+
+    private func matches(patch: Patch, path: String) -> Bool {
+        let candidates = [patch.delta.oldFile.path, patch.delta.newFile.path]
+        return candidates.contains { candidate in
+            candidate == path || candidate.hasPrefix(path.hasSuffix("/") ? path : path + "/")
+        }
+    }
+
+    private func render(patches: [Patch]) -> String {
+        var lines: [String] = []
+
+        for patch in patches {
+            let oldPath = patch.delta.oldFile.path
+            let newPath = patch.delta.newFile.path
+            let displayPath = newPath.isEmpty ? oldPath : newPath
+
+            lines.append("diff --git a/\(oldPath.isEmpty ? displayPath : oldPath) b/\(newPath.isEmpty ? displayPath : newPath)")
+            lines.append("--- \(patch.delta.type == .added || oldPath.isEmpty ? "/dev/null" : "a/" + oldPath)")
+            lines.append("+++ \(patch.delta.type == .deleted || newPath.isEmpty ? "/dev/null" : "b/" + newPath)")
+
+            if patch.hunks.isEmpty {
+                lines.append("Binary or metadata-only change.")
+                continue
+            }
+
+            for hunk in patch.hunks {
+                lines.append(hunk.header.trimmingCharacters(in: .newlines))
+                for line in hunk.lines {
+                    let prefix: String
+                    switch line.type {
+                    case .context, .contextEOF:
+                        prefix = " "
+                    case .addition, .additionEOF:
+                        prefix = "+"
+                    case .deletion, .deletionEOF:
+                        prefix = "-"
+                    }
+
+                    var text = line.content
+                    if text.hasSuffix("\n") {
+                        text.removeLast()
+                    }
+                    lines.append(prefix + text)
+                }
+            }
+        }
+
+        return lines.joined(separator: "\n")
+    }
     func clone(
         _ spec: GitRemoteSpec,
         to directory: URL,
