@@ -240,6 +240,16 @@ final class ChatViewModel {
 
     private func handle(_ event: AgentEvent) {
         switch event {
+        case .contextCompactionStarted:
+            status = "Compacting context…"
+        case .contextCompactionFinished(let success):
+            status = "Thinking…"
+            bubbles.append(Bubble(
+                role: .tool,
+                text: success
+                    ? "Context summarized to fit the model window."
+                    : "Context summary failed; using truncation."
+            ))
         case .assistantReasoningDelta(let delta):
             appendReasoningDelta(delta)
             status = nil
