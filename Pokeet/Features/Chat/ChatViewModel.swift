@@ -160,6 +160,15 @@ final class ChatViewModel {
         }
     }
 
+    var activeModelLabel: String? {
+        guard let provider = environment.settings.activeProvider,
+              let modelID = provider.effectiveModelID
+        else {
+            return nil
+        }
+        return provider.models.first(where: { $0.id == modelID })?.label ?? modelID
+    }
+
     var canCommit: Bool {
         project.isGitRepository
             && hasChanges

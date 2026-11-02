@@ -345,12 +345,15 @@ struct ChatView: View {
                     isShowingModelPicker = true
                 } label: {
                     HStack(spacing: 5) {
-                        Text("Model")
+                        Text(model.activeModelLabel ?? "Model")
                             .font(.subheadline.weight(.medium))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .frame(maxWidth: 200, alignment: .leading)
                         Image(systemName: "chevron.down")
                             .font(.caption2.weight(.semibold))
                     }
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(.secondary)
                     .padding(.vertical, 6)
                     .contentShape(Rectangle())
                 }
