@@ -7,6 +7,8 @@ public struct GrepTool: AgentTool {
 
     public init() {}
 
+    public var capabilities: Set<ToolCapability> { [.readFiles] }
+
     public var schema: ToolSchema {
         ToolSchema(
             name: "grep",

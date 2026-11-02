@@ -3,6 +3,8 @@ import Foundation
 public struct GitDiffTool: AgentTool {
     public init() {}
 
+    public var capabilities: Set<ToolCapability> { [.gitRead] }
+
     public var schema: ToolSchema {
         ToolSchema(
             name: "git_diff",

@@ -664,3 +664,202 @@ struct AgentLoopTests {
         #expect(hasFailure)
     }
 }
+
+struct AgentModeLoopTests {
+    @Test func planModeHidesWriteToolsAndDeniesCalls() async throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+        try directory.write("README.md", "old\n")
+
+        let workspace = FileWorkspace(root: directory.url)
+        let client = ScriptedModelClient([
+            toolCall(
+                name: "write_file",
+                arguments: #"{"path":"README.md","content":"new\n"}"#
+            ),
+            ChatResponse(message: .assistant("Plan ready."), finishReason: "stop")
+        ])
+        let session = AgentSession(client: client, workspace: workspace, mode: .plan)
+        let recorder = EventRecorder()
+        let approvalCalls = LockedBox(0)
+
+        try await session.send(
+            "update readme",
+            approval: { proposals in
+                approvalCalls.set(approvalCalls.get() + 1)
+                return proposals.map { .acceptAll(proposalID: $0.id) }
+            },
+            onEvent: { await recorder.record($0) }
+        )
+
+        #expect(try workspace.read("README.md", maxBytes: 1000) == "old\n")
+        #expect(approvalCalls.get() == 0)
+
+        let requests = await client.recordedRequests()
+        let toolNames = Set(requests[0].tools.map(\.name))
+        #expect(!toolNames.contains("write_file"))
+        #expect(toolNames.contains("read_file"))
+        #expect(requests[0].messages.first?.content?.contains("Current mode: Plan") == true)
+
+        let toolMessage = requests[1].messages.last { $0.role == .tool }
+        #expect(toolMessage?.content?.contains("disabled in Plan mode") == true)
+
+        let events = await recorder.snapshot()
+        #expect(!hasProposalsPending(events))
+    }
+
+    @Test func autoModeAppliesSafeChangesWithoutApproval() async throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+        try directory.write("README.md", "old\n")
+
+        let workspace = FileWorkspace(root: directory.url)
+        let client = ScriptedModelClient([
+            toolCall(
+                name: "write_file",
+                arguments: #"{"path":"README.md","content":"new\n"}"#
+            ),
+            ChatResponse(message: .assistant("Updated."), finishReason: "stop")
+        ])
+        let session = AgentSession(client: client, workspace: workspace, mode: .auto)
+        let recorder = EventRecorder()
+        let approvalCalls = LockedBox(0)
+
+        try await session.send(
+            "update readme",
+            approval: { proposals in
+                approvalCalls.set(approvalCalls.get() + 1)
+                return proposals.map { .acceptAll(proposalID: $0.id) }
+            },
+            onEvent: { await recorder.record($0) }
+        )
+
+        #expect(try workspace.read("README.md", maxBytes: 1000) == "new\n")
+        #expect(approvalCalls.get() == 0)
+
+        let events = await recorder.snapshot()
+        #expect(!hasProposalsPending(events))
+        let changes = appliedChanges(events)
+        #expect(changes.count == 1)
+        #expect(changes.first?.didWrite == true)
+
+        let requests = await client.recordedRequests()
+        let toolMessage = requests[1].messages.last { $0.role == .tool }
+        #expect(toolMessage?.content?.contains("Applied change to README.md") == true)
+        #expect(requests[0].messages.first?.content?.contains("Current mode: Auto") == true)
+    }
+
+    @Test func autoModeReviewsDeleteAndMove() async throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+        try directory.write("temp.txt", "bye\n")
+
+        let workspace = FileWorkspace(root: directory.url)
+        let client = ScriptedModelClient([
+            toolCall(name: "delete_file", arguments: #"{"path":"temp.txt"}"#),
+            ChatResponse(message: .assistant("Deleted."), finishReason: "stop")
+        ])
+        let session = AgentSession(client: client, workspace: workspace, mode: .auto)
+        let recorder = EventRecorder()
+        let approvalCalls = LockedBox(0)
+        let reviewedKinds = LockedBox<[FileProposal.Kind]>([])
+
+        try await session.send(
+            "delete temp",
+            approval: { proposals in
+                approvalCalls.set(approvalCalls.get() + 1)
+                reviewedKinds.set(proposals.map(\.kind))
+                return proposals.map { .acceptAll(proposalID: $0.id) }
+            },
+            onEvent: { await recorder.record($0) }
+        )
+
+        #expect(!workspace.exists("temp.txt"))
+        #expect(approvalCalls.get() == 1)
+        #expect(reviewedKinds.get() == [.delete])
+
+        let events = await recorder.snapshot()
+        #expect(hasProposalsPending(events))
+        #expect(appliedChanges(events).contains { $0.didWrite })
+    }
+
+    @Test func bypassModeAppliesDestructiveChangesWithoutApproval() async throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+        try directory.write("temp.txt", "bye\n")
+
+        let workspace = FileWorkspace(root: directory.url)
+        let client = ScriptedModelClient([
+            toolCall(name: "delete_file", arguments: #"{"path":"temp.txt"}"#),
+            ChatResponse(message: .assistant("Deleted."), finishReason: "stop")
+        ])
+        let session = AgentSession(client: client, workspace: workspace, mode: .bypass)
+        let recorder = EventRecorder()
+        let approvalCalls = LockedBox(0)
+
+        try await session.send(
+            "delete temp",
+            approval: { proposals in
+                approvalCalls.set(approvalCalls.get() + 1)
+                return proposals.map { .acceptAll(proposalID: $0.id) }
+            },
+            onEvent: { await recorder.record($0) }
+        )
+
+        #expect(!workspace.exists("temp.txt"))
+        #expect(approvalCalls.get() == 0)
+
+        let events = await recorder.snapshot()
+        #expect(!hasProposalsPending(events))
+        #expect(appliedChanges(events).contains { $0.didWrite })
+        #expect(requestsContainBypassGuidance(await client.recordedRequests()))
+    }
+
+    @Test func setModeRebuildsSystemPrompt() async throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+
+        let client = ScriptedModelClient([
+            ChatResponse(message: .assistant("Plan ready."), finishReason: "stop")
+        ])
+        let session = AgentSession(
+            client: client,
+            workspace: FileWorkspace(root: directory.url),
+            mode: .ask
+        )
+
+        #expect(await session.currentMode == .ask)
+        await session.setMode(.plan)
+        #expect(await session.currentMode == .plan)
+
+        try await session.send(
+            "plan",
+            approval: { _ in [] },
+            onEvent: { _ in }
+        )
+
+        let requests = await client.recordedRequests()
+        #expect(requests[0].messages.first?.content?.contains("Current mode: Plan") == true)
+        #expect(requests[0].messages.first?.content?.hasPrefix(AgentPrompts.system) == true)
+    }
+
+    private func hasProposalsPending(_ events: [AgentEvent]) -> Bool {
+        events.contains {
+            if case .proposalsPending = $0 { return true }
+            return false
+        }
+    }
+
+    private func appliedChanges(_ events: [AgentEvent]) -> [AppliedChange] {
+        events.flatMap { event -> [AppliedChange] in
+            if case .changesApplied(let changes) = event {
+                return changes
+            }
+            return []
+        }
+    }
+
+    private func requestsContainBypassGuidance(_ requests: [ChatRequest]) -> Bool {
+        requests.first?.messages.first?.content?.contains("Current mode: Bypass") == true
+    }
+}

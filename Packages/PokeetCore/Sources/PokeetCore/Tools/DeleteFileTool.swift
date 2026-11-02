@@ -3,6 +3,8 @@ import Foundation
 public struct DeleteFileTool: AgentTool {
     public init() {}
 
+    public var capabilities: Set<ToolCapability> { [.writeFiles] }
+
     public var schema: ToolSchema {
         ToolSchema(
             name: "delete_file",

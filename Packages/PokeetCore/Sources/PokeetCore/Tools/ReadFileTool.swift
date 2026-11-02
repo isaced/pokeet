@@ -3,6 +3,8 @@ import Foundation
 public struct ReadFileTool: AgentTool {
     public init() {}
 
+    public var capabilities: Set<ToolCapability> { [.readFiles] }
+
     public var schema: ToolSchema {
         ToolSchema(
             name: "read_file",

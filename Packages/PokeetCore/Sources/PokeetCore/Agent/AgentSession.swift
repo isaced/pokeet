@@ -10,6 +10,8 @@ public actor AgentSession {
     private let compactor: ContextCompactor
     private let summarizer: any ContextSummarizer
     private let instructions: ProjectInstructions
+    private var baseSystemPrompt: String
+    private var mode: AgentMode
     private var messages: [ChatMessage]
 
     public init(
@@ -19,6 +21,7 @@ public actor AgentSession {
         sessionID: String? = nil,
         tools: ToolRegistry = .standard,
         systemPrompt: String = AgentPrompts.system,
+        mode: AgentMode = .ask,
         config: AgentConfiguration = AgentConfiguration(),
         summarizer: (any ContextSummarizer)? = nil
     ) {
@@ -38,7 +41,9 @@ public actor AgentSession {
             sessionID: sessionID
         )
         self.instructions = ProjectInstructions.load(from: workspace)
-        self.messages = [.system(instructions.compose(with: systemPrompt))]
+        self.baseSystemPrompt = systemPrompt
+        self.mode = mode
+        self.messages = [.system(instructions.compose(with: systemPrompt + mode.promptGuidance))]
     }
 
     public var history: [ChatMessage] {
@@ -49,13 +54,33 @@ public actor AgentSession {
         instructions
     }
 
+    public var currentMode: AgentMode {
+        mode
+    }
+
+    public func setMode(_ mode: AgentMode) {
+        guard self.mode != mode else { return }
+        self.mode = mode
+        if messages.isEmpty {
+            messages = [systemMessage]
+        } else {
+            messages[0] = systemMessage
+        }
+    }
+
     public func reset(systemPrompt: String = AgentPrompts.system) {
-        messages = [.system(instructions.compose(with: systemPrompt))]
+        baseSystemPrompt = systemPrompt
+        messages = [systemMessage]
     }
 
     public func restore(_ history: [ChatMessage], systemPrompt: String = AgentPrompts.system) {
-        messages = [.system(instructions.compose(with: systemPrompt))]
+        baseSystemPrompt = systemPrompt
+        messages = [systemMessage]
             + history.filter { $0.role != .system }
+    }
+
+    private var systemMessage: ChatMessage {
+        .system(instructions.compose(with: baseSystemPrompt + mode.promptGuidance))
     }
 
     public func send(
@@ -64,6 +89,8 @@ public actor AgentSession {
         approval: @escaping ApprovalHandler,
         onEvent: @escaping EventHandler
     ) async throws {
+        let activeMode = mode
+        let activeRegistry = registry.filtered(for: mode)
         messages.append(ChatMessage(
             role: .user,
             content: text.isEmpty ? nil : text,
@@ -86,7 +113,7 @@ public actor AgentSession {
 
             var request = ChatRequest(
                 messages: try await messagesForRequest(onEvent: onEvent),
-                tools: registry.schemas,
+                tools: activeRegistry.schemas,
                 sessionID: sessionID
             )
             var retryAttempt = 0
@@ -107,7 +134,7 @@ public actor AgentSession {
                             try await compactForOverflow(onEvent: onEvent)
                             request = ChatRequest(
                                 messages: messages,
-                                tools: registry.schemas,
+                                tools: activeRegistry.schemas,
                                 sessionID: sessionID
                             )
                             continue
@@ -199,6 +226,14 @@ public actor AgentSession {
                     continue
                 }
 
+                guard activeMode.allows(tool.capabilities) else {
+                    let message = "Error: '\(call.name)' is disabled in \(activeMode.displayName) mode. "
+                        + "Investigate with read-only tools and present a plan; switch modes to apply changes."
+                    executions.append(ToolExecution(call: call, content: message))
+                    await onEvent(.toolFinished(name: call.name, summary: message))
+                    continue
+                }
+
                 do {
                     let output = try await tool.execute(
                         arguments: Data(call.arguments.utf8),
@@ -229,9 +264,27 @@ public actor AgentSession {
             var proposalResults: [UUID: String] = [:]
             if !proposalsByPath.isEmpty {
                 let pending = proposalsByPath.values.sorted { $0.path < $1.path }
-                await onEvent(.proposalsPending(pending))
+                var decisions: [ProposalDecision] = []
 
-                let decisions = await approval(pending)
+                switch activeMode.approvalPolicy {
+                case .review:
+                    await onEvent(.proposalsPending(pending))
+                    decisions = await approval(pending)
+                case .autoApplySafe:
+                    let risky = pending.filter { $0.kind == .delete || $0.kind == .move }
+                    decisions = pending
+                        .filter { $0.kind == .create || $0.kind == .update }
+                        .map { .acceptAll(proposalID: $0.id) }
+                    if !risky.isEmpty {
+                        await onEvent(.proposalsPending(risky))
+                        decisions += await approval(risky)
+                    }
+                case .autoApplyAll:
+                    decisions = pending.map { .acceptAll(proposalID: $0.id) }
+                case .deny:
+                    decisions = pending.map { .reject(proposalID: $0.id) }
+                }
+
                 if Task.isCancelled {
                     throw AgentError.cancelled
                 }
@@ -240,6 +293,7 @@ public actor AgentSession {
                     uniqueKeysWithValues: decisions.map { ($0.proposalID, $0) }
                 )
 
+                var changes: [AppliedChange] = []
                 for proposal in pending {
                     let decision = decisionsByID[proposal.id]
                         ?? .reject(proposalID: proposal.id)
@@ -250,16 +304,32 @@ public actor AgentSession {
                             decision: decision,
                             in: workspace
                         )
-                        proposalResults[proposal.id] = resultMessage(
+                        let message = resultMessage(
                             for: proposal,
                             decision: decision,
                             application: application
                         )
+                        proposalResults[proposal.id] = message
+                        changes.append(AppliedChange(
+                            path: proposal.path,
+                            didWrite: application.didWrite,
+                            message: message
+                        ))
                     } catch {
-                        let message = (error as? LocalizedError)?.errorDescription
+                        let detail = (error as? LocalizedError)?.errorDescription
                             ?? error.localizedDescription
-                        proposalResults[proposal.id] = "Error applying change to \(proposal.path): \(message)"
+                        let message = "Error applying change to \(proposal.path): \(detail)"
+                        proposalResults[proposal.id] = message
+                        changes.append(AppliedChange(
+                            path: proposal.path,
+                            didWrite: false,
+                            message: message
+                        ))
                     }
+                }
+
+                if !changes.isEmpty {
+                    await onEvent(.changesApplied(changes))
                 }
             }
 

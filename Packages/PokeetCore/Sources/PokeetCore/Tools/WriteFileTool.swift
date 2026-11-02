@@ -3,6 +3,8 @@ import Foundation
 public struct WriteFileTool: AgentTool {
     public init() {}
 
+    public var capabilities: Set<ToolCapability> { [.writeFiles] }
+
     public var schema: ToolSchema {
         ToolSchema(
             name: "write_file",

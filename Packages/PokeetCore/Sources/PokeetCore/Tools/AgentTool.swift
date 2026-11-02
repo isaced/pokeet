@@ -20,8 +20,16 @@ public struct ToolContext: Sendable {
     }
 }
 
+public enum ToolCapability: String, Sendable, Hashable, CaseIterable {
+    case readFiles
+    case writeFiles
+    case gitRead
+    case network
+}
+
 public protocol AgentTool: Sendable {
     var schema: ToolSchema { get }
+    var capabilities: Set<ToolCapability> { get }
     func execute(arguments: Data, context: ToolContext) async throws -> ToolOutput
 }
 
@@ -55,6 +63,10 @@ public struct ToolRegistry: Sendable {
 
     public func tool(named name: String) -> (any AgentTool)? {
         tools.first { $0.schema.name == name }
+    }
+
+    public func filtered(for mode: AgentMode) -> ToolRegistry {
+        ToolRegistry(tools.filter { $0.capabilities.isSubset(of: mode.allowedCapabilities) })
     }
 }
 

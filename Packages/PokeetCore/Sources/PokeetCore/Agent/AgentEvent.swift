@@ -1,5 +1,17 @@
 import Foundation
 
+public struct AppliedChange: Sendable, Equatable {
+    public let path: String
+    public let didWrite: Bool
+    public let message: String
+
+    public init(path: String, didWrite: Bool, message: String) {
+        self.path = path
+        self.didWrite = didWrite
+        self.message = message
+    }
+}
+
 public enum AgentEvent: Sendable, Equatable {
     case contextCompactionStarted
     case contextCompactionFinished(success: Bool)
@@ -12,6 +24,7 @@ public enum AgentEvent: Sendable, Equatable {
     case toolStarted(String)
     case toolFinished(name: String, summary: String)
     case proposalsPending([FileProposal])
+    case changesApplied([AppliedChange])
     case finished
     case failed(String)
 }

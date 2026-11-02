@@ -43,6 +43,8 @@ public struct HTTPRequestTool: AgentTool {
         self.limits = limits
     }
 
+    public var capabilities: Set<ToolCapability> { [.network] }
+
     public var schema: ToolSchema {
         ToolSchema(
             name: Self.toolName,
