@@ -13,6 +13,7 @@ struct ChatView: View {
     @State private var isShowingFiles = false
     @State private var isShowingChanges = false
     @State private var isShowingFilePicker = false
+    @State private var isShowingModelPicker = false
     @State private var isShowingPhotoPicker = false
     @State private var photoPickerItems: [PhotosPickerItem] = []
     private let git: any GitInspecting
@@ -76,6 +77,11 @@ struct ChatView: View {
                 loadContextFile(path)
             }
         }
+        .sheet(isPresented: $isShowingModelPicker) {
+            ModelPickerView { provider, selectedModel in
+                model.banner = "Using \(selectedModel.label) · \(provider.name)"
+            }
+        }
         .photosPicker(
             isPresented: $isShowingPhotoPicker,
             selection: $photoPickerItems,
@@ -123,6 +129,9 @@ struct ChatView: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 6)
+            .background(Color(.secondarySystemBackground).opacity(0.7), in: Capsule())
 
             Spacer(minLength: 8)
 
@@ -313,49 +322,72 @@ struct ChatView: View {
     }
 
     private func composer(bindable: Bindable<ChatViewModel>) -> some View {
-        HStack(spacing: 10) {
-            Menu {
-                composerMenu
-            } label: {
-                Image(systemName: "plus")
-                    .font(.system(size: 17, weight: .medium))
-                    .foregroundStyle(.primary)
-                    .frame(width: 34, height: 34)
-                    .background(Color(.secondarySystemBackground), in: Circle())
-            }
-            .tint(.primary)
-
-            TextField("Ask Pokeet", text: bindable.input, axis: .vertical)
-                .lineLimit(1...5)
+        VStack(alignment: .leading, spacing: 10) {
+            TextField("Message", text: bindable.input, axis: .vertical)
+                .lineLimit(1...6)
                 .textFieldStyle(.plain)
                 .disabled(model.isRunning)
+                .padding(.horizontal, 16)
+                .padding(.top, 14)
 
-            if model.isRunning {
-                Button {
-                    model.cancelRun()
+            HStack(spacing: 14) {
+                Menu {
+                    composerMenu
                 } label: {
-                    sendButton(icon: "stop.fill", enabled: true)
+                    Image(systemName: "plus")
+                        .font(.system(size: 20, weight: .regular))
+                        .foregroundStyle(.primary)
+                        .frame(width: 32, height: 32)
+                        .contentShape(Rectangle())
                 }
-                .accessibilityLabel("Stop")
-            } else {
+                .tint(.primary)
+                .accessibilityLabel("Add")
+
                 Button {
-                    model.send()
+                    isShowingModelPicker = true
                 } label: {
-                    sendButton(icon: "arrow.up", enabled: canSend)
+                    HStack(spacing: 5) {
+                        Text("Model")
+                            .font(.subheadline.weight(.medium))
+                        Image(systemName: "chevron.down")
+                            .font(.caption2.weight(.semibold))
+                    }
+                    .foregroundStyle(.primary)
+                    .padding(.vertical, 6)
+                    .contentShape(Rectangle())
                 }
-                .disabled(!canSend)
-                .accessibilityLabel("Send")
+                .buttonStyle(.plain)
+                .disabled(model.isRunning)
+                .accessibilityLabel("Choose model")
+
+                Spacer(minLength: 8)
+
+                if model.isRunning {
+                    Button {
+                        model.cancelRun()
+                    } label: {
+                        sendButton(icon: "stop.fill", enabled: true)
+                    }
+                    .accessibilityLabel("Stop")
+                } else {
+                    Button {
+                        model.send()
+                    } label: {
+                        sendButton(icon: "arrow.up", enabled: canSend)
+                    }
+                    .disabled(!canSend)
+                    .accessibilityLabel("Send")
+                }
             }
+            .padding(.horizontal, 12)
+            .padding(.bottom, 10)
         }
-        .padding(.leading, 8)
-        .padding(.trailing, 6)
-        .padding(.vertical, 6)
         .background(
             Color(.systemBackground),
-            in: RoundedRectangle(cornerRadius: 26, style: .continuous)
+            in: RoundedRectangle(cornerRadius: 24, style: .continuous)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .stroke(Color.primary.opacity(0.06), lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.08), radius: 14, y: 4)
