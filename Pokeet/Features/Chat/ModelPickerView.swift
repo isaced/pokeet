@@ -59,7 +59,7 @@ struct ModelPickerView: View {
         VStack(spacing: 0) {
             header
                 .padding(.horizontal, 16)
-                .padding(.top, 14)
+                .padding(.top, 24)
 
             searchField
                 .padding(.horizontal, 16)
@@ -90,7 +90,7 @@ struct ModelPickerView: View {
                 }
             }
         }
-        .background(Color(.systemGroupedBackground))
+        .presentationBackground(.regularMaterial)
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
     }
@@ -101,9 +101,17 @@ struct ModelPickerView: View {
                 .font(.headline)
 
             HStack {
-                Button("Cancel") {
+                Button {
                     dismiss()
+                } label: {
+                    Text("Cancel")
+                        .font(.body.weight(.medium))
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 11)
+                        .contentShape(Capsule())
                 }
+                .buttonStyle(.plain)
+                .modifier(LiquidGlassCapsule())
 
                 Spacer()
 
@@ -130,8 +138,13 @@ struct ModelPickerView: View {
                         Image(systemName: "chevron.up.chevron.down")
                             .font(.caption2)
                     }
-                    .font(.subheadline.weight(.medium))
+                    .font(.body.weight(.medium))
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 11)
+                    .contentShape(Capsule())
                 }
+                .buttonStyle(.plain)
+                .modifier(LiquidGlassCapsule())
             }
         }
     }
@@ -208,5 +221,16 @@ struct ModelPickerView: View {
         environment.settings.setActiveProvider(option.provider.id)
         environment.settings.setDefaultModel(option.model.id, for: option.provider.id)
         dismiss()
+    }
+}
+
+private struct LiquidGlassCapsule: ViewModifier {
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content.glassEffect(.regular.interactive(), in: .capsule)
+        } else {
+            content.background(.ultraThinMaterial, in: Capsule())
+        }
     }
 }
