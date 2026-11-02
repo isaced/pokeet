@@ -59,7 +59,9 @@ final class ChatViewModel {
     let sessionID: UUID
     private(set) var title: String
 
-    var bubbles: [Bubble] = []
+    private(set) var bubbles: [Bubble] = []
+    private(set) var pager = BubblePager()
+    private(set) var isRestoringSession = true
     var input = ""
     var pendingImages: [ChatImage] = []
     var pendingFiles: [ContextFile] = []
@@ -201,6 +203,7 @@ final class ChatViewModel {
             didLoadSession = true
             await restoreSession()
         }
+        isRestoringSession = false
         await refreshStatus()
     }
 
@@ -238,6 +241,24 @@ final class ChatViewModel {
         pendingFiles.removeAll { $0.path == path }
     }
 
+    var visibleBubbles: ArraySlice<Bubble> {
+        bubbles[pager.window(total: bubbles.count)]
+    }
+
+    var hasOlderBubbles: Bool {
+        pager.window(total: bubbles.count).lowerBound > 0
+    }
+
+    /// Reveals the previous page and returns the bubble that kept the scroll anchor.
+    @discardableResult
+    func loadOlderBubbles() -> UUID? {
+        let total = bubbles.count
+        let window = pager.window(total: total)
+        guard !window.isEmpty else { return nil }
+        let anchor = bubbles[window].first?.id
+        return pager.loadOlder(total: total) ? anchor : nil
+    }
+
     func send() {
         guard !isRunning else { return }
         let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -267,6 +288,7 @@ final class ChatViewModel {
             images: images,
             filePaths: files.map(\.path)
         ))
+        pager.reset(total: bubbles.count)
 
         let sessionText = Self.composedText(text, files: files)
         runTask = Task { [weak self] in
@@ -479,6 +501,7 @@ final class ChatViewModel {
         while let last = bubbles.last, last.role == .assistant || last.role == .reasoning {
             bubbles.removeLast()
         }
+        pager.clamp(total: bubbles.count)
         streamingBubbleID = nil
         reasoningBubbleID = nil
         status = "Thinking…"
@@ -545,6 +568,7 @@ final class ChatViewModel {
 
         if text.isEmpty {
             bubbles.remove(at: index)
+            pager.clamp(total: bubbles.count)
         } else {
             var bubble = bubbles[index]
             bubble.text = text
@@ -559,6 +583,14 @@ final class ChatViewModel {
     }
 
     private func restoreSession() async {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-PokeetSyntheticHistory") {
+            bubbles = Self.makeSyntheticHistory()
+            pager.reset(total: bubbles.count)
+            return
+        }
+        #endif
+
         guard let snapshot = await environment.sessions.load(
             projectName: project.name,
             sessionID: sessionID
@@ -576,6 +608,7 @@ final class ChatViewModel {
                 filePaths: stored.filePaths ?? []
             )
         }
+        pager.reset(total: bubbles.count)
         cacheStats = snapshot.cacheStats ?? CacheStats()
         lastRequest = bubbles.last(where: { $0.role == .user })?.text ?? ""
         await session.restore(snapshot.restoredMessages)
@@ -616,4 +649,17 @@ final class ChatViewModel {
             hasChanges = false
         }
     }
+
+    #if DEBUG
+    private static func makeSyntheticHistory(count: Int = 400) -> [Bubble] {
+        (0..<count).map { index in
+            let role: Bubble.Role = index.isMultiple(of: 2) ? .user : .assistant
+            let text = String(
+                repeating: "Synthetic **markdown** row \(index) with enough text to fill a line.\n\n",
+                count: 4
+            )
+            return Bubble(role: role, text: text)
+        }
+    }
+    #endif
 }
