@@ -3,8 +3,19 @@ import SwiftUI
 import Textual
 import UIKit
 
-struct MessageBubble: View {
+struct MessageBubble: View, Equatable {
     let bubble: ChatViewModel.Bubble
+
+    nonisolated static func == (lhs: MessageBubble, rhs: MessageBubble) -> Bool {
+        let a = lhs.bubble
+        let b = rhs.bubble
+        return a.id == b.id
+            && a.role == b.role
+            && a.text == b.text
+            && a.isStreaming == b.isStreaming
+            && a.filePaths == b.filePaths
+            && a.images.count == b.images.count
+    }
 
     var body: some View {
         switch bubble.role {
@@ -94,7 +105,7 @@ private struct UserImageGrid: View {
     var body: some View {
         HStack(spacing: 6) {
             ForEach(Array(images.prefix(4).enumerated()), id: \.offset) { _, image in
-                if let uiImage = UIImage(data: image.data) {
+                if let uiImage = DecodedImageCache.image(for: image.data) {
                     Image(uiImage: uiImage)
                         .resizable()
                         .scaledToFill()
@@ -115,5 +126,27 @@ private struct UserImageGrid: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(images.count) attached image(s)")
+    }
+}
+
+@MainActor
+enum DecodedImageCache {
+    private static let cache: NSCache<NSData, UIImage> = {
+        let cache = NSCache<NSData, UIImage>()
+        cache.countLimit = 32
+        cache.totalCostLimit = 48 * 1024 * 1024
+        return cache
+    }()
+
+    static func image(for data: Data) -> UIImage? {
+        let key = data as NSData
+        if let cached = cache.object(forKey: key) {
+            return cached
+        }
+        guard let image = UIImage(data: data) else {
+            return nil
+        }
+        cache.setObject(image, forKey: key, cost: data.count)
+        return image
     }
 }

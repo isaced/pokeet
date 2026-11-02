@@ -14,6 +14,7 @@ struct ChatView: View {
     @State private var isShowingModelPicker = false
     @State private var isShowingPhotoPicker = false
     @State private var photoPickerItems: [PhotosPickerItem] = []
+    @State private var pendingAnchorID: UUID?
     private let git: any GitInspecting
 
     @MainActor
@@ -42,7 +43,12 @@ struct ChatView: View {
         @Bindable var model = model
 
         VStack(spacing: 0) {
-            messageList
+            if model.isRestoringSession {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                messageList
+            }
             statusArea
             pendingAttachments
             composer(bindable: $model)
@@ -133,24 +139,49 @@ struct ChatView: View {
                             .padding(.top, 64)
                     }
 
-                    ForEach(model.bubbles) { bubble in
+                    ForEach(model.visibleBubbles) { bubble in
                         MessageBubble(bubble: bubble)
+                            .equatable()
                             .id(bubble.id)
                     }
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
             }
+            .defaultScrollAnchor(.bottom)
             .scrollDismissesKeyboard(.interactively)
-            .onChange(of: model.bubbles.count) { _, _ in
-                guard let last = model.bubbles.last else { return }
+            .onChange(of: model.visibleBubbles.last?.id) { _, _ in
+                guard let last = model.visibleBubbles.last else { return }
                 withAnimation {
                     proxy.scrollTo(last.id, anchor: .bottom)
                 }
             }
-            .onChange(of: model.bubbles.last?.text) { _, _ in
-                guard let last = model.bubbles.last else { return }
+            .onChange(of: model.visibleBubbles.last?.text) { _, _ in
+                guard let last = model.visibleBubbles.last else { return }
                 proxy.scrollTo(last.id, anchor: .bottom)
+            }
+            .onChange(of: model.visibleBubbles.first?.id) { _, _ in
+                restorePendingAnchor(using: proxy)
+            }
+            .onScrollGeometryChange(for: Bool.self) { geometry in
+                geometry.contentOffset.y + geometry.contentInsets.top < 2
+            } action: { _, isAtTop in
+                guard isAtTop, model.hasOlderBubbles else { return }
+                pendingAnchorID = model.loadOlderBubbles()
+            }
+        }
+    }
+
+    private func restorePendingAnchor(using proxy: ScrollViewProxy) {
+        guard let anchor = pendingAnchorID else { return }
+        pendingAnchorID = nil
+
+        Task { @MainActor in
+            await Task.yield()
+            var transaction = Transaction()
+            transaction.animation = nil
+            withTransaction(transaction) {
+                proxy.scrollTo(anchor, anchor: .top)
             }
         }
     }
@@ -241,7 +272,7 @@ struct ChatView: View {
 
                     ForEach(Array(model.pendingImages.enumerated()), id: \.offset) { index, image in
                         ZStack(alignment: .topTrailing) {
-                            if let uiImage = UIImage(data: image.data) {
+                            if let uiImage = DecodedImageCache.image(for: image.data) {
                                 Image(uiImage: uiImage)
                                     .resizable()
                                     .scaledToFill()
