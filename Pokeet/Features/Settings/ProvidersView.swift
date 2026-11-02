@@ -44,28 +44,28 @@ struct ProvidersView: View {
         .navigationTitle("Providers")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Section("Add provider") {
-                        ForEach(ProviderTemplates.all) { template in
-                            Button {
-                                editing = ProviderTemplates.configuration(from: template)
-                            } label: {
-                                Label(template.name, systemImage: template.iconName)
-                            }
-                        }
-                    }
+                Button {
+                    startAddingProvider()
                 } label: {
                     Image(systemName: "plus")
                 }
+                .accessibilityLabel("Add provider")
             }
         }
         .overlay {
             if environment.settings.providers.isEmpty {
-                ContentUnavailableView(
-                    "No providers",
-                    systemImage: "server.rack",
-                    description: Text("Add a provider to configure a model.")
-                )
+                ContentUnavailableView {
+                    Label("No providers", systemImage: "server.rack")
+                } description: {
+                    Text("Add a provider to configure a model.")
+                } actions: {
+                    Button("Add provider") {
+                        startAddingProvider()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.capsule)
+                    .controlSize(.large)
+                }
             }
         }
         .sheet(item: $editing) { provider in
@@ -92,6 +92,15 @@ struct ProvidersView: View {
         } message: { provider in
             Text("The API key for \(provider.name) will also be removed.")
         }
+    }
+
+    private func startAddingProvider() {
+        editing = ProviderConfiguration(
+            name: "",
+            iconName: "server.rack",
+            wireProtocol: .openAIResponses,
+            baseURL: WireProtocol.openAIResponses.defaultBaseURL
+        )
     }
 }
 
