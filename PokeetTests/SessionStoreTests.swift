@@ -13,11 +13,13 @@ final class SessionStoreTests: XCTestCase {
         return directory
     }
 
-    func testRoundtrip() async throws {
+    func testRoundtripForOneSession() async throws {
         let directory = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
 
         let store = SessionStore(directory: directory)
+        let session = await store.create(projectName: "demo", title: "First task")
+
         let image = ChatImage(mimeType: "image/png", data: Data("img".utf8))
         let messages: [ChatMessage] = [
             .system("system"),
@@ -53,60 +55,109 @@ final class SessionStoreTests: XCTestCase {
             cacheStats: cacheStats
         )
 
-        await store.save(snapshot, projectName: "demo")
+        await store.save(
+            snapshot,
+            projectName: "demo",
+            sessionID: session.id,
+            title: "First task"
+        )
 
-        let loaded = await store.load(projectName: "demo")
+        let loaded = await store.load(projectName: "demo", sessionID: session.id)
         XCTAssertEqual(loaded, snapshot)
         XCTAssertEqual(loaded?.restoredMessages, messages)
-        XCTAssertTrue(
-            FileManager.default.fileExists(
-                atPath: store.fileURL(projectName: "demo").path
-            )
-        )
+
+        let listed = await store.list(projectName: "demo")
+        XCTAssertEqual(listed.count, 1)
+        XCTAssertEqual(listed.first?.id, session.id)
+        XCTAssertEqual(listed.first?.title, "First task")
     }
 
-    func testCorruptSnapshotReturnsNil() async throws {
+    func testListSortsByUpdatedAt() async throws {
         let directory = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
 
         let store = SessionStore(directory: directory)
-        let url = store.fileURL(projectName: "broken")
-        try FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(),
-            withIntermediateDirectories: true
+        let older = await store.create(
+            projectName: "demo",
+            title: "Older",
+            now: Date(timeIntervalSince1970: 100)
         )
-        try Data("not json".utf8).write(to: url)
+        let newer = await store.create(
+            projectName: "demo",
+            title: "Newer",
+            now: Date(timeIntervalSince1970: 200)
+        )
 
-        let loaded = await store.load(projectName: "broken")
+        let listed = await store.list(projectName: "demo")
+        XCTAssertEqual(listed.map(\.id), [newer.id, older.id])
+    }
+
+    func testRenameAndDeleteSession() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = SessionStore(directory: directory)
+        let session = await store.create(projectName: "demo", title: "Old")
+
+        let renamed = await store.rename(
+            projectName: "demo",
+            sessionID: session.id,
+            title: "  New title  "
+        )
+        XCTAssertEqual(renamed?.title, "New title")
+
+        await store.delete(projectName: "demo", sessionID: session.id)
+
+        let remaining = await store.list(projectName: "demo")
+        let loaded = await store.load(projectName: "demo", sessionID: session.id)
+        XCTAssertTrue(remaining.isEmpty)
         XCTAssertNil(loaded)
     }
 
-    func testUnknownVersionReturnsNil() async throws {
+    func testSessionsAreScopedToProject() async throws {
         let directory = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
 
         let store = SessionStore(directory: directory)
-        let url = store.fileURL(projectName: "future")
-        try FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try Data(#"{"version":2,"messages":[],"bubbles":[]}"#.utf8).write(to: url)
+        let first = await store.create(projectName: "one", title: "One")
+        let second = await store.create(projectName: "two", title: "Two")
 
-        let loaded = await store.load(projectName: "future")
-        XCTAssertNil(loaded)
+        let firstList = await store.list(projectName: "one")
+        let secondList = await store.list(projectName: "two")
+        XCTAssertEqual(firstList.map(\.id), [first.id])
+        XCTAssertEqual(secondList.map(\.id), [second.id])
     }
 
-    func testRemove() async throws {
+    func testCorruptIndexReturnsEmptyList() async throws {
         let directory = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
 
         let store = SessionStore(directory: directory)
-        let snapshot = SessionSnapshot(messages: [.system("system")], bubbles: [])
-        await store.save(snapshot, projectName: "demo")
-        await store.remove(projectName: "demo")
+        let projectDirectory = directory.appendingPathComponent("broken", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: projectDirectory,
+            withIntermediateDirectories: true
+        )
+        try Data("not json".utf8).write(
+            to: projectDirectory.appendingPathComponent("sessions.json")
+        )
 
-        let loaded = await store.load(projectName: "demo")
+        let listed = await store.list(projectName: "broken")
+        XCTAssertTrue(listed.isEmpty)
+    }
+
+    func testUnknownSnapshotVersionReturnsNil() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = SessionStore(directory: directory)
+        let session = await store.create(projectName: "future")
+        let projectDirectory = directory.appendingPathComponent("future", isDirectory: true)
+        try Data(#"{"version":2,"messages":[],"bubbles":[]}"#.utf8).write(
+            to: projectDirectory.appendingPathComponent("\(session.id.uuidString).json")
+        )
+
+        let loaded = await store.load(projectName: "future", sessionID: session.id)
         XCTAssertNil(loaded)
     }
 }
