@@ -37,10 +37,10 @@ struct ContextCompactorTests {
         let compacted = compactor.compact(messages)
 
         #expect(compacted.first?.role == .system)
-        #expect(compacted.first?.content?.contains("sys") == true)
-        #expect(compacted.first?.content?.contains("Context compacted") == true)
+        #expect(compacted.first?.content == "sys")
+        #expect(compacted.contains { $0.role == .user && $0.content?.contains("Context compacted") == true })
         #expect(compacted.contains { $0.content == "latest question" })
-        #expect(compacted.contains { $0.content?.hasPrefix("middle ") == true })
+        #expect(compacted.contains { $0.content?.contains("middle ") == true })
         #expect(!compacted.contains { $0.content?.hasPrefix("old ") == true })
     }
 

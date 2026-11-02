@@ -40,20 +40,32 @@ public struct ContextCompactor: Sendable {
         }
 
         let omittedTurns = max(0, turns.count - compactedTurns.count)
-        var systemText = systemMessages
-            .compactMap(\.content)
-            .joined(separator: "\n\n")
+        let note: String
 
         if omittedTurns > 0 {
-            systemText += "\n\n[Context compacted to fit the model window. "
+            note = "[Context compacted to fit the model window. "
                 + "\(omittedTurns) older turn(s) were omitted and large outputs may be truncated. "
                 + "Re-read files if you need details.]"
         } else {
-            systemText += "\n\n[Context compacted to fit the model window. "
+            note = "[Context compacted to fit the model window. "
                 + "Large outputs were truncated. Re-read files if you need details.]"
         }
 
-        return [.system(systemText)] + compactedTurns.flatMap { $0 }
+        var keptMessages = compactedTurns.flatMap { $0 }
+
+        if let firstUserIndex = keptMessages.firstIndex(where: { $0.role == .user }) {
+            var message = keptMessages[firstUserIndex]
+            let existingContent = message.content ?? ""
+            message.content = existingContent.isEmpty
+                ? note
+                : note + "\n\n" + existingContent
+            keptMessages[firstUserIndex] = message
+        } else {
+            keptMessages.insert(.user(note), at: 0)
+        }
+
+        // Keep the system prompt untouched so the provider's prefix cache stays warm.
+        return systemMessages + keptMessages
     }
 
     private func makeTurns(from messages: [ChatMessage]) -> [[ChatMessage]] {

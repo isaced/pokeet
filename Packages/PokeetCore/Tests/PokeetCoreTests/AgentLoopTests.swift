@@ -305,7 +305,8 @@ struct AgentLoopTests {
 
         #expect(messages.count < history.count)
         #expect(messages.first?.role == .system)
-        #expect(messages.first?.content?.contains("Context compacted") == true)
+        #expect(messages.first?.content == AgentPrompts.system)
+        #expect(messages.contains { $0.role == .user && $0.content?.contains("Context compacted") == true })
         #expect(totalCharacters <= 2_000)
     }
 
