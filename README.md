@@ -10,7 +10,7 @@ An agentic coding workshop in your pocket: a Claude Code-style agent that reads,
 ![iOS](https://img.shields.io/badge/iOS-18%2B-black)
 ![Status](https://img.shields.io/badge/status-early%20development-orange)
 
-> ⚠️ Pokeet is in early development. The demo below is the goal, not the reality — yet. We're building it in public; follow along.
+> ⚠️ Pokeet is in early development. We're building it in public — follow along, and watch this space for the first demo.
 
 <!-- TODO: record the golden-path demo: clone → agent fixes a bug → diff cards → approve → push, all on iPhone -->
 
