@@ -1,4 +1,5 @@
 import SwiftUI
+import Textual
 
 struct FileBrowserView: View {
     let project: Project
@@ -144,11 +145,26 @@ private struct FileDetailView: View {
     let path: String
 
     @State private var model: FileDetailModel
+    @State private var showsPreview: Bool
 
     init(project: Project, path: String) {
         self.project = project
         self.path = path
         _model = State(initialValue: FileDetailModel(project: project, path: path))
+        _showsPreview = State(initialValue: Self.isMarkdown(path))
+    }
+
+    private var isMarkdown: Bool {
+        Self.isMarkdown(path)
+    }
+
+    private static func isMarkdown(_ path: String) -> Bool {
+        switch (path as NSString).pathExtension.lowercased() {
+        case "md", "markdown":
+            return true
+        default:
+            return (path as NSString).lastPathComponent.lowercased() == "readme"
+        }
     }
 
     var body: some View {
@@ -171,14 +187,65 @@ private struct FileDetailView: View {
                     systemImage: "doc",
                     description: Text("This file has no content.")
                 )
+            } else if isMarkdown, showsPreview, let text = model.text {
+                markdownPreview(text)
             } else {
                 content
             }
         }
         .navigationTitle(model.name)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if isMarkdown {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showsPreview.toggle()
+                    } label: {
+                        Image(
+                            systemName: showsPreview
+                                ? "chevron.left.forwardslash.chevron.right"
+                                : "doc.richtext"
+                        )
+                    }
+                    .accessibilityLabel(
+                        showsPreview ? "Show source" : "Preview markdown"
+                    )
+                }
+            }
+        }
         .task {
             await model.load()
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 8) {
+            Text(path)
+                .font(.caption.monospaced())
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer()
+            Text("\(model.lines.count) lines")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(Color(.secondarySystemBackground))
+    }
+
+    private func markdownPreview(_ text: String) -> some View {
+        VStack(spacing: 0) {
+            header
+            Divider()
+            ScrollView {
+                StructuredText(markdown: text)
+                    .textual.structuredTextStyle(.gitHub)
+                    .textual.textSelection(.enabled)
+                    .padding(16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 
@@ -186,20 +253,7 @@ private struct FileDetailView: View {
         let lines = model.lines
 
         return VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Text(path)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer()
-                Text("\(lines.count) lines")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .background(Color(.secondarySystemBackground))
+            header
 
             Divider()
 
