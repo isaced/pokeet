@@ -9,6 +9,7 @@ final class ChatViewModel {
         enum Role: Sendable, Equatable {
             case user
             case assistant
+            case reasoning
             case tool
             case error
         }
@@ -16,6 +17,7 @@ final class ChatViewModel {
         let id = UUID()
         let role: Role
         var text: String
+        var isStreaming = false
     }
 
     let project: Project
@@ -39,6 +41,7 @@ final class ChatViewModel {
     private var runTask: Task<Void, Never>?
     private var lastRequest = ""
     private var streamingBubbleID: UUID?
+    private var reasoningBubbleID: UUID?
 
     init(project: Project, environment: AppEnvironment) {
         self.project = project
@@ -93,6 +96,7 @@ final class ChatViewModel {
     }
 
     func cancelRun() {
+        finalizeReasoningBubble()
         streamingBubbleID = nil
         pendingProposals = []
         isShowingReview = false
@@ -120,6 +124,7 @@ final class ChatViewModel {
         bubbles = []
         input = ""
         streamingBubbleID = nil
+        reasoningBubbleID = nil
         errorMessage = nil
         banner = nil
         pendingProposals = []
@@ -173,10 +178,12 @@ final class ChatViewModel {
 
     private func run(_ text: String) async {
         coordinator.reset()
+        reasoningBubbleID = nil
         isRunning = true
         errorMessage = nil
         status = "Thinking…"
         defer {
+            finalizeReasoningBubble()
             isRunning = false
             status = nil
             runTask = nil
@@ -213,26 +220,64 @@ final class ChatViewModel {
 
     private func handle(_ event: AgentEvent) {
         switch event {
+        case .assistantReasoningDelta(let delta):
+            appendReasoningDelta(delta)
+            status = nil
         case .assistantTextDelta(let delta):
+            finalizeReasoningBubble()
             appendAssistantDelta(delta)
             status = nil
         case .assistantMessage(let text):
+            finalizeReasoningBubble()
             finalizeAssistantMessage(text)
             status = "Thinking…"
         case .toolStarted(let name):
+            finalizeReasoningBubble()
             status = "Running \(name)…"
         case .toolFinished:
             status = "Thinking…"
         case .proposalsPending(let proposals):
             present(proposals)
         case .finished:
+            finalizeReasoningBubble()
             streamingBubbleID = nil
             status = nil
         case .failed(let message):
+            finalizeReasoningBubble()
             streamingBubbleID = nil
             errorMessage = message
             status = nil
         }
+    }
+
+    private func appendReasoningDelta(_ delta: String) {
+        guard !delta.isEmpty else { return }
+
+        if let id = reasoningBubbleID,
+           let index = bubbles.firstIndex(where: { $0.id == id }) {
+            var bubble = bubbles[index]
+            bubble.text += delta
+            bubbles[index] = bubble
+            return
+        }
+
+        var bubble = Bubble(role: .reasoning, text: delta)
+        bubble.isStreaming = true
+        bubbles.append(bubble)
+        reasoningBubbleID = bubble.id
+    }
+
+    private func finalizeReasoningBubble() {
+        guard let id = reasoningBubbleID else { return }
+        reasoningBubbleID = nil
+
+        guard let index = bubbles.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+
+        var bubble = bubbles[index]
+        bubble.isStreaming = false
+        bubbles[index] = bubble
     }
 
     private func appendAssistantDelta(_ delta: String) {

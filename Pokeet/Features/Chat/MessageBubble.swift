@@ -15,6 +15,8 @@ struct MessageBubble: View {
                     .background(Color.accentColor.opacity(0.12))
                     .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
             }
+        case .reasoning:
+            ReasoningBubble(text: bubble.text, isStreaming: bubble.isStreaming)
         case .assistant:
             HStack {
                 Text(bubble.text)
