@@ -18,9 +18,9 @@ struct SplitRootView: View {
         } detail: {
             NavigationStack {
                 if let project = selectedProject {
-                    ChatView(
+                    ProjectSessionsView(
                         project: project,
-                        environment: environment,
+                        store: environment.sessions,
                         onToggleSidebar: { toggleSidebar() }
                     )
                     .id(project.id)

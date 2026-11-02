@@ -86,48 +86,165 @@ struct SessionSnapshot: Codable, Sendable, Equatable {
     }
 }
 
-struct SessionStore: Sendable {
+struct SessionMetadata: Codable, Sendable, Equatable, Hashable, Identifiable {
+    let id: UUID
+    var title: String
+    let createdAt: Date
+    var updatedAt: Date
+
+    init(
+        id: UUID = UUID(),
+        title: String = "New chat",
+        createdAt: Date = Date(),
+        updatedAt: Date = Date()
+    ) {
+        self.id = id
+        self.title = title
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}
+
+actor SessionStore {
     let directory: URL
 
-    func fileURL(projectName: String) -> URL {
-        directory.appendingPathComponent("\(projectName).json", isDirectory: false)
+    init(directory: URL) {
+        self.directory = directory
     }
 
-    func load(projectName: String) async -> SessionSnapshot? {
-        let url = fileURL(projectName: projectName)
+    func list(projectName: String) -> [SessionMetadata] {
+        readIndex(projectName: projectName)
+            .sorted { $0.updatedAt > $1.updatedAt }
+    }
 
-        return await Task.detached(priority: .utility) {
-            guard let data = try? Data(contentsOf: url),
-                  let snapshot = try? JSONDecoder().decode(SessionSnapshot.self, from: data),
-                  snapshot.version == SessionSnapshot.currentVersion
-            else {
-                return nil
+    func create(
+        projectName: String,
+        title: String = "New chat",
+        now: Date = Date()
+    ) -> SessionMetadata {
+        let metadata = SessionMetadata(title: title, createdAt: now, updatedAt: now)
+        var index = readIndex(projectName: projectName)
+        index.append(metadata)
+        writeIndex(index, projectName: projectName)
+        return metadata
+    }
+
+    func load(projectName: String, sessionID: UUID) -> SessionSnapshot? {
+        let url = sessionURL(projectName: projectName, sessionID: sessionID)
+        guard let data = try? Data(contentsOf: url),
+              let snapshot = try? JSONDecoder().decode(SessionSnapshot.self, from: data),
+              snapshot.version == SessionSnapshot.currentVersion
+        else {
+            return nil
+        }
+        return snapshot
+    }
+
+    func save(
+        _ snapshot: SessionSnapshot,
+        projectName: String,
+        sessionID: UUID,
+        title: String
+    ) {
+        let now = Date()
+        let url = sessionURL(projectName: projectName, sessionID: sessionID)
+        do {
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            let data = try JSONEncoder().encode(snapshot)
+            try data.write(to: url, options: .atomic)
+        } catch {
+            return
+        }
+
+        var index = readIndex(projectName: projectName)
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let indexPosition = index.firstIndex(where: { $0.id == sessionID }) {
+            index[indexPosition].updatedAt = now
+            if !trimmedTitle.isEmpty {
+                index[indexPosition].title = trimmedTitle
             }
-            return snapshot
-        }.value
+        } else {
+            index.append(SessionMetadata(
+                id: sessionID,
+                title: trimmedTitle.isEmpty ? "New chat" : trimmedTitle,
+                createdAt: now,
+                updatedAt: now
+            ))
+        }
+        writeIndex(index, projectName: projectName)
     }
 
-    func save(_ snapshot: SessionSnapshot, projectName: String) async {
-        let url = fileURL(projectName: projectName)
+    @discardableResult
+    func rename(
+        projectName: String,
+        sessionID: UUID,
+        title: String
+    ) -> SessionMetadata? {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
 
-        await Task.detached(priority: .utility) {
-            do {
-                try FileManager.default.createDirectory(
-                    at: url.deletingLastPathComponent(),
-                    withIntermediateDirectories: true
-                )
-                let data = try JSONEncoder().encode(snapshot)
-                try data.write(to: url, options: .atomic)
-            } catch {
-                // Persistence is best-effort; the in-memory session keeps working.
-            }
-        }.value
+        var index = readIndex(projectName: projectName)
+        guard let indexPosition = index.firstIndex(where: { $0.id == sessionID }) else {
+            return nil
+        }
+        index[indexPosition].title = trimmed
+        writeIndex(index, projectName: projectName)
+        return index[indexPosition]
     }
 
-    func remove(projectName: String) async {
-        let url = fileURL(projectName: projectName)
-        await Task.detached(priority: .utility) {
-            try? FileManager.default.removeItem(at: url)
-        }.value
+    func delete(projectName: String, sessionID: UUID) {
+        let url = sessionURL(projectName: projectName, sessionID: sessionID)
+        try? FileManager.default.removeItem(at: url)
+
+        var index = readIndex(projectName: projectName)
+        index.removeAll { $0.id == sessionID }
+        writeIndex(index, projectName: projectName)
+    }
+
+    private func readIndex(projectName: String) -> [SessionMetadata] {
+        let url = indexURL(projectName: projectName)
+        guard let data = try? Data(contentsOf: url),
+              let index = try? JSONDecoder().decode([SessionMetadata].self, from: data)
+        else {
+            return []
+        }
+        return index
+    }
+
+    private func writeIndex(_ index: [SessionMetadata], projectName: String) {
+        let url = indexURL(projectName: projectName)
+        do {
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            let data = try JSONEncoder().encode(index)
+            try data.write(to: url, options: .atomic)
+        } catch {
+            // Session persistence is best-effort; the in-memory session keeps working.
+        }
+    }
+
+    private func indexURL(projectName: String) -> URL {
+        projectDirectory(projectName).appendingPathComponent("sessions.json", isDirectory: false)
+    }
+
+    private func sessionURL(projectName: String, sessionID: UUID) -> URL {
+        projectDirectory(projectName)
+            .appendingPathComponent("\(sessionID.uuidString).json", isDirectory: false)
+    }
+
+    private func projectDirectory(_ projectName: String) -> URL {
+        var name = projectName
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if name.isEmpty {
+            name = "project"
+        }
+        return directory.appendingPathComponent(name, isDirectory: true)
     }
 }

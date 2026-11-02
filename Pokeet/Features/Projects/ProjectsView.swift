@@ -64,7 +64,10 @@ struct ProjectsView: View {
             await environment.projects.refresh()
         }
         .navigationDestination(for: Project.self) { project in
-            ChatView(project: project, environment: environment)
+            ProjectSessionsView(
+                project: project,
+                store: environment.sessions
+            )
         }
     }
 }

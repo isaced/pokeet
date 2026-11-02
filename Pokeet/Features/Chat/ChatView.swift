@@ -20,17 +20,29 @@ struct ChatView: View {
     @MainActor
     init(
         project: Project,
+        session: SessionMetadata,
         environment: AppEnvironment,
         onToggleSidebar: (() -> Void)? = nil
     ) {
         self.project = project
         self.onToggleSidebar = onToggleSidebar
         self.git = environment.git
-        _model = State(initialValue: ChatViewModel(project: project, environment: environment))
+        _model = State(initialValue: ChatViewModel(
+            project: project,
+            environment: environment,
+            session: session
+        ))
     }
 
     private var isSplitDetail: Bool {
         onToggleSidebar != nil
+    }
+
+    private var subtitle: String {
+        if let cacheSummary = model.cacheSummary {
+            return "\(project.name) · \(cacheSummary)"
+        }
+        return project.name
     }
 
     var body: some View {
@@ -100,19 +112,16 @@ struct ChatView: View {
             Spacer(minLength: 8)
 
             VStack(spacing: 1) {
-                Text(project.name)
+                Text(model.title)
                     .font(.footnote.weight(.medium))
-                    .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
 
-                if let cacheSummary = model.cacheSummary {
-                    Text(cacheSummary)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
+                Text(subtitle)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
 
             Spacer(minLength: 8)
@@ -132,12 +141,9 @@ struct ChatView: View {
         .padding(.top, 8)
         .padding(.bottom, 4)
         .alert("Project", isPresented: $isShowingProjectInfo) {
-            Button("Start new session", role: .destructive) {
-                Task { await model.startNewSession() }
-            }
             Button("OK", role: .cancel) {}
         } message: {
-            Text(projectInfo + "\n\nA new session clears the conversation. Files on disk stay unchanged.")
+            Text(projectInfo)
         }
         .sheet(isPresented: $isShowingFiles) {
             FileBrowserView(project: project)

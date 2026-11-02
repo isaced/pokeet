@@ -56,6 +56,8 @@ final class ChatViewModel {
     static let maxContextFiles = 5
 
     let project: Project
+    let sessionID: UUID
+    private(set) var title: String
 
     var bubbles: [Bubble] = []
     var input = ""
@@ -85,9 +87,11 @@ final class ChatViewModel {
     private var reasoningBubbleID: UUID?
     private var didLoadSession = false
 
-    init(project: Project, environment: AppEnvironment) {
+    init(project: Project, environment: AppEnvironment, session: SessionMetadata) {
         self.project = project
         self.environment = environment
+        self.sessionID = session.id
+        self.title = session.title
 
         let mockClient = MockModelSupport.makeClient()
         self.usesMockModel = mockClient != nil
@@ -239,6 +243,10 @@ final class ChatViewModel {
         pendingImages = []
         pendingFiles = []
 
+        if bubbles.isEmpty, title == "New chat" {
+            title = Self.derivedTitle(text: text, files: files, images: images)
+        }
+
         lastRequest = text.isEmpty
             ? (files.isEmpty ? "Image" : files.map(\.path).joined(separator: ", "))
             : text
@@ -254,6 +262,23 @@ final class ChatViewModel {
         runTask = Task { [weak self] in
             await self?.run(sessionText, images: images)
         }
+    }
+
+    private static func derivedTitle(
+        text: String,
+        files: [ContextFile],
+        images: [ChatImage]
+    ) -> String {
+        if !text.isEmpty {
+            return String(text.prefix(60))
+        }
+        if let file = files.first {
+            return "@\((file.path as NSString).lastPathComponent)"
+        }
+        if !images.isEmpty {
+            return "Image"
+        }
+        return "New chat"
     }
 
     private static func composedText(_ text: String, files: [ContextFile]) -> String {
@@ -286,29 +311,6 @@ final class ChatViewModel {
 
     func clearErrorMessage() {
         errorMessage = nil
-    }
-
-    func startNewSession() async {
-        let task = runTask
-        cancelRun()
-        await task?.value
-
-        await session.reset()
-
-        bubbles = []
-        input = ""
-        pendingImages = []
-        pendingFiles = []
-        streamingBubbleID = nil
-        reasoningBubbleID = nil
-        cacheStats = CacheStats()
-        errorMessage = nil
-        banner = nil
-        pendingProposals = []
-        isShowingReview = false
-        lastRequest = ""
-        await saveSession()
-        await refreshStatus()
     }
 
     func dismissBanner() {
@@ -541,7 +543,10 @@ final class ChatViewModel {
     }
 
     private func restoreSession() async {
-        guard let snapshot = await environment.sessions.load(projectName: project.name) else {
+        guard let snapshot = await environment.sessions.load(
+            projectName: project.name,
+            sessionID: sessionID
+        ) else {
             return
         }
 
@@ -578,7 +583,9 @@ final class ChatViewModel {
                 bubbles: storedBubbles,
                 cacheStats: cacheStats
             ),
-            projectName: project.name
+            projectName: project.name,
+            sessionID: sessionID,
+            title: title
         )
     }
 
