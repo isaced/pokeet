@@ -349,7 +349,6 @@ struct ChatView: View {
                             .font(.subheadline.weight(.medium))
                             .lineLimit(1)
                             .truncationMode(.middle)
-                            .frame(maxWidth: 200, alignment: .leading)
                         Image(systemName: "chevron.down")
                             .font(.caption2.weight(.semibold))
                     }
