@@ -15,7 +15,7 @@ final class ChatViewModel {
 
         let id = UUID()
         let role: Role
-        let text: String
+        var text: String
     }
 
     let project: Project
@@ -38,6 +38,7 @@ final class ChatViewModel {
     private let coordinator = ProposalCoordinator()
     private var runTask: Task<Void, Never>?
     private var lastRequest = ""
+    private var streamingBubbleID: UUID?
 
     init(project: Project, environment: AppEnvironment) {
         self.project = project
@@ -92,6 +93,7 @@ final class ChatViewModel {
     }
 
     func cancelRun() {
+        streamingBubbleID = nil
         pendingProposals = []
         isShowingReview = false
         coordinator.cancelPending()
@@ -117,6 +119,7 @@ final class ChatViewModel {
 
         bubbles = []
         input = ""
+        streamingBubbleID = nil
         errorMessage = nil
         banner = nil
         pendingProposals = []
@@ -177,6 +180,7 @@ final class ChatViewModel {
             isRunning = false
             status = nil
             runTask = nil
+            streamingBubbleID = nil
         }
 
         do {
@@ -209,8 +213,11 @@ final class ChatViewModel {
 
     private func handle(_ event: AgentEvent) {
         switch event {
+        case .assistantTextDelta(let delta):
+            appendAssistantDelta(delta)
+            status = nil
         case .assistantMessage(let text):
-            bubbles.append(Bubble(role: .assistant, text: text))
+            finalizeAssistantMessage(text)
             status = "Thinking…"
         case .toolStarted(let name):
             status = "Running \(name)…"
@@ -219,10 +226,50 @@ final class ChatViewModel {
         case .proposalsPending(let proposals):
             present(proposals)
         case .finished:
+            streamingBubbleID = nil
             status = nil
         case .failed(let message):
+            streamingBubbleID = nil
             errorMessage = message
             status = nil
+        }
+    }
+
+    private func appendAssistantDelta(_ delta: String) {
+        guard !delta.isEmpty else { return }
+
+        if let id = streamingBubbleID,
+           let index = bubbles.firstIndex(where: { $0.id == id }) {
+            var bubble = bubbles[index]
+            bubble.text += delta
+            bubbles[index] = bubble
+            return
+        }
+
+        let bubble = Bubble(role: .assistant, text: delta)
+        bubbles.append(bubble)
+        streamingBubbleID = bubble.id
+    }
+
+    private func finalizeAssistantMessage(_ text: String) {
+        guard let id = streamingBubbleID else {
+            if !text.isEmpty {
+                bubbles.append(Bubble(role: .assistant, text: text))
+            }
+            return
+        }
+
+        streamingBubbleID = nil
+        guard let index = bubbles.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+
+        if text.isEmpty {
+            bubbles.remove(at: index)
+        } else {
+            var bubble = bubbles[index]
+            bubble.text = text
+            bubbles[index] = bubble
         }
     }
 

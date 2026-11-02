@@ -153,6 +153,10 @@ struct ChatView: View {
                     proxy.scrollTo(last.id, anchor: .bottom)
                 }
             }
+            .onChange(of: model.bubbles.last?.text) { _, _ in
+                guard let last = model.bubbles.last else { return }
+                proxy.scrollTo(last.id, anchor: .bottom)
+            }
         }
     }
 
