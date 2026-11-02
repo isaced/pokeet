@@ -250,6 +250,65 @@ struct AgentLoopTests {
         #expect(toolMessage.contains("Leave the end change for later"))
     }
 
+    @Test func restoresHistoryWithCurrentSystemPrompt() async throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+
+        let session = AgentSession(
+            client: ScriptedModelClient([]),
+            workspace: FileWorkspace(root: directory.url)
+        )
+        await session.restore([
+            .system("old prompt"),
+            .user("hi"),
+            .assistant("hello")
+        ])
+
+        let history = await session.history
+        #expect(history.count == 3)
+        #expect(history[0].role == .system)
+        #expect(history[0].content == AgentPrompts.system)
+        #expect(history[1].content == "hi")
+        #expect(history[2].content == "hello")
+    }
+
+    @Test func compactsRestoredHistoryBeforeRequest() async throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+
+        let filler = String(repeating: "x", count: 200)
+        var history: [ChatMessage] = [.system("old prompt")]
+        for index in 0..<20 {
+            history.append(.user("question \(index) \(filler)"))
+            history.append(.assistant("answer \(index) \(filler)"))
+        }
+
+        let client = ScriptedModelClient([
+            ChatResponse(message: .assistant("done"), finishReason: "stop")
+        ])
+        let session = AgentSession(
+            client: client,
+            workspace: FileWorkspace(root: directory.url),
+            config: AgentConfiguration(
+                contextCharacterBudget: 2_000,
+                retainedTurns: 2,
+                compactedToolOutputCharacters: 100
+            )
+        )
+        await session.restore(history)
+
+        try await session.send("hi", approval: { _ in [] }, onEvent: { _ in })
+
+        let requests = await client.recordedRequests()
+        let messages = requests.first?.messages ?? []
+        let totalCharacters = messages.reduce(0) { $0 + ($1.content?.count ?? 0) }
+
+        #expect(messages.count < history.count)
+        #expect(messages.first?.role == .system)
+        #expect(messages.first?.content?.contains("Context compacted") == true)
+        #expect(totalCharacters <= 2_000)
+    }
+
     @Test func reportsUnknownTool() async throws {
         let directory = try TestDirectory()
         defer { directory.cleanup() }

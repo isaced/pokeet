@@ -31,10 +31,22 @@ public enum AgentError: Error, Sendable, Equatable, LocalizedError {
 public struct AgentConfiguration: Sendable {
     public var maxIterations: Int
     public var maxToolOutputBytes: Int
+    public var contextCharacterBudget: Int
+    public var retainedTurns: Int
+    public var compactedToolOutputCharacters: Int
 
-    public init(maxIterations: Int = 20, maxToolOutputBytes: Int = 24_000) {
+    public init(
+        maxIterations: Int = 20,
+        maxToolOutputBytes: Int = 24_000,
+        contextCharacterBudget: Int = 80_000,
+        retainedTurns: Int = 10,
+        compactedToolOutputCharacters: Int = 8_000
+    ) {
         self.maxIterations = maxIterations
         self.maxToolOutputBytes = maxToolOutputBytes
+        self.contextCharacterBudget = contextCharacterBudget
+        self.retainedTurns = retainedTurns
+        self.compactedToolOutputCharacters = compactedToolOutputCharacters
     }
 }
 

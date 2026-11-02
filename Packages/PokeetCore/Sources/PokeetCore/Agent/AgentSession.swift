@@ -5,6 +5,7 @@ public actor AgentSession {
     private let registry: ToolRegistry
     private let workspace: any Workspace
     private let config: AgentConfiguration
+    private let compactor: ContextCompactor
     private var messages: [ChatMessage]
 
     public init(
@@ -18,6 +19,11 @@ public actor AgentSession {
         self.registry = tools
         self.workspace = workspace
         self.config = config
+        self.compactor = ContextCompactor(
+            maxCharacters: config.contextCharacterBudget,
+            retainedTurns: config.retainedTurns,
+            toolOutputCharacters: config.compactedToolOutputCharacters
+        )
         self.messages = [.system(systemPrompt)]
     }
 
@@ -27,6 +33,10 @@ public actor AgentSession {
 
     public func reset(systemPrompt: String = AgentPrompts.system) {
         messages = [.system(systemPrompt)]
+    }
+
+    public func restore(_ history: [ChatMessage], systemPrompt: String = AgentPrompts.system) {
+        messages = [.system(systemPrompt)] + history.filter { $0.role != .system }
     }
 
     public func send(
@@ -49,7 +59,10 @@ public actor AgentSession {
             }
             iteration += 1
 
-            let request = ChatRequest(messages: messages, tools: registry.schemas)
+            let request = ChatRequest(
+                messages: compactor.compact(messages),
+                tools: registry.schemas
+            )
             var assistantContent = ""
             var assistantToolCalls: [ToolCall] = []
 
