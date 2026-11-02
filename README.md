@@ -29,6 +29,7 @@ Pokeet puts the whole loop on your iPhone:
 | 🌳 **Real git** | Clone, diff, commit, push — libgit2 on the phone, over HTTPS with a personal access token. |
 | 🖥️ **A virtual shell** | A curated set of shell commands for the agent, backed by the workspace. |
 | 🔍 **Diff-first review** | Every edit arrives as a diff card. Approve per hunk, per file. Nothing lands without your poke. |
+| 🖼️ **Image input** | Attach up to four photos. Images are downscaled and sent as native image parts to vision-capable models. |
 | 🔑 **Your key, your model** | Bring your own API key. Add any number of providers — OpenAI, Anthropic, Gemini, or an OpenAI-compatible gateway/local server — each with its own key, base URL and model list. |
 | 🔒 **Local-first** | No Pokeet server. No account. Your code leaves your phone only through your own model requests and git push. |
 
