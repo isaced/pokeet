@@ -272,6 +272,14 @@ final class ChatViewModel {
                     ? "Context summarized to fit the model window."
                     : "Context summary failed; using truncation."
             ))
+        case .retryScheduled(let attempt, let maxAttempts, let delayMilliseconds, let reason):
+            status = "Retrying \(attempt)/\(maxAttempts) in \(delayMilliseconds)ms…"
+            bubbles.append(Bubble(
+                role: .tool,
+                text: "Retry \(attempt)/\(maxAttempts): \(reason)"
+            ))
+        case .assistantResponseRestarted:
+            discardPartialResponse()
         case .usage(let usage):
             var stats = cacheStats
             stats.record(usage)
@@ -304,6 +312,16 @@ final class ChatViewModel {
             errorMessage = message
             status = nil
         }
+    }
+
+    private func discardPartialResponse() {
+        finalizeReasoningBubble()
+        while let last = bubbles.last, last.role == .assistant || last.role == .reasoning {
+            bubbles.removeLast()
+        }
+        streamingBubbleID = nil
+        reasoningBubbleID = nil
+        status = "Thinking…"
     }
 
     private func appendReasoningDelta(_ delta: String) {
