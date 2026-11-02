@@ -1,6 +1,7 @@
 import Foundation
 import PokeetCore
 import SwiftGitX
+import libgit2
 
 actor SwiftGitXGitService: GitServicing, GitInspecting {
     nonisolated func isRepository(at root: URL) -> Bool {
@@ -188,13 +189,21 @@ actor SwiftGitXGitService: GitServicing, GitInspecting {
             try repository.config.set("user.name", to: author.name)
             try repository.config.set("user.email", to: author.email)
 
-            let paths = Set(try repository.status().compactMap(fileStatus(from:)).map(\.path))
-            guard !paths.isEmpty else {
+            let entries = try repository.status()
+            let paths = Set(entries.compactMap(fileStatus(from:)).map(\.path))
+            let deletions = Set(entries.compactMap(deletedPath(from:)))
+            guard !paths.isEmpty || !deletions.isEmpty else {
                 throw GitServiceError.noChanges
             }
 
-            try repository.add(paths: paths.sorted())
-            let commit = try repository.commit(message: message)
+            if !paths.isEmpty {
+                try repository.add(paths: paths.sorted())
+            }
+            // SwiftGitX does not expose index removal, so stage deletions with libgit2 directly.
+            try stageDeletions(deletions, at: root)
+
+            // Reopen so the commit sees the index written by the libgit2 handle.
+            let commit = try open(root).commit(message: message)
             return commit.id.hex
         } catch let error as GitServiceError {
             throw error
@@ -277,6 +286,56 @@ actor SwiftGitXGitService: GitServicing, GitInspecting {
             return nil
         }
         return GitFileStatus(path: path, state: state)
+    }
+
+    private func deletedPath(from entry: StatusEntry) -> String? {
+        let isDeleted = entry.status.contains { status in
+            switch status {
+            case .workingTreeDeleted, .indexDeleted:
+                return true
+            default:
+                return false
+            }
+        }
+        guard isDeleted else { return nil }
+
+        let delta = entry.workingTree ?? entry.index
+        let path = delta?.oldFile.path.isEmpty == false
+            ? delta?.oldFile.path
+            : delta?.newFile.path
+        guard let path, !path.isEmpty else { return nil }
+        return path
+    }
+
+    private func stageDeletions(_ paths: Set<String>, at root: URL) throws {
+        guard !paths.isEmpty else { return }
+
+        var repositoryPointer: OpaquePointer?
+        guard git_repository_open(&repositoryPointer, root.path) == GIT_OK.rawValue,
+              let repositoryPointer
+        else {
+            throw GitServiceError.commitFailed("Could not open the repository index.")
+        }
+        defer { git_repository_free(repositoryPointer) }
+
+        var indexPointer: OpaquePointer?
+        guard git_repository_index(&indexPointer, repositoryPointer) == GIT_OK.rawValue,
+              let indexPointer
+        else {
+            throw GitServiceError.commitFailed("Could not open the repository index.")
+        }
+        defer { git_index_free(indexPointer) }
+
+        for path in paths {
+            let status = git_index_remove_bypath(indexPointer, path)
+            guard status == GIT_OK.rawValue || status == GIT_ENOTFOUND.rawValue else {
+                throw GitServiceError.commitFailed("Could not stage deletion of \(path).")
+            }
+        }
+
+        guard git_index_write(indexPointer) == GIT_OK.rawValue else {
+            throw GitServiceError.commitFailed("Could not write the repository index.")
+        }
     }
 
     private func authenticatedURL(_ url: URL, token: String) -> URL? {

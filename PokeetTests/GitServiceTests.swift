@@ -82,6 +82,38 @@ final class GitServiceTests: XCTestCase {
         XCTAssertEqual(commits.first?.hash.count, 40)
     }
 
+    func testCommitAllStagesDeletions() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pokeet-git-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let repository = try Repository.create(at: directory)
+        try repository.config.set("user.name", to: "Pokeet Tests")
+        try repository.config.set("user.email", to: "tests@pokeet.local")
+
+        let readme = directory.appendingPathComponent("README.md")
+        try "hello\n".write(to: readme, atomically: true, encoding: .utf8)
+
+        let service = SwiftGitXGitService()
+        _ = try await service.commitAll(
+            at: directory,
+            message: "Initial commit",
+            author: GitAuthor(name: "Pokeet Tests", email: "tests@pokeet.local")
+        )
+
+        try FileManager.default.removeItem(at: readme)
+
+        _ = try await service.commitAll(
+            at: directory,
+            message: "Delete README",
+            author: GitAuthor(name: "Pokeet Tests", email: "tests@pokeet.local")
+        )
+
+        let status = try await service.status(at: directory)
+        XCTAssertTrue(status.isEmpty)
+    }
+
     func testCommitWithoutChangesThrows() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("pokeet-git-\(UUID().uuidString)", isDirectory: true)
