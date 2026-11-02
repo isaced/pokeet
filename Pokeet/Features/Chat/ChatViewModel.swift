@@ -76,6 +76,11 @@ final class ChatViewModel {
     var commitMessage = ""
     var isShowingCommitPrompt = false
     var banner: String?
+    private(set) var mode: AgentMode
+    private var modeSnapshot: AgentMode
+    private(set) var pendingPlan: String?
+    var isShowingPlan = false
+    private var lastAssistantText = ""
 
     private let environment: AppEnvironment
     private let session: AgentSession
@@ -90,10 +95,13 @@ final class ChatViewModel {
     private var didLoadSession = false
 
     init(project: Project, environment: AppEnvironment, session: SessionMetadata) {
+        let initialMode = session.mode ?? environment.settings.defaultAgentMode
         self.project = project
         self.environment = environment
         self.sessionID = session.id
         self.title = session.title
+        self.mode = initialMode
+        self.modeSnapshot = initialMode
 
         let mockClient = MockModelSupport.makeClient()
         self.usesMockModel = mockClient != nil
@@ -105,7 +113,8 @@ final class ChatViewModel {
             client: router,
             workspace: FileWorkspace(root: project.directory),
             git: project.isGitRepository ? environment.git : nil,
-            sessionID: sessionID.uuidString
+            sessionID: sessionID.uuidString,
+            mode: initialMode
         )
 
         coordinator.onPending = { [weak self] proposals in
@@ -289,6 +298,7 @@ final class ChatViewModel {
             filePaths: files.map(\.path)
         ))
         pager.reset(total: bubbles.count)
+        modeSnapshot = mode
 
         let sessionText = Self.composedText(text, files: files)
         runTask = Task { [weak self] in
@@ -331,8 +341,50 @@ final class ChatViewModel {
         streamingBubbleID = nil
         pendingProposals = []
         isShowingReview = false
+        pendingPlan = nil
+        isShowingPlan = false
         coordinator.cancelPending()
         runTask?.cancel()
+    }
+
+    func setMode(_ newMode: AgentMode) {
+        guard !isRunning, newMode != mode else { return }
+        mode = newMode
+        let projectName = project.name
+        let sessionID = sessionID
+        Task { [weak self] in
+            guard let self else { return }
+            await self.environment.sessions.setMode(
+                projectName: projectName,
+                sessionID: sessionID,
+                mode: newMode
+            )
+        }
+    }
+
+    func executePlan() {
+        guard pendingPlan != nil, !isRunning else { return }
+        isShowingPlan = false
+        pendingPlan = nil
+        setMode(.auto)
+        input = "Execute the plan."
+        send()
+    }
+
+    func stayInPlan() {
+        isShowingPlan = false
+        pendingPlan = nil
+    }
+
+    func refinePlan(_ notes: String) {
+        guard !isRunning else { return }
+        isShowingPlan = false
+        pendingPlan = nil
+        let trimmed = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        input = trimmed.isEmpty
+            ? "Refine the plan."
+            : "Refine the plan with this feedback:\n\n\(trimmed)"
+        send()
     }
 
     func resolve(_ decisions: [ProposalDecision]) {
@@ -395,6 +447,8 @@ final class ChatViewModel {
         isRunning = true
         errorMessage = nil
         status = "Thinking…"
+        lastAssistantText = ""
+        pendingPlan = nil
         defer {
             finalizeReasoningBubble()
             isRunning = false
@@ -406,10 +460,12 @@ final class ChatViewModel {
         await environment.sessions.ensureSession(
             projectName: project.name,
             sessionID: sessionID,
-            title: title
+            title: title,
+            mode: modeSnapshot
         )
 
         do {
+            await session.setMode(modeSnapshot)
             try await session.send(
                 text,
                 images: images,
@@ -437,6 +493,10 @@ final class ChatViewModel {
 
         await saveSession()
         await refreshStatus()
+
+        if modeSnapshot == .plan, pendingPlan != nil {
+            isShowingPlan = true
+        }
     }
 
     private func handle(_ event: AgentEvent) {
@@ -476,6 +536,7 @@ final class ChatViewModel {
         case .assistantMessage(let text):
             finalizeReasoningBubble()
             finalizeAssistantMessage(text)
+            lastAssistantText = text
             status = "Thinking…"
         case .toolStarted(let name):
             finalizeReasoningBubble()
@@ -490,10 +551,21 @@ final class ChatViewModel {
             }
         case .proposalsPending(let proposals):
             present(proposals)
+        case .changesApplied(let changes):
+            guard modeSnapshot == .auto || modeSnapshot == .bypass else { break }
+            for change in changes where change.didWrite {
+                bubbles.append(Bubble(role: .tool, text: change.message))
+            }
         case .finished:
             finalizeReasoningBubble()
             streamingBubbleID = nil
             status = nil
+            if modeSnapshot == .plan {
+                let plan = lastAssistantText.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !plan.isEmpty {
+                    pendingPlan = plan
+                }
+            }
         case .failed(let message):
             finalizeReasoningBubble()
             streamingBubbleID = nil
@@ -640,7 +712,8 @@ final class ChatViewModel {
             ),
             projectName: project.name,
             sessionID: sessionID,
-            title: title
+            title: title,
+            mode: mode
         )
     }
 

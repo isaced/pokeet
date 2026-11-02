@@ -13,6 +13,18 @@ struct SettingsView: View {
                 activeModelSection(settings)
 
                 Section {
+                    Picker("Default mode", selection: $settings.defaultAgentMode) {
+                        ForEach(AgentMode.allCases) { mode in
+                            Text(mode.displayName).tag(mode)
+                        }
+                    }
+                } header: {
+                    Text("Agent")
+                } footer: {
+                    Text("New sessions start in this mode. You can change the mode from any chat.")
+                }
+
+                Section {
                     NavigationLink {
                         ProvidersView()
                     } label: {

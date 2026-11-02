@@ -10,6 +10,7 @@ final class AppSettings {
         static let activeProviderID = "settings.llm.activeProviderID"
         static let authorName = "settings.authorName"
         static let authorEmail = "settings.authorEmail"
+        static let defaultAgentMode = "settings.agent.mode.v1"
         static let gitToken = "secret.git.token"
         static func apiKey(_ providerID: UUID) -> String {
             "secret.llm.\(providerID.uuidString).apiKey"
@@ -45,6 +46,10 @@ final class AppSettings {
         didSet { storeSecret(gitToken, for: Key.gitToken) }
     }
 
+    var defaultAgentMode: AgentMode {
+        didSet { defaults.set(defaultAgentMode.rawValue, forKey: Key.defaultAgentMode) }
+    }
+
     init(
         defaults: UserDefaults = .standard,
         secrets: any SecretStore = KeychainStore()
@@ -75,6 +80,8 @@ final class AppSettings {
 
         authorName = defaults.string(forKey: Key.authorName) ?? "Pokeet User"
         authorEmail = defaults.string(forKey: Key.authorEmail) ?? "pokeet@localhost"
+        defaultAgentMode = defaults.string(forKey: Key.defaultAgentMode)
+            .flatMap(AgentMode.init(rawValue:)) ?? .ask
         gitToken = secrets.string(for: Key.gitToken) ?? ""
     }
 

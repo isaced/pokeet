@@ -89,17 +89,20 @@ struct SessionSnapshot: Codable, Sendable, Equatable {
 struct SessionMetadata: Codable, Sendable, Equatable, Hashable, Identifiable {
     let id: UUID
     var title: String
+    var mode: AgentMode?
     let createdAt: Date
     var updatedAt: Date
 
     init(
         id: UUID = UUID(),
         title: String = "New chat",
+        mode: AgentMode? = nil,
         createdAt: Date = Date(),
         updatedAt: Date = Date()
     ) {
         self.id = id
         self.title = title
+        self.mode = mode
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -120,9 +123,10 @@ actor SessionStore {
     func create(
         projectName: String,
         title: String = "New chat",
+        mode: AgentMode? = nil,
         now: Date = Date()
     ) -> SessionMetadata {
-        let metadata = SessionMetadata(title: title, createdAt: now, updatedAt: now)
+        let metadata = SessionMetadata(title: title, mode: mode, createdAt: now, updatedAt: now)
         var index = readIndex(projectName: projectName)
         index.append(metadata)
         writeIndex(index, projectName: projectName)
@@ -133,15 +137,23 @@ actor SessionStore {
         projectName: String,
         sessionID: UUID,
         title: String,
+        mode: AgentMode? = nil,
         now: Date = Date()
     ) {
         var index = readIndex(projectName: projectName)
-        guard !index.contains(where: { $0.id == sessionID }) else { return }
+        if let position = index.firstIndex(where: { $0.id == sessionID }) {
+            if let mode, index[position].mode != mode {
+                index[position].mode = mode
+                writeIndex(index, projectName: projectName)
+            }
+            return
+        }
 
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         index.append(SessionMetadata(
             id: sessionID,
             title: trimmed.isEmpty ? "New chat" : trimmed,
+            mode: mode,
             createdAt: now,
             updatedAt: now
         ))
@@ -163,7 +175,8 @@ actor SessionStore {
         _ snapshot: SessionSnapshot,
         projectName: String,
         sessionID: UUID,
-        title: String
+        title: String,
+        mode: AgentMode? = nil
     ) {
         let now = Date()
         let url = sessionURL(projectName: projectName, sessionID: sessionID)
@@ -185,14 +198,29 @@ actor SessionStore {
             if !trimmedTitle.isEmpty {
                 index[indexPosition].title = trimmedTitle
             }
+            if let mode {
+                index[indexPosition].mode = mode
+            }
         } else {
             index.append(SessionMetadata(
                 id: sessionID,
                 title: trimmedTitle.isEmpty ? "New chat" : trimmedTitle,
+                mode: mode,
                 createdAt: now,
                 updatedAt: now
             ))
         }
+        writeIndex(index, projectName: projectName)
+    }
+
+    func setMode(projectName: String, sessionID: UUID, mode: AgentMode) {
+        var index = readIndex(projectName: projectName)
+        guard let indexPosition = index.firstIndex(where: { $0.id == sessionID }),
+              index[indexPosition].mode != mode
+        else {
+            return
+        }
+        index[indexPosition].mode = mode
         writeIndex(index, projectName: projectName)
     }
 

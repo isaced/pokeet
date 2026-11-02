@@ -12,6 +12,7 @@ struct ChatView: View {
     @State private var isShowingChanges = false
     @State private var isShowingFilePicker = false
     @State private var isShowingModelPicker = false
+    @State private var isShowingModePicker = false
     @State private var isShowingPhotoPicker = false
     @State private var photoPickerItems: [PhotosPickerItem] = []
     @State private var pendingAnchorID: UUID?
@@ -109,6 +110,20 @@ struct ChatView: View {
         }
         .sheet(isPresented: $isShowingModelPicker) {
             ModelPickerView()
+        }
+        .sheet(isPresented: $isShowingModePicker) {
+            ModePickerView(selected: model.mode) { mode in
+                model.setMode(mode)
+                isShowingModePicker = false
+            }
+        }
+        .sheet(isPresented: $model.isShowingPlan) {
+            PlanReviewView(
+                plan: model.pendingPlan ?? "",
+                onExecute: model.executePlan,
+                onStay: model.stayInPlan,
+                onRefine: model.refinePlan
+            )
         }
         .photosPicker(
             isPresented: $isShowingPhotoPicker,
@@ -325,6 +340,25 @@ struct ChatView: View {
                 }
                 .tint(.primary)
                 .accessibilityLabel("Add")
+
+                Button {
+                    isShowingModePicker = true
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: model.mode.systemImage)
+                            .font(.caption2)
+                        Text(model.mode.displayName)
+                            .font(.subheadline.weight(.medium))
+                        Image(systemName: "chevron.down")
+                            .font(.caption2.weight(.semibold))
+                    }
+                    .foregroundStyle(model.mode == .bypass ? Color.red : Color.secondary)
+                    .padding(.vertical, 6)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(model.isRunning)
+                .accessibilityLabel("Choose agent mode")
 
                 Button {
                     isShowingModelPicker = true

@@ -176,4 +176,63 @@ final class SessionStoreTests: XCTestCase {
         let loaded = await store.load(projectName: "future", sessionID: session.id)
         XCTAssertNil(loaded)
     }
+
+    func testSessionModeRoundtripAndSetMode() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = SessionStore(directory: directory)
+        let session = await store.create(projectName: "modes", title: "Plan", mode: .plan)
+
+        let listed = await store.list(projectName: "modes")
+        XCTAssertEqual(listed.first(where: { $0.id == session.id })?.mode, .plan)
+
+        await store.setMode(projectName: "modes", sessionID: session.id, mode: .auto)
+        let updated = await store.list(projectName: "modes")
+        XCTAssertEqual(updated.first(where: { $0.id == session.id })?.mode, .auto)
+    }
+
+    func testSaveUpdatesSessionMode() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = SessionStore(directory: directory)
+        let session = await store.create(projectName: "modes", title: "Mode", mode: .ask)
+
+        await store.save(
+            SessionSnapshot(messages: [], bubbles: []),
+            projectName: "modes",
+            sessionID: session.id,
+            title: "Mode",
+            mode: .bypass
+        )
+
+        let listed = await store.list(projectName: "modes")
+        XCTAssertEqual(listed.first(where: { $0.id == session.id })?.mode, .bypass)
+    }
+
+    func testLegacySessionIndexWithoutModeDecodes() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = SessionStore(directory: directory)
+        let projectDirectory = directory.appendingPathComponent("legacy", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: projectDirectory,
+            withIntermediateDirectories: true
+        )
+
+        let metadata = SessionMetadata(title: "Old chat")
+        var object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode([metadata])) as? [[String: Any]]
+        )
+        object[0].removeValue(forKey: "mode")
+        let data = try JSONSerialization.data(withJSONObject: object)
+        try data.write(to: projectDirectory.appendingPathComponent("sessions.json"))
+
+        let listed = await store.list(projectName: "legacy")
+        XCTAssertEqual(listed.count, 1)
+        XCTAssertEqual(listed.first?.title, "Old chat")
+        XCTAssertNil(listed.first?.mode)
+    }
 }

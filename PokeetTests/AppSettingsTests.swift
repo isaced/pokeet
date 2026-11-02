@@ -180,4 +180,15 @@ final class AppSettingsTests: XCTestCase {
 
         XCTAssertEqual(settings.activeProviderID, first.id)
     }
+
+    func testDefaultAgentModePersists() {
+        let secrets = MemorySecretStore()
+        let settings = AppSettings(defaults: defaults, secrets: secrets)
+        XCTAssertEqual(settings.defaultAgentMode, .ask)
+
+        settings.defaultAgentMode = .plan
+
+        let reloaded = AppSettings(defaults: defaults, secrets: secrets)
+        XCTAssertEqual(reloaded.defaultAgentMode, .plan)
+    }
 }
