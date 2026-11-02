@@ -480,8 +480,14 @@ final class ChatViewModel {
         case .toolStarted(let name):
             finalizeReasoningBubble()
             status = "Running \(name)…"
-        case .toolFinished:
+        case .toolFinished(let name, let summary):
             status = "Thinking…"
+            if name == HTTPRequestTool.toolName, summary.hasPrefix("HTTP ") {
+                let line = summary
+                    .split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: true)
+                    .first.map(String.init) ?? summary
+                bubbles.append(Bubble(role: .tool, text: String(line.prefix(140))))
+            }
         case .proposalsPending(let proposals):
             present(proposals)
         case .finished:
