@@ -91,7 +91,4 @@ public enum ProviderTemplates {
         )
     }
 
-    public static var seededProviders: [ProviderConfiguration] {
-        all.map { configuration(from: $0) }
-    }
 }

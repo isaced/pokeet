@@ -43,80 +43,101 @@ final class AppSettingsTests: XCTestCase {
         super.tearDown()
     }
 
-    func testSeedsProvidersAndPersistsThem() {
+    @discardableResult
+    private func addProvider(
+        _ settings: AppSettings,
+        template: ProviderTemplate = ProviderTemplates.all[0],
+        apiKey: String = ""
+    ) -> ProviderConfiguration {
+        let provider = ProviderTemplates.configuration(from: template)
+        settings.saveProvider(provider, apiKey: apiKey)
+        return provider
+    }
+
+    func testStartsEmptyAndPersistsEmptyList() {
         let secrets = MemorySecretStore()
         let settings = AppSettings(defaults: defaults, secrets: secrets)
 
-        XCTAssertEqual(settings.providers.count, 4)
-        XCTAssertEqual(settings.providers.map(\.name), [
-            "OpenAI", "Anthropic", "Gemini", "OpenAI Compatible"
-        ])
-        XCTAssertEqual(settings.activeProvider?.name, "OpenAI")
+        XCTAssertTrue(settings.providers.isEmpty)
+        XCTAssertNil(settings.activeProvider)
+        XCTAssertNil(settings.activeProviderID)
         XCTAssertFalse(settings.isModelConfigured)
 
         let reloaded = AppSettings(defaults: defaults, secrets: secrets)
-        XCTAssertEqual(reloaded.providers.map(\.id), settings.providers.map(\.id))
+        XCTAssertTrue(reloaded.providers.isEmpty)
+    }
+
+    func testAddingProviderPersistsAndActivatesIt() {
+        let secrets = MemorySecretStore()
+        let settings = AppSettings(defaults: defaults, secrets: secrets)
+        var provider = ProviderTemplates.configuration(from: ProviderTemplates.all[0])
+        provider.baseURL = "https://api.example.com/v1"
+        provider.models = [ProviderModel(id: "model-a")]
+        provider.selectedModelIDs = ["model-a"]
+        provider.defaultModelID = "model-a"
+
+        settings.saveProvider(provider, apiKey: "secret")
+
+        XCTAssertEqual(settings.providers.count, 1)
+        XCTAssertEqual(settings.activeProviderID, provider.id)
+        XCTAssertEqual(settings.activeProvider?.name, provider.name)
+        XCTAssertTrue(settings.isModelConfigured)
+
+        let reloaded = AppSettings(defaults: defaults, secrets: secrets)
+        XCTAssertEqual(reloaded.providers.map(\.id), [provider.id])
+        XCTAssertEqual(reloaded.apiKey(for: provider.id), "secret")
     }
 
     func testStoresAPIKeyPerProvider() {
         let secrets = MemorySecretStore()
         let settings = AppSettings(defaults: defaults, secrets: secrets)
-        let openAI = try! XCTUnwrap(settings.providers.first)
-        var updated = openAI
-        updated.baseURL = "https://api.example.com/v1"
-        updated.selectedModelIDs = ["model-a"]
-        updated.defaultModelID = "model-a"
-        updated.models = [ProviderModel(id: "model-a")]
+        let first = addProvider(settings, template: ProviderTemplates.all[0], apiKey: "key-a")
+        let second = addProvider(settings, template: ProviderTemplates.all[1], apiKey: "key-b")
 
-        settings.saveProvider(updated, apiKey: "secret-a")
+        XCTAssertEqual(settings.apiKey(for: first.id), "key-a")
+        XCTAssertEqual(settings.apiKey(for: second.id), "key-b")
 
-        XCTAssertEqual(settings.apiKey(for: openAI.id), "secret-a")
-        XCTAssertEqual(settings.apiKey(for: settings.providers[1].id), "")
-        XCTAssertTrue(settings.isModelConfigured)
-
-        let reloaded = AppSettings(defaults: defaults, secrets: secrets)
-        XCTAssertEqual(reloaded.apiKey(for: openAI.id), "secret-a")
-        XCTAssertTrue(reloaded.isModelConfigured)
+        settings.deleteProvider(id: first.id)
+        XCTAssertEqual(settings.apiKey(for: first.id), "")
+        XCTAssertEqual(settings.apiKey(for: second.id), "key-b")
     }
 
-    func testDeletingActiveProviderFallsBackAndRemovesKey() throws {
-        let secrets = MemorySecretStore()
-        let settings = AppSettings(defaults: defaults, secrets: secrets)
-        let active = try XCTUnwrap(settings.activeProvider)
-        settings.saveProvider(active, apiKey: "key")
-
-        settings.deleteProvider(id: active.id)
-
-        XCTAssertFalse(settings.providers.contains { $0.id == active.id })
-        XCTAssertEqual(settings.apiKey(for: active.id), "")
-        XCTAssertNotNil(settings.activeProvider)
-        XCTAssertNotEqual(settings.activeProviderID, active.id)
-    }
-
-    func testDisablingActiveProviderFallsBack() throws {
+    func testDeletingActiveProviderFallsBackToAnother() {
         let settings = AppSettings(defaults: defaults, secrets: MemorySecretStore())
-        let active = try XCTUnwrap(settings.activeProvider)
+        let first = addProvider(settings, template: ProviderTemplates.all[0])
+        let second = addProvider(settings, template: ProviderTemplates.all[1])
+        XCTAssertEqual(settings.activeProviderID, first.id)
 
-        settings.setEnabled(false, for: active.id)
+        settings.deleteProvider(id: first.id)
 
-        XCTAssertNotEqual(settings.activeProviderID, active.id)
-        XCTAssertEqual(settings.activeProvider?.isEnabled, true)
+        XCTAssertEqual(settings.activeProviderID, second.id)
+    }
+
+    func testDisablingActiveProviderFallsBack() {
+        let settings = AppSettings(defaults: defaults, secrets: MemorySecretStore())
+        let first = addProvider(settings, template: ProviderTemplates.all[0])
+        let second = addProvider(settings, template: ProviderTemplates.all[1])
+
+        settings.setEnabled(false, for: first.id)
+
+        XCTAssertEqual(settings.activeProviderID, second.id)
     }
 
     func testSavingDisabledActiveProviderFallsBack() throws {
         let settings = AppSettings(defaults: defaults, secrets: MemorySecretStore())
-        var active = try XCTUnwrap(settings.activeProvider)
-        active.isEnabled = false
+        let first = addProvider(settings, template: ProviderTemplates.all[0])
+        let second = addProvider(settings, template: ProviderTemplates.all[1])
+        var updated = try XCTUnwrap(settings.provider(id: first.id))
+        updated.isEnabled = false
 
-        settings.saveProvider(active, apiKey: "")
+        settings.saveProvider(updated, apiKey: "")
 
-        XCTAssertNotEqual(settings.activeProviderID, active.id)
-        XCTAssertEqual(settings.activeProvider?.isEnabled, true)
+        XCTAssertEqual(settings.activeProviderID, second.id)
     }
 
     func testDefaultModelMustBeSelected() throws {
         let settings = AppSettings(defaults: defaults, secrets: MemorySecretStore())
-        let provider = try XCTUnwrap(settings.activeProvider)
+        let provider = addProvider(settings)
 
         settings.setDefaultModel("not-selected", for: provider.id)
         XCTAssertEqual(settings.provider(id: provider.id)?.defaultModelID, provider.defaultModelID)
@@ -128,7 +149,7 @@ final class AppSettingsTests: XCTestCase {
 
     func testAddingCustomModelThroughProviderSave() throws {
         let settings = AppSettings(defaults: defaults, secrets: MemorySecretStore())
-        var provider = try XCTUnwrap(settings.activeProvider)
+        var provider = addProvider(settings)
 
         let id = try XCTUnwrap(provider.addCustomModel(id: "custom-model"))
         settings.saveProvider(provider, apiKey: "")
@@ -138,11 +159,10 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertTrue(reloaded.selectedModelIDs.contains(id))
     }
 
-    func testDeletedProviderDataIsNotReseeded() {
+    func testDeletingAllProvidersStaysEmpty() {
         let settings = AppSettings(defaults: defaults, secrets: MemorySecretStore())
-        for provider in settings.providers {
-            settings.deleteProvider(id: provider.id)
-        }
+        let provider = addProvider(settings)
+        settings.deleteProvider(id: provider.id)
 
         let reloaded = AppSettings(defaults: defaults, secrets: MemorySecretStore())
         XCTAssertTrue(reloaded.providers.isEmpty)
@@ -150,13 +170,14 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertFalse(reloaded.isModelConfigured)
     }
 
-    func testSelectingDisabledProviderIsRejected() throws {
+    func testSelectingDisabledProviderIsRejected() {
         let settings = AppSettings(defaults: defaults, secrets: MemorySecretStore())
-        let disabled = settings.providers[1]
-        settings.setEnabled(false, for: disabled.id)
+        let first = addProvider(settings, template: ProviderTemplates.all[0])
+        let second = addProvider(settings, template: ProviderTemplates.all[1])
+        settings.setEnabled(false, for: second.id)
 
-        settings.setActiveProvider(disabled.id)
+        settings.setActiveProvider(second.id)
 
-        XCTAssertNotEqual(settings.activeProviderID, disabled.id)
+        XCTAssertEqual(settings.activeProviderID, first.id)
     }
 }

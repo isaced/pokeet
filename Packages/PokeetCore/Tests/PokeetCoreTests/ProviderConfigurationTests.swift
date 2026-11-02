@@ -3,8 +3,10 @@ import Testing
 @testable import PokeetCore
 
 struct ProviderConfigurationTests {
-    @Test func seedsFourProviderTemplates() {
-        let providers = ProviderTemplates.seededProviders
+    @Test func providerTemplatesCoverFourProtocols() {
+        let providers = ProviderTemplates.all.map {
+            ProviderTemplates.configuration(from: $0)
+        }
 
         #expect(providers.count == 4)
         #expect(Set(providers.map(\.wireProtocol)) == Set(WireProtocol.allCases))
@@ -136,7 +138,7 @@ struct ProviderConfigurationTests {
     }
 
     @Test func codableRoundtrip() throws {
-        let provider = ProviderTemplates.seededProviders[2]
+        let provider = ProviderTemplates.configuration(from: ProviderTemplates.all[2])
         let data = try JSONEncoder().encode(provider)
         let decoded = try JSONDecoder().decode(ProviderConfiguration.self, from: data)
 

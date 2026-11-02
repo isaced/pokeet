@@ -57,10 +57,7 @@ final class AppSettings {
            let decoded = try? JSONDecoder().decode([ProviderConfiguration].self, from: data) {
             loadedProviders = decoded
         } else {
-            loadedProviders = ProviderTemplates.seededProviders
-            if let data = try? JSONEncoder().encode(loadedProviders) {
-                defaults.set(data, forKey: Key.providers)
-            }
+            loadedProviders = []
         }
 
         let storedActive = defaults.string(forKey: Key.activeProviderID)
