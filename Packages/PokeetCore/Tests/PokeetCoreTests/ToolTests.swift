@@ -1,0 +1,85 @@
+import Foundation
+import Testing
+@testable import PokeetCore
+
+struct ToolTests {
+    @Test func listsFiles() async throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+        try directory.write("Sources/main.swift", "print(1)\n")
+
+        let workspace = FileWorkspace(root: directory.url)
+        let output = try await ListFilesTool().execute(
+            arguments: Data(#"{"recursive":true}"#.utf8),
+            context: ToolContext(workspace: workspace)
+        )
+
+        #expect(output.content.contains("Sources/main.swift"))
+        #expect(output.proposals.isEmpty)
+    }
+
+    @Test func readsNumberedLines() async throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+        try directory.write("hello.txt", "one\ntwo\n")
+
+        let workspace = FileWorkspace(root: directory.url)
+        let output = try await ReadFileTool().execute(
+            arguments: Data(#"{"path":"hello.txt"}"#.utf8),
+            context: ToolContext(workspace: workspace)
+        )
+
+        #expect(output.content.contains("1\tone"))
+        #expect(output.content.contains("2\ttwo"))
+    }
+
+    @Test func writeFileProposesWithoutWriting() async throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+        try directory.write("README.md", "old\n")
+
+        let workspace = FileWorkspace(root: directory.url)
+        let output = try await WriteFileTool().execute(
+            arguments: Data(#"{"path":"README.md","content":"new\n","reason":"test"}"#.utf8),
+            context: ToolContext(workspace: workspace)
+        )
+
+        #expect(output.proposals.count == 1)
+        #expect(output.proposals[0].kind == .update)
+        #expect(output.proposals[0].addedLines == 1)
+        #expect(output.proposals[0].removedLines == 1)
+
+        let unchanged = try workspace.read("README.md", maxBytes: 1000)
+        #expect(unchanged == "old\n")
+    }
+
+    @Test func writeFileReportsIdenticalContent() async throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+        try directory.write("README.md", "same\n")
+
+        let workspace = FileWorkspace(root: directory.url)
+        let output = try await WriteFileTool().execute(
+            arguments: Data(#"{"path":"README.md","content":"same\n"}"#.utf8),
+            context: ToolContext(workspace: workspace)
+        )
+
+        #expect(output.proposals.isEmpty)
+        #expect(output.content.contains("identical"))
+    }
+
+    @Test func writeFileRejectsPathEscape() async throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+
+        let workspace = FileWorkspace(root: directory.url)
+        do {
+            _ = try await WriteFileTool().execute(
+                arguments: Data(#"{"path":"../escape.txt","content":"x"}"#.utf8),
+                context: ToolContext(workspace: workspace)
+            )
+            Issue.record("Expected a path escape error")
+        } catch is ToolError {
+        }
+    }
+}
