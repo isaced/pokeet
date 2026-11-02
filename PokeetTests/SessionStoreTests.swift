@@ -18,9 +18,11 @@ final class SessionStoreTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
 
         let store = SessionStore(directory: directory)
+        let image = ChatImage(mimeType: "image/png", data: Data("img".utf8))
         let messages: [ChatMessage] = [
             .system("system"),
             .user("hi"),
+            ChatMessage(role: .user, content: "look", images: [image]),
             .assistant(nil, toolCalls: [
                 ToolCall(id: "call_1", name: "read_file", arguments: "{}")
             ]),
@@ -29,6 +31,7 @@ final class SessionStoreTests: XCTestCase {
         ]
         let bubbles = [
             StoredBubble(id: UUID(), role: "user", text: "hi"),
+            StoredBubble(id: UUID(), role: "user", text: "look", images: [image]),
             StoredBubble(id: UUID(), role: "reasoning", text: "thinking"),
             StoredBubble(id: UUID(), role: "assistant", text: "done")
         ]
