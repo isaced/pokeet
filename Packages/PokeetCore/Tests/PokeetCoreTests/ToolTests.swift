@@ -82,4 +82,49 @@ struct ToolTests {
         } catch is ToolError {
         }
     }
+
+    @Test func readsLineRange() async throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+        try directory.write("lines.txt", "one\ntwo\nthree\nfour\nfive\n")
+
+        let workspace = FileWorkspace(root: directory.url)
+        let output = try await ReadFileTool().execute(
+            arguments: Data(#"{"path":"lines.txt","offset":2,"limit":2}"#.utf8),
+            context: ToolContext(workspace: workspace)
+        )
+
+        #expect(output.content.contains("2\ttwo"))
+        #expect(output.content.contains("3\tthree"))
+        #expect(!output.content.contains("1\tone"))
+        #expect(!output.content.contains("4\tfour"))
+        #expect(output.content.contains("showing lines 2-3 of 5"))
+    }
+
+    @Test func reportsOffsetBeyondEnd() async throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+        try directory.write("lines.txt", "one\ntwo\n")
+
+        let workspace = FileWorkspace(root: directory.url)
+        let output = try await ReadFileTool().execute(
+            arguments: Data(#"{"path":"lines.txt","offset":10}"#.utf8),
+            context: ToolContext(workspace: workspace)
+        )
+
+        #expect(output.content.contains("beyond the end"))
+    }
+
+    @Test func standardRegistryIncludesCodingTools() {
+        let names = Set(ToolRegistry.standard.schemas.map(\.name))
+
+        #expect(names == [
+            "list_files",
+            "read_file",
+            "write_file",
+            "edit_file",
+            "grep",
+            "find"
+        ])
+    }
 }
