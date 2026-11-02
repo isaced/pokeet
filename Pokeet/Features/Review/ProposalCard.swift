@@ -26,6 +26,10 @@ struct ProposalCard: View {
         state.hasRejectedHunks(in: proposal)
     }
 
+    private var isFileLevelOnly: Bool {
+        proposal.kind == .delete || proposal.kind == .move
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             header
@@ -47,39 +51,67 @@ struct ProposalCard: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(isFullySelected ? "Exclude all hunks" : "Include all hunks")
+            .accessibilityLabel(isFullySelected ? "Exclude file" : "Include file")
 
-            Text(proposal.kind == .create ? "NEW" : "EDIT")
+            Text(badgeText)
                 .font(.caption2.bold())
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
-                .background(
-                    proposal.kind == .create
-                        ? Color.green.opacity(0.2)
-                        : Color.blue.opacity(0.2)
-                )
+                .background(badgeColor.opacity(0.2))
                 .clipShape(Capsule())
 
-            Text(proposal.path)
+            Text(pathLabel)
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(1)
                 .truncationMode(.middle)
 
             Spacer(minLength: 8)
 
-            Text("+\(proposal.addedLines)")
-                .font(.caption.monospaced())
-                .foregroundStyle(.green)
-            Text("-\(proposal.removedLines)")
-                .font(.caption.monospaced())
-                .foregroundStyle(.red)
+            if proposal.kind != .move {
+                Text("+\(proposal.addedLines)")
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.green)
+                Text("-\(proposal.removedLines)")
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.red)
+            }
         }
+    }
+
+    private var badgeText: String {
+        switch proposal.kind {
+        case .create: "NEW"
+        case .update: "EDIT"
+        case .delete: "DELETE"
+        case .move: "MOVE"
+        }
+    }
+
+    private var badgeColor: Color {
+        switch proposal.kind {
+        case .create: .green
+        case .update: .blue
+        case .delete: .red
+        case .move: .orange
+        }
+    }
+
+    private var pathLabel: String {
+        guard proposal.kind == .move, let destination = proposal.destinationPath else {
+            return proposal.path
+        }
+        return "\(proposal.path) → \(destination)"
     }
 
     @ViewBuilder
     private var diff: some View {
-        if proposal.diff.hunks.isEmpty {
-            Text("(empty file)")
+        if proposal.kind == .move {
+            Text("File content stays the same; only the path changes.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.vertical, 2)
+        } else if proposal.diff.hunks.isEmpty {
+            Text(proposal.kind == .delete ? "Empty file will be removed." : "(empty file)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .padding(.vertical, 2)
@@ -90,21 +122,23 @@ struct ProposalCard: View {
 
                     VStack(alignment: .leading, spacing: 0) {
                         HStack(spacing: 6) {
-                            Button {
-                                onToggleHunk(hunk.id)
-                            } label: {
-                                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                                    .font(.system(size: 16, weight: .medium))
-                                    .foregroundStyle(selected ? Color.accentColor : .secondary)
-                                    .frame(width: 24, height: 24)
-                                    .contentShape(Rectangle())
+                            if !isFileLevelOnly {
+                                Button {
+                                    onToggleHunk(hunk.id)
+                                } label: {
+                                    Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                                        .font(.system(size: 16, weight: .medium))
+                                        .foregroundStyle(selected ? Color.accentColor : .secondary)
+                                        .frame(width: 24, height: 24)
+                                        .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel(
+                                    selected
+                                        ? "Exclude hunk \(hunk.header)"
+                                        : "Include hunk \(hunk.header)"
+                                )
                             }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(
-                                selected
-                                    ? "Exclude hunk \(hunk.header)"
-                                    : "Include hunk \(hunk.header)"
-                            )
 
                             Text(hunk.header)
                                 .font(.caption2.monospaced())
@@ -172,6 +206,12 @@ struct ProposalCard: View {
     }
 
     private var summary: String {
+        if proposal.kind == .delete {
+            return isFullySelected ? "File will be deleted" : "Deletion skipped"
+        }
+        if proposal.kind == .move {
+            return isFullySelected ? "File will be moved" : "Move skipped"
+        }
         if proposal.diff.hunks.isEmpty {
             return isFullySelected ? "Empty file will be created" : "Empty file skipped"
         }

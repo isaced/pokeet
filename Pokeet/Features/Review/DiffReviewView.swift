@@ -38,7 +38,7 @@ struct DiffReviewView: View {
         NavigationStack {
             ScrollView {
                 LazyVStack(spacing: 16) {
-                    Text("Tap a hunk to include or exclude it.")
+                    Text("Include or exclude files. In an edit, tap a hunk to include only part of it.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -91,6 +91,7 @@ struct DiffReviewView: View {
     }
 
     private func toggleHunk(_ hunkID: DiffHunk.ID, for proposal: FileProposal) {
+        guard proposal.kind != .delete, proposal.kind != .move else { return }
         var state = state(for: proposal)
         if state.selectedHunkIDs.contains(hunkID) {
             state.selectedHunkIDs.remove(hunkID)
@@ -139,6 +140,9 @@ struct DiffReviewView: View {
 
         guard state.isIncluded else {
             return .reject(proposalID: proposal.id, note: note)
+        }
+        if proposal.kind == .delete || proposal.kind == .move {
+            return .acceptAll(proposalID: proposal.id)
         }
         guard !allHunkIDs.isEmpty else {
             return .acceptAll(proposalID: proposal.id)
