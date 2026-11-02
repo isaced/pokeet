@@ -44,7 +44,8 @@ public struct ToolRegistry: Sendable {
             FindTool(),
             GitStatusTool(),
             GitDiffTool(),
-            GitLogTool()
+            GitLogTool(),
+            HTTPRequestTool()
         ])
     }
 
@@ -61,6 +62,7 @@ public enum ToolError: Error, Sendable, Equatable, LocalizedError {
     case invalidArguments(String)
     case invalidInput(String)
     case workspace(String)
+    case network(String)
 
     public var errorDescription: String? {
         switch self {
@@ -69,6 +71,8 @@ public enum ToolError: Error, Sendable, Equatable, LocalizedError {
         case .invalidInput(let message):
             message
         case .workspace(let message):
+            message
+        case .network(let message):
             message
         }
     }

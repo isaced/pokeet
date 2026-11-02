@@ -181,7 +181,8 @@ struct ToolTests {
             "find",
             "git_status",
             "git_diff",
-            "git_log"
+            "git_log",
+            "http_request"
         ])
     }
 }

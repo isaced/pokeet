@@ -520,11 +520,13 @@ struct AgentLoopTests {
         ])
         let summarizer = RecordingSummarizer(summary: "## Goal\nContinue the work")
         let recorder = EventRecorder()
+        // The budget must leave room above the system prompt, which grows as tools are added.
+        let budget = AgentPrompts.system.count + 1_200
         let session = AgentSession(
             client: client,
             workspace: FileWorkspace(root: directory.url),
             config: AgentConfiguration(
-                contextCharacterBudget: 2_400,
+                contextCharacterBudget: budget,
                 retainedTurns: 2,
                 compactedToolOutputCharacters: 100
             ),
@@ -549,7 +551,7 @@ struct AgentLoopTests {
         #expect(messages.contains {
             $0.role == .user && $0.content?.contains("## Goal\nContinue the work") == true
         })
-        #expect(totalCharacters <= 2_400)
+        #expect(totalCharacters <= budget)
 
         let summarized = await summarizer.receivedMessages()
         #expect(summarized.count == 1)
