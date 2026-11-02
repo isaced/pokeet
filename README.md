@@ -25,12 +25,12 @@ Pokeet puts the whole loop on your iPhone:
 | | |
 |---|---|
 | 🤖 **A real agent, not a chatbot** | ReAct loop with tools: read, write, edit, shell, git. It works until the job is done. |
-| 📁 **A real workspace** | Each project lives in its own sandbox, visible in the Files app. |
-| 🌳 **Real git** | Clone, diff, commit, push — powered by libgit2, right on the phone. |
+| 📁 **A real workspace** | Each project lives in its own sandbox, visible in the Files app. Start empty or from a Git repository. |
+| 🌳 **Real git** | Clone, diff, commit, push — libgit2 on the phone, over HTTPS with a personal access token. |
 | 🖥️ **A virtual shell** | A curated set of shell commands for the agent, backed by the workspace. |
 | 🔍 **Diff-first review** | Every edit arrives as a diff card. Approve per hunk, per file. Nothing lands without your poke. |
-| 🔑 **Your key, your model** | Bring your own API key. Any OpenAI-compatible endpoint: DeepSeek, Anthropic, OpenAI, OpenRouter… |
-| 🔒 **Local-first** | No Pokeet server. No account. Your code never leaves your phone except through your own git push. |
+| 🔑 **Your key, your model** | Bring your own API key. Any OpenAI-compatible endpoint: DeepSeek, OpenAI, OpenRouter, your own gateway, or a local server. |
+| 🔒 **Local-first** | No Pokeet server. No account. Your code leaves your phone only through your own model requests and git push. |
 
 ## How a task flows
 
@@ -47,7 +47,24 @@ Pokeet:  🔧 revises, commits, pushes to GitHub
 
 1. **Install**: TestFlight link (coming soon). Or build it yourself — it's open source.
 2. **Add a model**: Settings → Model → paste an API key (any OpenAI-compatible endpoint).
-3. **Poke it**: clone a repo or open a project, and say what needs doing.
+3. **Poke it**: create a project — empty, or from an optional Git repository — then say what needs doing. Private repos use an HTTPS personal access token; SSH isn't supported yet.
+
+## Development
+
+Requirements: Xcode 27+, Swift 6, and [XcodeGen](https://github.com/yonaskolb/XcodeGen). The generated project isn't checked in.
+
+```sh
+xcodegen generate
+open Pokeet.xcodeproj
+```
+
+Run the agent-kernel tests:
+
+```sh
+swift test --package-path Packages/PokeetCore
+```
+
+Debug builds support a scripted demo model with no API key: launch the app with the `-PokeetMockModel` argument.
 
 ## Architecture
 
@@ -56,8 +73,8 @@ Native Swift / SwiftUI. The agent kernel is isolated behind protocols so it can 
 ```
 ┌──────────────────────────────────────┐
 │  PokeetApp (iOS shell)               │
-│  SwiftUI · workspace · File Provider │
-│  libgit2 · curated shell · diff UI   │
+│  SwiftUI · workspace · Files         │
+│  SwiftGitX · libgit2 · shell · diff  │
 └───────────────┬──────────────────────┘
                 │  protocols
 ┌───────────────▼──────────────────────┐
@@ -69,10 +86,10 @@ Native Swift / SwiftUI. The agent kernel is isolated behind protocols so it can 
 
 ## Roadmap
 
-- **v1** — Agent loop, workspace, git (clone/diff/commit/push), curated shell, diff-review UI, BYOK.
+- **v1** — Agent loop, workspace, git (clone/diff/commit/push over HTTPS with a personal access token), curated shell, diff-review UI, BYOK.
   The golden path: clone → fix → review → push, all on iPhone, no computer.
 - **v2** — `run_script`: JavaScript via JavaScriptCore, embedded CPython; Mac mini one-tap test runs.
-- **Later** — more tools, skills learned from your repos, maybe Android.
+- **Later** — SSH remotes, more tools, skills learned from your repos, maybe Android.
 
 ## Contributing
 
