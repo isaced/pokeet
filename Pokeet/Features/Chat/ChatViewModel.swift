@@ -6,7 +6,7 @@ import PokeetCore
 @Observable
 final class ChatViewModel {
     struct Bubble: Identifiable, Equatable, Sendable {
-        enum Role: Sendable, Equatable {
+        enum Role: String, Sendable, Equatable {
             case user
             case assistant
             case reasoning
@@ -14,10 +14,22 @@ final class ChatViewModel {
             case error
         }
 
-        let id = UUID()
+        let id: UUID
         let role: Role
         var text: String
-        var isStreaming = false
+        var isStreaming: Bool
+
+        init(
+            id: UUID = UUID(),
+            role: Role,
+            text: String,
+            isStreaming: Bool = false
+        ) {
+            self.id = id
+            self.role = role
+            self.text = text
+            self.isStreaming = isStreaming
+        }
     }
 
     let project: Project
@@ -42,6 +54,7 @@ final class ChatViewModel {
     private var lastRequest = ""
     private var streamingBubbleID: UUID?
     private var reasoningBubbleID: UUID?
+    private var didLoadSession = false
 
     init(project: Project, environment: AppEnvironment) {
         self.project = project
@@ -76,6 +89,10 @@ final class ChatViewModel {
     }
 
     func loadInitialState() async {
+        if !didLoadSession {
+            didLoadSession = true
+            await restoreSession()
+        }
         await refreshStatus()
     }
 
@@ -130,6 +147,7 @@ final class ChatViewModel {
         pendingProposals = []
         isShowingReview = false
         lastRequest = ""
+        await saveSession()
         await refreshStatus()
     }
 
@@ -174,6 +192,7 @@ final class ChatViewModel {
         }
 
         await refreshStatus()
+        await saveSession()
     }
 
     private func run(_ text: String) async {
@@ -202,6 +221,7 @@ final class ChatViewModel {
                     }
                 }
             )
+            await saveSession()
         } catch is CancellationError {
         } catch let error as AgentError {
             if case .cancelled = error {
@@ -322,6 +342,31 @@ final class ChatViewModel {
         pendingProposals = proposals
         isShowingReview = true
         status = nil
+    }
+
+    private func restoreSession() async {
+        guard let snapshot = await environment.sessions.load(projectName: project.name) else {
+            return
+        }
+
+        bubbles = snapshot.bubbles.compactMap { stored in
+            guard let role = Bubble.Role(rawValue: stored.role) else { return nil }
+            return Bubble(id: stored.id, role: role, text: stored.text)
+        }
+        lastRequest = bubbles.last(where: { $0.role == .user })?.text ?? ""
+        await session.restore(snapshot.restoredMessages)
+    }
+
+    private func saveSession() async {
+        let history = await session.history
+        let storedBubbles = bubbles.map {
+            StoredBubble(id: $0.id, role: $0.role.rawValue, text: $0.text)
+        }
+
+        await environment.sessions.save(
+            SessionSnapshot(messages: history, bubbles: storedBubbles),
+            projectName: project.name
+        )
     }
 
     private func refreshStatus() async {
