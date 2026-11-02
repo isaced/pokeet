@@ -31,7 +31,13 @@ final class SessionStoreTests: XCTestCase {
         ]
         let bubbles = [
             StoredBubble(id: UUID(), role: "user", text: "hi"),
-            StoredBubble(id: UUID(), role: "user", text: "look", images: [image]),
+            StoredBubble(
+                id: UUID(),
+                role: "user",
+                text: "look",
+                images: [image],
+                filePaths: ["Sources/main.swift"]
+            ),
             StoredBubble(id: UUID(), role: "reasoning", text: "thinking"),
             StoredBubble(id: UUID(), role: "assistant", text: "done")
         ]
