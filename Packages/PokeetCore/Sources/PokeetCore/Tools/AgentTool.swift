@@ -31,7 +31,14 @@ public struct ToolRegistry: Sendable {
     }
 
     public static var standard: ToolRegistry {
-        ToolRegistry([ListFilesTool(), ReadFileTool(), WriteFileTool()])
+        ToolRegistry([
+            ListFilesTool(),
+            ReadFileTool(),
+            WriteFileTool(),
+            EditFileTool(),
+            GrepTool(),
+            FindTool()
+        ])
     }
 
     public var schemas: [ToolSchema] {

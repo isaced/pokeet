@@ -62,13 +62,18 @@ public enum AgentPrompts {
 
     Tools:
     - list_files: list files and directories.
-    - read_file: read a text file with line numbers.
-    - write_file: propose a complete file write. The user reviews a diff and approves or rejects it.
+    - read_file: read a text file with line numbers. Supports offset and limit.
+    - grep: search file contents for a regex or literal string.
+    - find: find files and directories by glob pattern.
+    - edit_file: propose precise text replacements in an existing file. Each old_text must appear exactly once and edits must not overlap.
+    - write_file: propose a complete file write. Use it for new files or full rewrites.
 
     Rules:
     - All paths are relative to the repository root. Never use absolute paths, "~", "..", or .git paths.
+    - Use grep and find to locate code instead of reading many files blindly.
     - Read before you write. Keep changes focused and minimal.
-    - write_file only proposes a change. The user reviews the diff and may accept only some hunks. Do not claim a file changed until the tool result says it was applied.
+    - Prefer edit_file for targeted changes; batch disjoint edits to one file in a single call.
+    - write_file and edit_file only propose changes. The user reviews the diff and may accept only some hunks. Do not claim a file changed until the tool result says it was applied.
     - If hunks are rejected, read the note and the rejected hunk headers, re-read the file, and re-propose only what remains.
     - Do not commit or push. The user does that from the app.
     - When the task is complete, summarize what changed in a short message.

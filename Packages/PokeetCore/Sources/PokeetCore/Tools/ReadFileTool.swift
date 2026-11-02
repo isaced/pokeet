@@ -17,6 +17,14 @@ public struct ReadFileTool: AgentTool {
                     "max_bytes": .object([
                         "type": .string("integer"),
                         "description": .string("Maximum number of bytes to read. Defaults to 20000.")
+                    ]),
+                    "offset": .object([
+                        "type": .string("integer"),
+                        "description": .string("Line number to start reading from (1-indexed). Defaults to 1.")
+                    ]),
+                    "limit": .object([
+                        "type": .string("integer"),
+                        "description": .string("Maximum number of lines to return. Defaults to all available lines.")
                     ])
                 ]),
                 "required": .array([.string("path")]),
@@ -29,6 +37,8 @@ public struct ReadFileTool: AgentTool {
         struct Arguments: Decodable {
             var path: String
             var max_bytes: Int?
+            var offset: Int?
+            var limit: Int?
         }
 
         let arguments = try decodeToolArguments(arguments, as: Arguments.self)
@@ -53,9 +63,27 @@ public struct ReadFileTool: AgentTool {
             lines.removeLast()
         }
 
-        let numbered = lines.enumerated().map { index, line in
-            String(format: "%5d\t%@", index + 1, line)
+        let totalLines = lines.count
+        let offset = max(1, arguments.offset ?? 1)
+        guard offset <= totalLines else {
+            return ToolOutput(
+                content: "Offset \(offset) is beyond the end of the file (\(totalLines) lines)."
+            )
         }
-        return ToolOutput(content: numbered.joined(separator: "\n"))
+
+        let startIndex = offset - 1
+        let endIndex = arguments.limit.map {
+            min(totalLines, startIndex + max(1, $0))
+        } ?? totalLines
+        let selected = lines[startIndex..<endIndex]
+        let numbered = selected.enumerated().map { index, line in
+            String(format: "%5d\t%@", startIndex + index + 1, line)
+        }
+
+        var content = numbered.joined(separator: "\n")
+        if endIndex < totalLines {
+            content += "\n[showing lines \(offset)-\(endIndex) of \(totalLines)]"
+        }
+        return ToolOutput(content: content)
     }
 }
