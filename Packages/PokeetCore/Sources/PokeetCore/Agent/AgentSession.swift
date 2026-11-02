@@ -69,6 +69,7 @@ public actor AgentSession {
             )
             var assistantContent = ""
             var assistantToolCalls: [ToolCall] = []
+            var assistantUsage: ModelUsage?
 
             do {
                 for try await event in client.stream(request) {
@@ -91,6 +92,7 @@ public actor AgentSession {
                             assistantContent = content
                         }
                         assistantToolCalls = response.message.toolCalls ?? []
+                        assistantUsage = response.usage
                     }
                 }
             } catch let error as ModelError {
@@ -108,6 +110,10 @@ public actor AgentSession {
                 let message = error.localizedDescription
                 await onEvent(.failed(message))
                 throw AgentError.model(message)
+            }
+
+            if let assistantUsage {
+                await onEvent(.usage(assistantUsage))
             }
 
             let assistantMessage = ChatMessage.assistant(

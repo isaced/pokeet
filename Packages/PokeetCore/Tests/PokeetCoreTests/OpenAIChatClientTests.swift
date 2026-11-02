@@ -286,6 +286,8 @@ struct OpenAIChatClientTests {
 
     @Test func streamsTextAndAssemblesToolCalls() async throws {
         let capturedBody = LockedBox<Data?>(nil)
+        let usageLine = #"data: {"choices":[],"usage":{"prompt_tokens":120,"completion_tokens":7,"prompt_tokens_details":{"cached_tokens":96},"completion_tokens_details":{"reasoning_tokens":2}}}"#
+            + "\n\n"
         let body = try sseBody([
             sseChunk(reasoningContent: "Think"),
             sseChunk(reasoningContent: "ing"),
@@ -299,6 +301,7 @@ struct OpenAIChatClientTests {
                 finishReason: "tool_calls"
             )
         ])
+        .replacingOccurrences(of: "data: [DONE]", with: usageLine + "data: [DONE]")
 
         StubURLProtocol.setHandler { request in
             capturedBody.set(requestBody(from: request))
@@ -331,11 +334,40 @@ struct OpenAIChatClientTests {
         #expect(completed?.message.toolCalls?.first?.id == "call_1")
         #expect(completed?.message.toolCalls?.first?.name == "read_file")
         #expect(completed?.message.toolCalls?.first?.arguments == "{\"path\":\"README.md\"}")
+        #expect(completed?.usage == ModelUsage(
+            inputTokens: 120,
+            outputTokens: 7,
+            cachedInputTokens: 96,
+            reasoningTokens: 2
+        ))
 
         let data = try #require(capturedBody.get())
         let json = try JSONSerialization.jsonObject(with: data)
         let object = try #require(json as? [String: Any])
         #expect(object["stream"] as? Bool == true)
+        let streamOptions = try #require(object["stream_options"] as? [String: Any])
+        #expect(streamOptions["include_usage"] as? Bool == true)
+    }
+
+    @Test func decodesUsageFromNonStreamingResponse() async throws {
+        StubURLProtocol.setHandler { _ in
+            stubJSONResponse(#"""
+            {"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":120,"completion_tokens":7,"prompt_tokens_details":{"cached_tokens":96},"completion_tokens_details":{"reasoning_tokens":2}}}
+            """#)
+        }
+        defer { StubURLProtocol.setHandler(nil) }
+
+        let client = stubClient()
+        let response = try await client.complete(
+            ChatRequest(messages: [.user("hi")], tools: [])
+        )
+
+        #expect(response.usage == ModelUsage(
+            inputTokens: 120,
+            outputTokens: 7,
+            cachedInputTokens: 96,
+            reasoningTokens: 2
+        ))
     }
 }
 

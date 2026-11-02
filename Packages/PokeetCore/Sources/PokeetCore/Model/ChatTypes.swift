@@ -82,9 +82,15 @@ public struct ChatRequest: Sendable {
 public struct ChatResponse: Sendable {
     public var message: ChatMessage
     public var finishReason: String?
+    public var usage: ModelUsage?
 
-    public init(message: ChatMessage, finishReason: String? = nil) {
+    public init(
+        message: ChatMessage,
+        finishReason: String? = nil,
+        usage: ModelUsage? = nil
+    ) {
         self.message = message
         self.finishReason = finishReason
+        self.usage = usage
     }
 }

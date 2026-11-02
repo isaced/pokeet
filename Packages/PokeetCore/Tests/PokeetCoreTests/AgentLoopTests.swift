@@ -36,7 +36,13 @@ private struct DeltaStreamingClient: ModelClient {
             continuation.yield(.textDelta("lo"))
             continuation.yield(.completed(ChatResponse(
                 message: .assistant("Hello"),
-                finishReason: "stop"
+                finishReason: "stop",
+                usage: ModelUsage(
+                    inputTokens: 100,
+                    outputTokens: 5,
+                    cachedInputTokens: 64,
+                    reasoningTokens: 2
+                )
             )))
             continuation.finish()
         }
@@ -141,6 +147,12 @@ struct AgentLoopTests {
             .assistantReasoningDelta("ing"),
             .assistantTextDelta("Hel"),
             .assistantTextDelta("lo"),
+            .usage(ModelUsage(
+                inputTokens: 100,
+                outputTokens: 5,
+                cachedInputTokens: 64,
+                reasoningTokens: 2
+            )),
             .assistantMessage("Hello"),
             .finished
         ])

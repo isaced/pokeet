@@ -47,7 +47,8 @@ public struct OpenAIChatClient: ModelClient {
 
             return ChatResponse(
                 message: choice.message.chatMessage,
-                finishReason: choice.finishReason
+                finishReason: choice.finishReason,
+                usage: wireResponse.usage?.modelUsage
             )
         } catch {
             throw mapTransportError(error)
@@ -96,6 +97,7 @@ public struct OpenAIChatClient: ModelClient {
         var content = ""
         var toolCalls: [Int: ToolCallAccumulator] = [:]
         var finishReason: String?
+        var streamUsage: ModelUsage?
 
         for try await line in bytes.lines {
             try Task.checkCancellation()
@@ -120,6 +122,10 @@ public struct OpenAIChatClient: ModelClient {
 
             if let error = chunk.error {
                 throw ModelError.invalidResponse(error.message ?? "Stream error")
+            }
+
+            if let usage = chunk.usage?.modelUsage {
+                streamUsage = usage
             }
 
             guard let choice = chunk.choices?.first else { continue }
@@ -171,7 +177,8 @@ public struct OpenAIChatClient: ModelClient {
                 content.isEmpty ? nil : content,
                 toolCalls: calls.isEmpty ? nil : calls
             ),
-            finishReason: finishReason
+            finishReason: finishReason,
+            usage: streamUsage
         )))
     }
 
@@ -202,7 +209,8 @@ public struct OpenAIChatClient: ModelClient {
                 messages: request.messages.map { WireMessage($0) },
                 tools: sortedTools.isEmpty ? nil : sortedTools.map { WireTool($0) },
                 toolChoice: sortedTools.isEmpty ? nil : "auto",
-                stream: stream ? true : nil
+                stream: stream ? true : nil,
+                streamOptions: stream ? WireStreamOptions() : nil
             ))
         } catch {
             throw ModelError.decoding(error.localizedDescription)
@@ -268,6 +276,7 @@ private struct WireRequest: Encodable {
     let tools: [WireTool]?
     let toolChoice: String?
     let stream: Bool?
+    let streamOptions: WireStreamOptions?
 
     enum CodingKeys: String, CodingKey {
         case model
@@ -275,6 +284,15 @@ private struct WireRequest: Encodable {
         case tools
         case toolChoice = "tool_choice"
         case stream
+        case streamOptions = "stream_options"
+    }
+}
+
+private struct WireStreamOptions: Encodable {
+    let includeUsage = true
+
+    enum CodingKeys: String, CodingKey {
+        case includeUsage = "include_usage"
     }
 }
 
@@ -397,6 +415,7 @@ private struct WireResponse: Decodable {
     }
 
     let choices: [Choice]
+    let usage: WireUsage?
 }
 
 private struct ErrorEnvelope: Decodable {
@@ -432,6 +451,52 @@ private struct WireStreamChunk: Decodable {
 
     let choices: [Choice]?
     let error: WireStreamError?
+    let usage: WireUsage?
+}
+
+private struct WireUsage: Decodable {
+    struct PromptDetails: Decodable {
+        let cachedTokens: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case cachedTokens = "cached_tokens"
+        }
+    }
+
+    struct CompletionDetails: Decodable {
+        let reasoningTokens: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case reasoningTokens = "reasoning_tokens"
+        }
+    }
+
+    let promptTokens: Int?
+    let completionTokens: Int?
+    let promptTokensDetails: PromptDetails?
+    let completionTokensDetails: CompletionDetails?
+    let promptCacheHitTokens: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case promptTokens = "prompt_tokens"
+        case completionTokens = "completion_tokens"
+        case promptTokensDetails = "prompt_tokens_details"
+        case completionTokensDetails = "completion_tokens_details"
+        case promptCacheHitTokens = "prompt_cache_hit_tokens"
+    }
+
+    var modelUsage: ModelUsage? {
+        guard let promptTokens else { return nil }
+
+        return ModelUsage(
+            inputTokens: promptTokens,
+            outputTokens: completionTokens ?? 0,
+            cachedInputTokens: promptTokensDetails?.cachedTokens
+                ?? promptCacheHitTokens
+                ?? 0,
+            reasoningTokens: completionTokensDetails?.reasoningTokens
+        )
+    }
 }
 
 private struct WireStreamError: Decodable {
