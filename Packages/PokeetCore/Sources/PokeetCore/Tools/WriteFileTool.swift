@@ -6,7 +6,7 @@ public struct WriteFileTool: AgentTool {
     public var schema: ToolSchema {
         ToolSchema(
             name: "write_file",
-            description: "Propose writing a UTF-8 text file. The user reviews the diff and approves or rejects it before anything is written.",
+            description: "Propose writing a UTF-8 text file. The user reviews the diff and may approve some or all hunks before anything is written.",
             parameters: .object([
                 "type": .string("object"),
                 "properties": .object([

@@ -6,19 +6,12 @@ public struct FileProposal: Identifiable, Sendable, Equatable {
         case update
     }
 
-    public enum State: Sendable, Equatable {
-        case pending
-        case accepted
-        case rejected(note: String?)
-    }
-
     public let id: UUID
     public let path: String
     public let kind: Kind
     public let baseContent: String?
     public let newContent: String
     public let diff: FileDiff
-    public var state: State
 
     public var addedLines: Int { diff.addedLines }
     public var removedLines: Int { diff.removedLines }
@@ -29,8 +22,7 @@ public struct FileProposal: Identifiable, Sendable, Equatable {
         kind: Kind,
         baseContent: String?,
         newContent: String,
-        diff: FileDiff,
-        state: State = .pending
+        diff: FileDiff
     ) {
         self.id = id
         self.path = path
@@ -38,18 +30,39 @@ public struct FileProposal: Identifiable, Sendable, Equatable {
         self.baseContent = baseContent
         self.newContent = newContent
         self.diff = diff
-        self.state = state
     }
+}
+
+public enum HunkSelection: Sendable, Equatable {
+    case all
+    case none
+    case hunks(Set<DiffHunk.ID>)
 }
 
 public struct ProposalDecision: Sendable, Equatable {
     public let proposalID: UUID
-    public let accepted: Bool
+    public let selection: HunkSelection
     public let note: String?
 
-    public init(proposalID: UUID, accepted: Bool, note: String? = nil) {
+    public init(proposalID: UUID, selection: HunkSelection, note: String? = nil) {
         self.proposalID = proposalID
-        self.accepted = accepted
+        self.selection = selection
         self.note = note
+    }
+
+    public static func acceptAll(proposalID: UUID) -> ProposalDecision {
+        ProposalDecision(proposalID: proposalID, selection: .all)
+    }
+
+    public static func reject(proposalID: UUID, note: String? = nil) -> ProposalDecision {
+        ProposalDecision(proposalID: proposalID, selection: .none, note: note)
+    }
+
+    public static func acceptHunks(
+        proposalID: UUID,
+        hunkIDs: Set<DiffHunk.ID>,
+        note: String? = nil
+    ) -> ProposalDecision {
+        ProposalDecision(proposalID: proposalID, selection: .hunks(hunkIDs), note: note)
     }
 }

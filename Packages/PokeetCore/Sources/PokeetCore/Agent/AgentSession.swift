@@ -138,24 +138,23 @@ public actor AgentSession {
 
                 for proposal in pending {
                     let decision = decisionsByID[proposal.id]
-                        ?? ProposalDecision(proposalID: proposal.id, accepted: false)
+                        ?? .reject(proposalID: proposal.id)
 
-                    if decision.accepted {
-                        do {
-                            try ProposalApplier.apply(proposal, in: workspace)
-                            proposalResults[proposal.id] = "Applied change to \(proposal.path) (+\(proposal.addedLines)/-\(proposal.removedLines))."
-                        } catch {
-                            let message = (error as? LocalizedError)?.errorDescription
-                                ?? error.localizedDescription
-                            proposalResults[proposal.id] = "Error applying change to \(proposal.path): \(message)"
-                        }
-                    } else {
-                        var message = "Rejected by user for \(proposal.path)."
-                        if let note = decision.note?.trimmingCharacters(in: .whitespacesAndNewlines),
-                           !note.isEmpty {
-                            message += " Note: \(note). Address this note before proposing again."
-                        }
-                        proposalResults[proposal.id] = message
+                    do {
+                        let application = try ProposalApplier.apply(
+                            proposal,
+                            decision: decision,
+                            in: workspace
+                        )
+                        proposalResults[proposal.id] = resultMessage(
+                            for: proposal,
+                            decision: decision,
+                            application: application
+                        )
+                    } catch {
+                        let message = (error as? LocalizedError)?.errorDescription
+                            ?? error.localizedDescription
+                        proposalResults[proposal.id] = "Error applying change to \(proposal.path): \(message)"
                     }
                 }
             }
@@ -177,6 +176,48 @@ public actor AgentSession {
                 messages.append(.tool(clip(content), callID: execution.call.id))
             }
         }
+    }
+
+    private func resultMessage(
+        for proposal: FileProposal,
+        decision: ProposalDecision,
+        application: ProposalApplication
+    ) -> String {
+        let note = decision.note?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard application.didWrite else {
+            var message = "Rejected by user for \(proposal.path)."
+            if let note, !note.isEmpty {
+                message += " Note: \(note). Address this note before proposing again."
+            }
+            return message
+        }
+
+        if application.totalHunkCount == 0 {
+            return "Created \(proposal.path)."
+        }
+
+        if application.acceptedHunkCount == application.totalHunkCount {
+            return "Applied change to \(proposal.path) (+\(proposal.addedLines)/-\(proposal.removedLines))."
+        }
+
+        let rejectedHunkIDs = Set(proposal.diff.hunks.map(\.id))
+            .subtracting(application.acceptedHunkIDs)
+        let rejectedHeaders = proposal.diff.hunks
+            .filter { rejectedHunkIDs.contains($0.id) }
+            .map(\.header)
+            .joined(separator: ", ")
+
+        var message = "Partially applied change to \(proposal.path): "
+            + "\(application.acceptedHunkCount) of \(application.totalHunkCount) hunks accepted. "
+            + "Rejected hunks: \(rejectedHeaders)."
+
+        if let note, !note.isEmpty {
+            message += " Note: \(note). Address the note and re-propose the remaining hunks."
+        } else {
+            message += " Re-read the file and re-propose the remaining hunks if needed."
+        }
+        return message
     }
 
     private func clip(_ text: String) -> String {

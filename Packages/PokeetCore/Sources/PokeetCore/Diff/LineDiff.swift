@@ -1,11 +1,21 @@
 import Foundation
 
+public enum LineDiffError: Error, Sendable, Equatable, LocalizedError {
+    case inconsistentHunk(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .inconsistentHunk(let header):
+            "The proposal no longer matches the file (hunk \(header))."
+        }
+    }
+}
+
 public enum LineDiff {
     public static let defaultContext = 3
     public static let largeFileLineLimit = 4_000
 
-    public static func compare(old: String?, new: String, context: Int = defaultContext) -> FileDiff {
-        let oldLines = splitLines(old ?? "")
+    public static func compare(old: String?, new: String, context: Int = defaultContext) -> FileDiff {        let oldLines = splitLines(old ?? "")
         let newLines = splitLines(new)
 
         if old == nil {
@@ -102,6 +112,102 @@ public enum LineDiff {
         }
 
         return FileDiff(hunks: hunks, addedLines: addedLines, removedLines: removedLines)
+    }
+
+    public static func applying(
+        base: String,
+        diff: FileDiff,
+        acceptedHunkIDs: Set<DiffHunk.ID>,
+        newContent: String
+    ) throws -> String {
+        guard !diff.hunks.isEmpty else { return newContent }
+
+        let allHunkIDs = Set(diff.hunks.map(\.id))
+        let accepted = acceptedHunkIDs.intersection(allHunkIDs)
+
+        guard !accepted.isEmpty else { return base }
+        guard accepted.count < allHunkIDs.count else { return newContent }
+
+        let baseLines = splitLines(base)
+        var output: [String] = []
+        output.reserveCapacity(baseLines.count + diff.addedLines)
+        var cursor = 0
+
+        for hunk in diff.hunks {
+            let oldLines = hunk.lines.filter { $0.kind != .added }
+            let newLines = hunk.lines.filter { $0.kind != .removed }
+            guard oldLines.count == hunk.oldCount, newLines.count == hunk.newCount else {
+                throw LineDiffError.inconsistentHunk(hunk.header)
+            }
+
+            let hunkStart = oldLines.first?.oldNumber.map { $0 - 1 } ?? cursor
+            guard hunkStart >= cursor,
+                  hunkStart <= baseLines.count,
+                  hunkStart + oldLines.count <= baseLines.count
+            else {
+                throw LineDiffError.inconsistentHunk(hunk.header)
+            }
+
+            if cursor < hunkStart {
+                output.append(contentsOf: baseLines[cursor..<hunkStart])
+            }
+            cursor = hunkStart
+
+            let includeHunk = accepted.contains(hunk.id)
+            for line in hunk.lines {
+                switch line.kind {
+                case .context:
+                    try verify(line, in: baseLines, at: cursor, header: hunk.header)
+                    output.append(baseLines[cursor])
+                    cursor += 1
+                case .removed:
+                    try verify(line, in: baseLines, at: cursor, header: hunk.header)
+                    if !includeHunk {
+                        output.append(baseLines[cursor])
+                    }
+                    cursor += 1
+                case .added:
+                    if includeHunk {
+                        output.append(line.text)
+                    }
+                }
+            }
+        }
+
+        if cursor < baseLines.count {
+            output.append(contentsOf: baseLines[cursor...])
+        }
+
+        let acceptedTouchesEnd: Bool
+        if baseLines.isEmpty {
+            acceptedTouchesEnd = true
+        } else {
+            acceptedTouchesEnd = diff.hunks.contains { hunk in
+                accepted.contains(hunk.id)
+                    && hunk.lines.contains { $0.oldNumber == baseLines.count }
+            }
+        }
+
+        let endsWithNewline = acceptedTouchesEnd
+            ? newContent.hasSuffix("\n")
+            : base.hasSuffix("\n")
+
+        var result = output.joined(separator: "\n")
+        if endsWithNewline && !output.isEmpty {
+            result += "\n"
+        }
+        return result
+    }
+
+    private static func verify(
+        _ line: DiffLine,
+        in baseLines: [String],
+        at index: Int,
+        header: String
+    ) throws {
+        guard index < baseLines.count, baseLines[index] == line.text else {
+            throw LineDiffError.inconsistentHunk(header)
+        }
     }
 
     private static func allAdded(_ newLines: [String]) -> FileDiff {

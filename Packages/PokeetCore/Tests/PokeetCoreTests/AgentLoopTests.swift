@@ -94,7 +94,7 @@ struct AgentLoopTests {
         try await session.send(
             "update readme",
             approval: { proposals in
-                proposals.map { ProposalDecision(proposalID: $0.id, accepted: true) }
+                proposals.map { .acceptAll(proposalID: $0.id) }
             },
             onEvent: { await recorder.record($0) }
         )
@@ -135,7 +135,7 @@ struct AgentLoopTests {
             "update readme",
             approval: { proposals in
                 proposals.map {
-                    ProposalDecision(proposalID: $0.id, accepted: false, note: "Add a test first")
+                    .reject(proposalID: $0.id, note: "Add a test first")
                 }
             },
             onEvent: { _ in }
@@ -148,6 +148,59 @@ struct AgentLoopTests {
         let toolMessage = requests[1].messages.last
         #expect(toolMessage?.content?.contains("Rejected by user") == true)
         #expect(toolMessage?.content?.contains("Add a test first") == true)
+    }
+
+    @Test func partialApprovalAppliesOnlySelectedHunks() async throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+
+        let oldLines = (1...30).map(String.init)
+        var newLines = oldLines
+        newLines[1] = "changed-2"
+        newLines[28] = "changed-29"
+        let base = oldLines.joined(separator: "\n") + "\n"
+        let new = newLines.joined(separator: "\n") + "\n"
+        try directory.write("file.txt", base)
+
+        let argumentsData = try JSONSerialization.data(withJSONObject: [
+            "path": "file.txt",
+            "content": new
+        ])
+        let arguments = String(decoding: argumentsData, as: UTF8.self)
+
+        let workspace = FileWorkspace(root: directory.url)
+        let client = ScriptedModelClient([
+            toolCall(name: "write_file", arguments: arguments),
+            ChatResponse(message: .assistant("Partial change applied."), finishReason: "stop")
+        ])
+        let session = AgentSession(client: client, workspace: workspace)
+
+        try await session.send(
+            "edit file",
+            approval: { proposals in
+                guard let proposal = proposals.first,
+                      let firstHunk = proposal.diff.hunks.first
+                else { return [] }
+                return [
+                    .acceptHunks(
+                        proposalID: proposal.id,
+                        hunkIDs: [firstHunk.id],
+                        note: "Leave the end change for later"
+                    )
+                ]
+            },
+            onEvent: { _ in }
+        )
+
+        let content = try workspace.read("file.txt", maxBytes: 10_000)
+        #expect(content.contains("\nchanged-2\n"))
+        #expect(!content.contains("changed-29"))
+
+        let requests = await client.recordedRequests()
+        let toolMessage = requests[1].messages.last?.content ?? ""
+        #expect(toolMessage.contains("Partially applied change to file.txt"))
+        #expect(toolMessage.contains("1 of 2 hunks accepted"))
+        #expect(toolMessage.contains("Leave the end change for later"))
     }
 
     @Test func reportsUnknownTool() async throws {

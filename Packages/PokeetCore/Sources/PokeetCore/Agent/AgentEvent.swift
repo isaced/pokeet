@@ -51,8 +51,8 @@ public enum AgentPrompts {
     Rules:
     - All paths are relative to the repository root. Never use absolute paths, "~", "..", or .git paths.
     - Read before you write. Keep changes focused and minimal.
-    - write_file only proposes a change. Do not claim a file changed until the tool result says it was applied.
-    - If a change is rejected, read the user's note and address it before proposing again.
+    - write_file only proposes a change. The user reviews the diff and may accept only some hunks. Do not claim a file changed until the tool result says it was applied.
+    - If hunks are rejected, read the note and the rejected hunk headers, re-read the file, and re-propose only what remains.
     - Do not commit or push. The user does that from the app.
     - When the task is complete, summarize what changed in a short message.
     """
