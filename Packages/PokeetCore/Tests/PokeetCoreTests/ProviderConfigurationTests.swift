@@ -87,6 +87,54 @@ struct ProviderConfigurationTests {
         #expect(!provider.isConfigured(apiKey: "key"))
     }
 
+    @Test func factorySelectsClientForEachProtocol() throws {
+        for wireProtocol in WireProtocol.allCases {
+            let provider = ProviderConfiguration(
+                name: "Test",
+                wireProtocol: wireProtocol,
+                baseURL: wireProtocol.defaultBaseURL,
+                selectedModelIDs: ["model"],
+                defaultModelID: "model"
+            )
+            let client = try LLMClientFactory.makeClient(
+                provider: provider,
+                apiKey: "key"
+            )
+
+            switch wireProtocol {
+            case .openAIChatCompletions:
+                #expect(client is OpenAIChatClient)
+            case .openAIResponses:
+                #expect(client is OpenAIResponsesClient)
+            case .anthropicMessages:
+                #expect(client is AnthropicMessagesClient)
+            case .geminiGenerateContent:
+                #expect(client is GeminiGenerateContentClient)
+            }
+        }
+    }
+
+    @Test func factoryRejectsIncompleteConfiguration() {
+        let provider = ProviderConfiguration(
+            name: "Test",
+            wireProtocol: .openAIResponses,
+            baseURL: "https://example.com/v1",
+            selectedModelIDs: ["model"],
+            defaultModelID: "model"
+        )
+
+        #expect(throws: ModelError.notConfigured) {
+            try LLMClientFactory.makeClient(provider: provider, apiKey: "")
+        }
+
+        var missingModel = provider
+        missingModel.selectedModelIDs = []
+        missingModel.defaultModelID = ""
+        #expect(throws: ModelError.notConfigured) {
+            try LLMClientFactory.makeClient(provider: missingModel, apiKey: "key")
+        }
+    }
+
     @Test func codableRoundtrip() throws {
         let provider = ProviderTemplates.seededProviders[2]
         let data = try JSONEncoder().encode(provider)
