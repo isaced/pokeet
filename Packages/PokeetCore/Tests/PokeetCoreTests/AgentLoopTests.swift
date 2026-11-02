@@ -23,6 +23,27 @@ actor ScriptedModelClient: ModelClient {
     }
 }
 
+actor FlakyModelClient: ModelClient {
+    private var outcomes: [Result<ChatResponse, ModelError>]
+    private(set) var requests: [ChatRequest] = []
+
+    init(_ outcomes: [Result<ChatResponse, ModelError>]) {
+        self.outcomes = outcomes
+    }
+
+    func complete(_ request: ChatRequest) async throws -> ChatResponse {
+        requests.append(request)
+        guard !outcomes.isEmpty else {
+            throw ModelError.invalidResponse("Script exhausted")
+        }
+        return try outcomes.removeFirst().get()
+    }
+
+    func recordedRequests() -> [ChatRequest] {
+        requests
+    }
+}
+
 private struct DeltaStreamingClient: ModelClient {
     func complete(_ request: ChatRequest) async throws -> ChatResponse {
         throw ModelError.invalidResponse("complete is not used")
@@ -284,6 +305,162 @@ struct AgentLoopTests {
         #expect(toolMessage.contains("Partially applied change to file.txt"))
         #expect(toolMessage.contains("1 of 2 hunks accepted"))
         #expect(toolMessage.contains("Leave the end change for later"))
+    }
+
+    @Test func retriesTransientFailure() async throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+
+        let client = FlakyModelClient([
+            .failure(.http(status: 429, message: "rate limited")),
+            .success(ChatResponse(message: .assistant("Done."), finishReason: "stop"))
+        ])
+        let session = AgentSession(
+            client: client,
+            workspace: FileWorkspace(root: directory.url),
+            config: AgentConfiguration(maxRetries: 2, retryBaseDelayMilliseconds: 0)
+        )
+        let recorder = EventRecorder()
+
+        try await session.send(
+            "hi",
+            approval: { _ in [] },
+            onEvent: { await recorder.record($0) }
+        )
+
+        let requests = await client.recordedRequests()
+        #expect(requests.count == 2)
+
+        let events = await recorder.snapshot()
+        #expect(events == [
+            .assistantResponseRestarted,
+            .retryScheduled(
+                attempt: 1,
+                maxAttempts: 2,
+                delayMilliseconds: 0,
+                reason: "Model request failed (HTTP 429): rate limited"
+            ),
+            .assistantMessage("Done."),
+            .finished
+        ])
+    }
+
+    @Test func doesNotRetryNonTransientFailure() async throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+
+        let client = FlakyModelClient([
+            .failure(.http(status: 401, message: "invalid api key")),
+            .success(ChatResponse(message: .assistant("should not run"), finishReason: "stop"))
+        ])
+        let session = AgentSession(
+            client: client,
+            workspace: FileWorkspace(root: directory.url),
+            config: AgentConfiguration(maxRetries: 3, retryBaseDelayMilliseconds: 0)
+        )
+
+        do {
+            try await session.send("hi", approval: { _ in [] }, onEvent: { _ in })
+            Issue.record("Expected the request to fail")
+        } catch let error as AgentError {
+            #expect(error == .model("Model request failed (HTTP 401): invalid api key"))
+        }
+
+        let requests = await client.recordedRequests()
+        #expect(requests.count == 1)
+    }
+
+    @Test func recoversFromContextOverflowOnce() async throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+
+        let filler = String(repeating: "x", count: 150)
+        var history: [ChatMessage] = [.system("old prompt")]
+        for index in 0..<20 {
+            history.append(.user("question \(index) \(filler)"))
+            history.append(.assistant("answer \(index) \(filler)"))
+        }
+
+        let client = FlakyModelClient([
+            .failure(.http(
+                status: 400,
+                message: "This model's maximum context length is 8192 tokens."
+            )),
+            .success(ChatResponse(message: .assistant("Recovered."), finishReason: "stop"))
+        ])
+        let summarizer = RecordingSummarizer(summary: "## Goal\nContinue")
+        let recorder = EventRecorder()
+        let session = AgentSession(
+            client: client,
+            workspace: FileWorkspace(root: directory.url),
+            config: AgentConfiguration(
+                contextCharacterBudget: 10_000,
+                retainedTurns: 2,
+                compactedToolOutputCharacters: 1_000,
+                maxRetries: 0,
+                maxOverflowRecoveries: 1
+            ),
+            summarizer: summarizer
+        )
+        await session.restore(history)
+
+        try await session.send(
+            "continue",
+            approval: { _ in [] },
+            onEvent: { await recorder.record($0) }
+        )
+
+        let requests = await client.recordedRequests()
+        #expect(requests.count == 2)
+        #expect((requests.last?.messages.count ?? 0) < (requests.first?.messages.count ?? 0))
+
+        let summarized = await summarizer.receivedMessages()
+        #expect(summarized.count == 1)
+
+        let events = await recorder.snapshot()
+        #expect(events.prefix(3) == [
+            .assistantResponseRestarted,
+            .contextCompactionStarted,
+            .contextCompactionFinished(success: true)
+        ])
+        #expect(events.contains(.assistantMessage("Recovered.")))
+    }
+
+    @Test func injectsProjectInstructionsIntoSystemPrompt() async throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+        try directory.write("AGENTS.md", "# Conventions\nUse tabs and write tests.\n")
+
+        let client = ScriptedModelClient([
+            ChatResponse(message: .assistant("Done."), finishReason: "stop")
+        ])
+        let session = AgentSession(
+            client: client,
+            workspace: FileWorkspace(root: directory.url)
+        )
+
+        let instructions = await session.loadedInstructions
+        #expect(instructions.path == "AGENTS.md")
+
+        try await session.send(
+            "hi",
+            approval: { _ in [] },
+            onEvent: { _ in }
+        )
+
+        let requests = await client.recordedRequests()
+        let system = requests.first?.messages.first?.content ?? ""
+        #expect(system.hasPrefix(AgentPrompts.system))
+        #expect(system.contains("Use tabs and write tests."))
+        #expect(system.contains("Project instructions from AGENTS.md"))
+
+        await session.restore([
+            .system("stale prompt"),
+            .user("hi")
+        ])
+        let history = await session.history
+        #expect(history.first?.content?.hasPrefix(AgentPrompts.system) == true)
+        #expect(history.first?.content?.contains("Use tabs and write tests.") == true)
     }
 
     @Test func restoresHistoryWithCurrentSystemPrompt() async throws {
