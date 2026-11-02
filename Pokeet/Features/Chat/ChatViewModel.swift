@@ -18,17 +18,20 @@ final class ChatViewModel {
         let role: Role
         var text: String
         var isStreaming: Bool
+        var images: [ChatImage]
 
         init(
             id: UUID = UUID(),
             role: Role,
             text: String,
-            isStreaming: Bool = false
+            isStreaming: Bool = false,
+            images: [ChatImage] = []
         ) {
             self.id = id
             self.role = role
             self.text = text
             self.isStreaming = isStreaming
+            self.images = images
         }
     }
 
@@ -41,10 +44,13 @@ final class ChatViewModel {
         let maxOutputTokens: Int
     }
 
+    static let maxImages = 4
+
     let project: Project
 
     var bubbles: [Bubble] = []
     var input = ""
+    var pendingImages: [ChatImage] = []
     private(set) var isRunning = false
     private(set) var status: String?
     var errorMessage: String?
@@ -174,21 +180,41 @@ final class ChatViewModel {
         await refreshStatus()
     }
 
+    func addPendingImages(_ images: [ChatImage]) {
+        guard !images.isEmpty else { return }
+        let remaining = Self.maxImages - pendingImages.count
+        guard remaining > 0 else {
+            errorMessage = "You can attach up to \(Self.maxImages) images."
+            return
+        }
+        pendingImages.append(contentsOf: images.prefix(remaining))
+        if images.count > remaining {
+            errorMessage = "You can attach up to \(Self.maxImages) images."
+        }
+    }
+
+    func removePendingImage(at index: Int) {
+        guard pendingImages.indices.contains(index) else { return }
+        pendingImages.remove(at: index)
+    }
+
     func send() {
         guard !isRunning else { return }
         let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        let images = pendingImages
+        guard !text.isEmpty || !images.isEmpty else { return }
 
         errorMessage = nil
         banner = nil
         guard applyActiveConfiguration() else { return }
 
         input = ""
-        lastRequest = text
-        bubbles.append(Bubble(role: .user, text: text))
+        pendingImages = []
+        lastRequest = text.isEmpty ? "Image" : text
+        bubbles.append(Bubble(role: .user, text: text, images: images))
 
         runTask = Task { [weak self] in
-            await self?.run(text)
+            await self?.run(text, images: images)
         }
     }
 
@@ -220,6 +246,7 @@ final class ChatViewModel {
 
         bubbles = []
         input = ""
+        pendingImages = []
         streamingBubbleID = nil
         reasoningBubbleID = nil
         cacheStats = CacheStats()
@@ -276,7 +303,7 @@ final class ChatViewModel {
         await saveSession()
     }
 
-    private func run(_ text: String) async {
+    private func run(_ text: String, images: [ChatImage]) async {
         coordinator.reset()
         reasoningBubbleID = nil
         isRunning = true
@@ -293,6 +320,7 @@ final class ChatViewModel {
         do {
             try await session.send(
                 text,
+                images: images,
                 approval: { [coordinator] proposals in
                     await coordinator.request(proposals)
                 },
@@ -467,7 +495,12 @@ final class ChatViewModel {
 
         bubbles = snapshot.bubbles.compactMap { stored in
             guard let role = Bubble.Role(rawValue: stored.role) else { return nil }
-            return Bubble(id: stored.id, role: role, text: stored.text)
+            return Bubble(
+                id: stored.id,
+                role: role,
+                text: stored.text,
+                images: stored.images ?? []
+            )
         }
         cacheStats = snapshot.cacheStats ?? CacheStats()
         lastRequest = bubbles.last(where: { $0.role == .user })?.text ?? ""
@@ -477,7 +510,12 @@ final class ChatViewModel {
     private func saveSession() async {
         let history = await session.history
         let storedBubbles = bubbles.map {
-            StoredBubble(id: $0.id, role: $0.role.rawValue, text: $0.text)
+            StoredBubble(
+                id: $0.id,
+                role: $0.role.rawValue,
+                text: $0.text,
+                images: $0.images.isEmpty ? nil : $0.images
+            )
         }
 
         await environment.sessions.save(

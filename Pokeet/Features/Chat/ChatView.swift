@@ -1,5 +1,7 @@
+import PhotosUI
 import PokeetCore
 import SwiftUI
+import UIKit
 
 struct ChatView: View {
     let project: Project
@@ -12,6 +14,7 @@ struct ChatView: View {
     @State private var isShowingFiles = false
     @State private var isShowingChanges = false
     @State private var isConfirmingNewSession = false
+    @State private var photoPickerItems: [PhotosPickerItem] = []
     private let git: any GitInspecting
 
     @MainActor
@@ -37,6 +40,7 @@ struct ChatView: View {
             header
             messageList
             statusArea
+            pendingAttachments
             composer(bindable: $model)
         }
         .background(Color(.systemBackground))
@@ -236,6 +240,45 @@ struct ChatView: View {
         .padding(.bottom, 4)
     }
 
+    @ViewBuilder
+    private var pendingAttachments: some View {
+        if !model.pendingImages.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(Array(model.pendingImages.enumerated()), id: \.offset) { index, image in
+                        ZStack(alignment: .topTrailing) {
+                            if let uiImage = UIImage(data: image.data) {
+                                Image(uiImage: uiImage)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: 64, height: 64)
+                                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            } else {
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .fill(Color(.tertiarySystemFill))
+                                    .frame(width: 64, height: 64)
+                            }
+
+                            Button {
+                                model.removePendingImage(at: index)
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 18))
+                                    .symbolRenderingMode(.palette)
+                                    .foregroundStyle(.white, Color.black.opacity(0.55))
+                            }
+                            .buttonStyle(.plain)
+                            .offset(x: 6, y: -6)
+                            .accessibilityLabel("Remove image")
+                        }
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 8)
+            }
+        }
+    }
+
     private func composer(bindable: Bindable<ChatViewModel>) -> some View {
         HStack(spacing: 10) {
             Menu {
@@ -248,6 +291,26 @@ struct ChatView: View {
                     .background(Color(.secondarySystemBackground), in: Circle())
             }
             .tint(.primary)
+
+            PhotosPicker(
+                selection: $photoPickerItems,
+                maxSelectionCount: ChatViewModel.maxImages,
+                matching: .images,
+                photoLibrary: .shared()
+            ) {
+                Image(systemName: "photo")
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(.primary)
+                    .frame(width: 34, height: 34)
+                    .background(Color(.secondarySystemBackground), in: Circle())
+            }
+            .disabled(model.isRunning)
+            .accessibilityLabel("Attach image")
+            .onChange(of: photoPickerItems) { _, items in
+                guard !items.isEmpty else { return }
+                photoPickerItems = []
+                Task { await loadImages(items) }
+            }
 
             TextField("Ask Pokeet", text: bindable.input, axis: .vertical)
                 .lineLimit(1...5)
@@ -290,6 +353,30 @@ struct ChatView: View {
 
     private var canSend: Bool {
         !model.input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !model.pendingImages.isEmpty
+    }
+
+    @MainActor
+    private func loadImages(_ items: [PhotosPickerItem]) async {
+        var images: [ChatImage] = []
+
+        for item in items {
+            guard let data = try? await item.loadTransferable(type: Data.self) else {
+                continue
+            }
+            let image = await Task.detached(priority: .userInitiated) {
+                ChatImageProcessor.makeChatImage(from: data)
+            }.value
+            if let image {
+                images.append(image)
+            }
+        }
+
+        if images.isEmpty {
+            model.errorMessage = "Could not load the selected image."
+        } else {
+            model.addPendingImages(images)
+        }
     }
 
     private func sendButton(icon: String, enabled: Bool) -> some View {

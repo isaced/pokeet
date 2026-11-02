@@ -12,6 +12,7 @@ struct StoredMessage: Codable, Sendable, Equatable {
     let content: String?
     let toolCalls: [StoredToolCall]?
     let toolCallID: String?
+    let images: [ChatImage]?
 
     init(_ message: ChatMessage) {
         role = message.role.rawValue
@@ -20,6 +21,7 @@ struct StoredMessage: Codable, Sendable, Equatable {
             StoredToolCall(id: $0.id, name: $0.name, arguments: $0.arguments)
         }
         toolCallID = message.toolCallID
+        images = message.images
     }
 
     var chatMessage: ChatMessage? {
@@ -32,7 +34,8 @@ struct StoredMessage: Codable, Sendable, Equatable {
             role: role,
             content: content,
             toolCalls: calls,
-            toolCallID: toolCallID
+            toolCallID: toolCallID,
+            images: images
         )
     }
 }
@@ -41,6 +44,14 @@ struct StoredBubble: Codable, Sendable, Equatable {
     let id: UUID
     let role: String
     let text: String
+    let images: [ChatImage]?
+
+    init(id: UUID, role: String, text: String, images: [ChatImage]? = nil) {
+        self.id = id
+        self.role = role
+        self.text = text
+        self.images = images
+    }
 }
 
 struct SessionSnapshot: Codable, Sendable, Equatable {

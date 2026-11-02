@@ -1,5 +1,7 @@
+import PokeetCore
 import SwiftUI
 import Textual
+import UIKit
 
 struct MessageBubble: View {
     let bubble: ChatViewModel.Bubble
@@ -9,12 +11,21 @@ struct MessageBubble: View {
         case .user:
             HStack {
                 Spacer(minLength: 48)
-                Text(bubble.text)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .foregroundStyle(Color.accentColor)
-                    .background(Color.accentColor.opacity(0.12))
-                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+
+                VStack(alignment: .trailing, spacing: 8) {
+                    if !bubble.images.isEmpty {
+                        UserImageGrid(images: bubble.images)
+                    }
+
+                    if !bubble.text.isEmpty {
+                        Text(bubble.text)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .foregroundStyle(Color.accentColor)
+                            .background(Color.accentColor.opacity(0.12))
+                            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    }
+                }
             }
         case .reasoning:
             ReasoningBubble(text: bubble.text, isStreaming: bubble.isStreaming)
@@ -48,5 +59,35 @@ struct MessageBubble: View {
             .foregroundStyle(.red)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+}
+
+private struct UserImageGrid: View {
+    let images: [ChatImage]
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(Array(images.prefix(4).enumerated()), id: \.offset) { _, image in
+                if let uiImage = UIImage(data: image.data) {
+                    Image(uiImage: uiImage)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(
+                            width: images.count == 1 ? 200 : 72,
+                            height: images.count == 1 ? 150 : 72
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                } else {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color(.tertiarySystemFill))
+                        .frame(
+                            width: images.count == 1 ? 200 : 72,
+                            height: images.count == 1 ? 150 : 72
+                        )
+                }
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(images.count) attached image(s)")
     }
 }
