@@ -8,6 +8,7 @@ struct ChatView: View {
     @State private var model: ChatViewModel
     @State private var isShowingSettings = false
     @State private var isShowingProjectInfo = false
+    @State private var isShowingFiles = false
     @State private var isConfirmingNewSession = false
 
     @MainActor
@@ -136,6 +137,9 @@ struct ChatView: View {
         }
         .sheet(isPresented: $isShowingSettings) {
             SettingsView()
+        }
+        .sheet(isPresented: $isShowingFiles) {
+            FileBrowserView(project: project)
         }
     }
 
@@ -306,6 +310,12 @@ struct ChatView: View {
         }
 
         Button {
+            isShowingFiles = true
+        } label: {
+            Label("Files", systemImage: "folder")
+        }
+
+        Button {
             isShowingProjectInfo = true
         } label: {
             Label("Project info", systemImage: "info.circle")
@@ -333,6 +343,12 @@ struct ChatView: View {
                 Label("Commit & Push", systemImage: "arrow.up.circle")
             }
             .disabled(!model.canCommit)
+        }
+
+        Button {
+            isShowingFiles = true
+        } label: {
+            Label("Files", systemImage: "folder")
         }
 
         Button {
