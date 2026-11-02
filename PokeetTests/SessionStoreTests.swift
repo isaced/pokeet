@@ -72,6 +72,22 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertEqual(listed.first?.title, "First task")
     }
 
+    func testEnsureSessionCreatesOnlyOnce() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = SessionStore(directory: directory)
+        let id = UUID()
+
+        await store.ensureSession(projectName: "demo", sessionID: id, title: "Draft")
+        await store.ensureSession(projectName: "demo", sessionID: id, title: "Changed")
+
+        let listed = await store.list(projectName: "demo")
+        XCTAssertEqual(listed.count, 1)
+        XCTAssertEqual(listed.first?.id, id)
+        XCTAssertEqual(listed.first?.title, "Draft")
+    }
+
     func testListSortsByUpdatedAt() async throws {
         let directory = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

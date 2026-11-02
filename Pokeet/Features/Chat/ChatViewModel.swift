@@ -371,6 +371,12 @@ final class ChatViewModel {
             streamingBubbleID = nil
         }
 
+        await environment.sessions.ensureSession(
+            projectName: project.name,
+            sessionID: sessionID,
+            title: title
+        )
+
         do {
             try await session.send(
                 text,
@@ -384,7 +390,6 @@ final class ChatViewModel {
                     }
                 }
             )
-            await saveSession()
         } catch is CancellationError {
         } catch let error as AgentError {
             if case .cancelled = error {
@@ -398,6 +403,7 @@ final class ChatViewModel {
             }
         }
 
+        await saveSession()
         await refreshStatus()
     }
 

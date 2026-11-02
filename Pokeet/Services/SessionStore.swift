@@ -129,6 +129,25 @@ actor SessionStore {
         return metadata
     }
 
+    func ensureSession(
+        projectName: String,
+        sessionID: UUID,
+        title: String,
+        now: Date = Date()
+    ) {
+        var index = readIndex(projectName: projectName)
+        guard !index.contains(where: { $0.id == sessionID }) else { return }
+
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        index.append(SessionMetadata(
+            id: sessionID,
+            title: trimmed.isEmpty ? "New chat" : trimmed,
+            createdAt: now,
+            updatedAt: now
+        ))
+        writeIndex(index, projectName: projectName)
+    }
+
     func load(projectName: String, sessionID: UUID) -> SessionSnapshot? {
         let url = sessionURL(projectName: projectName, sessionID: sessionID)
         guard let data = try? Data(contentsOf: url),

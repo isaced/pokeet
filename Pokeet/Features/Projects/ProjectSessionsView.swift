@@ -23,12 +23,6 @@ final class SessionsListModel {
         sessions = await store.list(projectName: project.name)
     }
 
-    func create() async -> SessionMetadata? {
-        let session = await store.create(projectName: project.name)
-        await load()
-        return session
-    }
-
     func rename(_ session: SessionMetadata, to title: String) async {
         _ = await store.rename(
             projectName: project.name,
@@ -54,7 +48,6 @@ struct ProjectSessionsView: View {
     @State private var pendingDelete: SessionMetadata?
     @State private var renamingSession: SessionMetadata?
     @State private var renameDraft = ""
-    @State private var isCreating = false
 
     init(
         project: Project,
@@ -112,7 +105,6 @@ struct ProjectSessionsView: View {
                 } label: {
                     Image(systemName: "plus")
                 }
-                .disabled(isCreating)
                 .accessibilityLabel("New session")
             }
         }
@@ -183,14 +175,7 @@ struct ProjectSessionsView: View {
     }
 
     private func createSession() {
-        guard !isCreating else { return }
-        isCreating = true
-        Task {
-            defer { isCreating = false }
-            if let session = await model.create() {
-                openedSession = session
-            }
-        }
+        openedSession = SessionMetadata()
     }
 }
 
