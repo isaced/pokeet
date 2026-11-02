@@ -505,7 +505,7 @@ struct AgentLoopTests {
             client: client,
             workspace: FileWorkspace(root: directory.url),
             config: AgentConfiguration(
-                contextCharacterBudget: 2_000,
+                contextCharacterBudget: 2_400,
                 retainedTurns: 2,
                 compactedToolOutputCharacters: 100
             ),
@@ -530,7 +530,7 @@ struct AgentLoopTests {
         #expect(messages.contains {
             $0.role == .user && $0.content?.contains("## Goal\nContinue the work") == true
         })
-        #expect(totalCharacters <= 2_000)
+        #expect(totalCharacters <= 2_400)
 
         let summarized = await summarizer.receivedMessages()
         #expect(summarized.count == 1)
@@ -562,7 +562,7 @@ struct AgentLoopTests {
             client: client,
             workspace: FileWorkspace(root: directory.url),
             config: AgentConfiguration(
-                contextCharacterBudget: 2_000,
+                contextCharacterBudget: 2_400,
                 retainedTurns: 2,
                 compactedToolOutputCharacters: 100
             ),

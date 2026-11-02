@@ -49,6 +49,43 @@ struct WorkspaceTests {
         #expect(text.contains("[truncated at 10 bytes]"))
     }
 
+    @Test func deletesFile() throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+
+        let workspace = FileWorkspace(root: directory.url)
+        try workspace.write("temp.txt", content: "bye\n")
+        try workspace.delete("temp.txt")
+
+        #expect(!workspace.exists("temp.txt"))
+    }
+
+    @Test func movesFileAndCreatesParentDirectories() throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+
+        let workspace = FileWorkspace(root: directory.url)
+        try workspace.write("old.txt", content: "content\n")
+        try workspace.move("old.txt", to: "nested/new.txt")
+
+        #expect(!workspace.exists("old.txt"))
+        #expect(try workspace.read("nested/new.txt", maxBytes: 100) == "content\n")
+    }
+
+    @Test func moveRejectsExistingDestination() throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+
+        let workspace = FileWorkspace(root: directory.url)
+        try workspace.write("a.txt", content: "a\n")
+        try workspace.write("b.txt", content: "b\n")
+
+        #expect(throws: WorkspaceError.staleContent("b.txt")) {
+            try workspace.move("a.txt", to: "b.txt")
+        }
+        #expect(workspace.exists("a.txt"))
+    }
+
     @Test func listSkipsGitAndDependencies() throws {
         let directory = try TestDirectory()
         defer { directory.cleanup() }

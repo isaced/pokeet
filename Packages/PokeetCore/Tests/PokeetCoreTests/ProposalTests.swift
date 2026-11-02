@@ -178,6 +178,86 @@ struct ProposalTests {
         #expect(content == "")
     }
 
+    @Test func deletesFileAfterApproval() throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+
+        let workspace = FileWorkspace(root: directory.url)
+        try workspace.write("temp.txt", content: "old\n")
+
+        let proposal = FileProposal(
+            path: "temp.txt",
+            kind: .delete,
+            baseContent: "old\n",
+            newContent: "",
+            diff: LineDiff.compare(old: "old\n", new: "")
+        )
+
+        let application = try ProposalApplier.apply(
+            proposal,
+            decision: .acceptAll(proposalID: proposal.id),
+            in: workspace
+        )
+
+        #expect(application.didWrite)
+        #expect(!workspace.exists("temp.txt"))
+    }
+
+    @Test func movesFileAfterApproval() throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+
+        let workspace = FileWorkspace(root: directory.url)
+        try workspace.write("old/name.txt", content: "content\n")
+
+        let proposal = FileProposal(
+            path: "old/name.txt",
+            kind: .move,
+            destinationPath: "new/name.txt",
+            baseContent: "content\n",
+            newContent: "content\n",
+            diff: .empty
+        )
+
+        let application = try ProposalApplier.apply(
+            proposal,
+            decision: .acceptAll(proposalID: proposal.id),
+            in: workspace
+        )
+
+        #expect(application.didWrite)
+        #expect(!workspace.exists("old/name.txt"))
+        #expect(try workspace.read("new/name.txt", maxBytes: 100) == "content\n")
+    }
+
+    @Test func moveRejectsStaleSource() throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+
+        let workspace = FileWorkspace(root: directory.url)
+        try workspace.write("old.txt", content: "original\n")
+
+        let proposal = FileProposal(
+            path: "old.txt",
+            kind: .move,
+            destinationPath: "new.txt",
+            baseContent: "original\n",
+            newContent: "original\n",
+            diff: .empty
+        )
+
+        try directory.write("old.txt", "changed\n")
+
+        #expect(throws: WorkspaceError.staleContent("old.txt")) {
+            try ProposalApplier.apply(
+                proposal,
+                decision: .acceptAll(proposalID: proposal.id),
+                in: workspace
+            )
+        }
+        #expect(!workspace.exists("new.txt"))
+    }
+
     @Test func createFailsWhenFileExists() throws {
         let directory = try TestDirectory()
         defer { directory.cleanup() }

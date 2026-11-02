@@ -115,6 +115,58 @@ struct ToolTests {
         #expect(output.content.contains("beyond the end"))
     }
 
+    @Test func deleteFileProposesWithoutDeleting() async throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+        try directory.write("temp.txt", "bye\n")
+
+        let workspace = FileWorkspace(root: directory.url)
+        let output = try await DeleteFileTool().execute(
+            arguments: Data(#"{"path":"temp.txt"}"#.utf8),
+            context: ToolContext(workspace: workspace)
+        )
+
+        #expect(output.proposals.count == 1)
+        #expect(output.proposals[0].kind == .delete)
+        #expect(output.proposals[0].removedLines == 1)
+        #expect(workspace.exists("temp.txt"))
+    }
+
+    @Test func moveFileProposesWithoutMoving() async throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+        try directory.write("old.txt", "content\n")
+
+        let workspace = FileWorkspace(root: directory.url)
+        let output = try await MoveFileTool().execute(
+            arguments: Data(#"{"from":"old.txt","to":"new/old.txt"}"#.utf8),
+            context: ToolContext(workspace: workspace)
+        )
+
+        #expect(output.proposals.count == 1)
+        #expect(output.proposals[0].kind == .move)
+        #expect(output.proposals[0].destinationPath == "new/old.txt")
+        #expect(workspace.exists("old.txt"))
+        #expect(!workspace.exists("new/old.txt"))
+    }
+
+    @Test func moveFileRejectsExistingDestination() async throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+        try directory.write("a.txt", "a\n")
+        try directory.write("b.txt", "b\n")
+
+        let workspace = FileWorkspace(root: directory.url)
+        do {
+            _ = try await MoveFileTool().execute(
+                arguments: Data(#"{"from":"a.txt","to":"b.txt"}"#.utf8),
+                context: ToolContext(workspace: workspace)
+            )
+            Issue.record("Expected a destination conflict")
+        } catch is ToolError {
+        }
+    }
+
     @Test func standardRegistryIncludesCodingTools() {
         let names = Set(ToolRegistry.standard.schemas.map(\.name))
 
@@ -123,8 +175,13 @@ struct ToolTests {
             "read_file",
             "write_file",
             "edit_file",
+            "delete_file",
+            "move_file",
             "grep",
-            "find"
+            "find",
+            "git_status",
+            "git_diff",
+            "git_log"
         ])
     }
 }
