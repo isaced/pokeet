@@ -201,20 +201,23 @@ private struct DiffText: View {
     }
 
     var body: some View {
-        ScrollView([.horizontal, .vertical]) {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-                    Text(line.isEmpty ? " " : line)
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundStyle(foreground(for: line))
-                        .fixedSize(horizontal: true, vertical: false)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 1)
-                        .background(background(for: line))
+        GeometryReader { proxy in
+            ScrollView([.horizontal, .vertical]) {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                        Text(line.isEmpty ? " " : line)
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundStyle(foreground(for: line))
+                            .fixedSize(horizontal: true, vertical: false)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 1)
+                            .frame(minWidth: proxy.size.width, alignment: .leading)
+                            .background(background(for: line))
+                    }
                 }
+                .padding(.vertical, 6)
+                .textSelection(.enabled)
             }
-            .padding(.vertical, 6)
-            .textSelection(.enabled)
         }
     }
 
