@@ -99,6 +99,20 @@ struct MockModelClient: ModelClient {
             let task = Task {
                 do {
                     let response = try await complete(request)
+
+                    let reasoning = "So I have this problem here. What is 1+1? Okay, that's pretty straightforward. I think I know the answer, but let's make sure I explain it clearly. One plus one equals two. Let me double check by counting: one apple plus another apple makes two apples. So the answer is two."
+                    let reasoningCharacters = Array(reasoning)
+                    let reasoningStep = max(1, reasoningCharacters.count / 10)
+                    var reasoningIndex = 0
+                    while reasoningIndex < reasoningCharacters.count {
+                        let end = min(reasoningIndex + reasoningStep, reasoningCharacters.count)
+                        continuation.yield(.reasoningDelta(
+                            String(reasoningCharacters[reasoningIndex..<end])
+                        ))
+                        reasoningIndex = end
+                        try? await Task.sleep(for: .milliseconds(50))
+                    }
+
                     if let text = response.message.content,
                        response.message.toolCalls == nil,
                        !text.isEmpty {
