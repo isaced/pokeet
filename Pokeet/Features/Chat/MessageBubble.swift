@@ -1,6 +1,5 @@
 import PokeetCore
 import SwiftUI
-import Textual
 import UIKit
 
 struct MessageBubble: View, Equatable {
@@ -51,16 +50,7 @@ struct MessageBubble: View, Equatable {
             )
         case .assistant:
             HStack {
-                Group {
-                    if bubble.isStreaming {
-                        Text(bubble.text)
-                    } else {
-                        StructuredText(markdown: bubble.text)
-                            .textual.structuredTextStyle(.gitHub)
-                            .textual.textSelection(.enabled)
-                    }
-                }
-                .foregroundStyle(.primary)
+                StreamingMarkdownText(text: bubble.text, isStreaming: bubble.isStreaming)
                 Spacer(minLength: 0)
             }
         case .tool:

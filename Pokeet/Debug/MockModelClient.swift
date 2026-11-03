@@ -30,6 +30,32 @@ struct MockModelClient: ModelClient {
 
         if lastMessage?.role == .user,
            let text = lastMessage?.content?.lowercased(),
+           text.contains("markdown test") {
+            return ChatResponse(
+                message: .assistant("""
+                # Streaming markdown
+
+                This paragraph is **bold** and has `inline code`.
+
+                - First item
+                - Second item with a [link](https://example.com)
+
+                ```swift
+                struct Demo {
+                    let value: Int
+                }
+                ```
+
+                > A quote for good measure.
+
+                Final paragraph.
+                """),
+                finishReason: "stop"
+            )
+        }
+
+        if lastMessage?.role == .user,
+           let text = lastMessage?.content?.lowercased(),
            text.contains("git test") {
             return ChatResponse(
                 message: .assistant(
@@ -164,12 +190,15 @@ struct MockModelClient: ModelClient {
                        !text.isEmpty {
                         let characters = Array(text)
                         let step = max(1, characters.count / 8)
+                        let isMarkdownDemo = text.contains("Streaming markdown")
                         var index = 0
                         while index < characters.count {
                             let end = min(index + step, characters.count)
                             continuation.yield(.textDelta(String(characters[index..<end])))
                             index = end
-                            try? await Task.sleep(for: .milliseconds(40))
+                            try? await Task.sleep(
+                                for: .milliseconds(isMarkdownDemo ? 600 : 40)
+                            )
                         }
                     }
                     continuation.yield(.completed(response))

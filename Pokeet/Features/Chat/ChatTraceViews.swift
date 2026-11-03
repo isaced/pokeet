@@ -1,6 +1,5 @@
 import PokeetCore
 import SwiftUI
-import Textual
 
 struct TurnHeaderRow: View {
     let header: ChatTurnHeader
@@ -215,16 +214,8 @@ struct TraceAssistantText: View {
     let bubble: ChatViewModel.Bubble
 
     var body: some View {
-        Group {
-            if bubble.isStreaming {
-                Text(bubble.text)
-            } else {
-                StructuredText(markdown: bubble.text)
-                    .textual.structuredTextStyle(.gitHub)
-                    .textual.textSelection(.enabled)
-            }
-        }
-        .padding(.leading, 20)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        StreamingMarkdownText(text: bubble.text, isStreaming: bubble.isStreaming)
+            .padding(.leading, 20)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
