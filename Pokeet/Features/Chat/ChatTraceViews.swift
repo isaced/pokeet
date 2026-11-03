@@ -224,6 +224,11 @@ struct TraceStepRow: View {
             ProgressView()
                 .controlSize(.mini)
                 .tint(.secondary)
+                // A ProgressView has no text baseline, so SwiftUI would drop its
+                // bottom edge onto the label's baseline and the spinner would
+                // ride high next to the symbol rows. Park its centre where a
+                // `.caption2` glyph centres instead (about 4pt above baseline).
+                .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
         } else {
             Image(systemName: errorLine == nil ? symbolName : "exclamationmark.triangle")
                 .font(.caption2)
