@@ -7,6 +7,9 @@ private struct StubGitInspector: GitInspecting {
     var statuses: [GitFileStatus] = []
     var diffText = ""
     var commits: [GitCommitInfo] = []
+    var blob: GitBlobContent?
+    var commit: GitCommitDetails?
+    var showError: GitInspectError?
 
     func isRepository(at root: URL) -> Bool {
         isRepo
@@ -22,6 +25,18 @@ private struct StubGitInspector: GitInspecting {
 
     func log(at root: URL, limit: Int) async throws -> [GitCommitInfo] {
         Array(commits.prefix(limit))
+    }
+
+    func blob(at root: URL, ref: String, path: String) async throws -> GitBlobContent {
+        if let showError { throw showError }
+        guard let blob else { throw GitInspectError.notFound(ref: ref, path: path) }
+        return blob
+    }
+
+    func commitDetails(at root: URL, ref: String) async throws -> GitCommitDetails {
+        if let showError { throw showError }
+        guard let commit else { throw GitInspectError.unknownRevision(ref) }
+        return commit
     }
 }
 
@@ -122,6 +137,90 @@ struct GitToolTests {
 
         let output = try await GitLogTool().execute(arguments: Data(), context: context)
         #expect(output.content == "No commits yet.")
+    }
+
+    @Test func showsFileAtRevision() async throws {
+        let (context, directory) = try makeContext(git: StubGitInspector(blob: GitBlobContent(
+            ref: "HEAD~2",
+            path: "README.md",
+            text: "one\ntwo\n",
+            sizeBytes: 8,
+            isBinary: false
+        )))
+        defer { directory.cleanup() }
+
+        let output = try await GitShowTool().execute(
+            arguments: Data(#"{"ref":"HEAD~2","path":"README.md"}"#.utf8),
+            context: context
+        )
+
+        #expect(output.content.contains("ref: HEAD~2"))
+        #expect(output.content.contains("1\tone"))
+        #expect(output.content.contains("2\ttwo"))
+    }
+
+    @Test func showsCommitDetails() async throws {
+        let (context, directory) = try makeContext(git: StubGitInspector(commit: GitCommitDetails(
+            hash: "abc123",
+            author: "Pokeet",
+            date: Date(timeIntervalSince1970: 0),
+            message: "Fix the parser\n\nExplains why.",
+            diff: "diff --git a/a.swift b/a.swift\n+let x = 1"
+        )))
+        defer { directory.cleanup() }
+
+        let output = try await GitShowTool().execute(
+            arguments: Data("{}".utf8),
+            context: context
+        )
+
+        #expect(output.content.contains("commit abc123"))
+        #expect(output.content.contains("author: Pokeet"))
+        #expect(output.content.contains("Explains why."))
+        #expect(output.content.contains("+let x = 1"))
+    }
+
+    @Test func reportsUnknownRevisionAndMissingFile() async throws {
+        let (unknown, first) = try makeContext(git: StubGitInspector(
+            showError: .unknownRevision("nope")
+        ))
+        defer { first.cleanup() }
+        let unknownOutput = try await GitShowTool().execute(
+            arguments: Data(#"{"ref":"nope"}"#.utf8),
+            context: unknown
+        )
+        #expect(unknownOutput.content.contains("Unknown revision 'nope'"))
+
+        let (missing, second) = try makeContext(git: StubGitInspector())
+        defer { second.cleanup() }
+        let missingOutput = try await GitShowTool().execute(
+            arguments: Data(#"{"path":"gone.swift"}"#.utf8),
+            context: missing
+        )
+        #expect(missingOutput.content.contains("No file at 'gone.swift' in 'HEAD'"))
+    }
+
+    @Test func rejectsPathsOutsideTheWorkspace() async throws {
+        let (context, directory) = try makeContext(git: StubGitInspector())
+        defer { directory.cleanup() }
+
+        await #expect(throws: ToolError.self) {
+            _ = try await GitShowTool().execute(
+                arguments: Data(#"{"path":"../secret"}"#.utf8),
+                context: context
+            )
+        }
+    }
+
+    @Test func reportsMissingGitInspector() async throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+
+        let output = try await GitShowTool().execute(
+            arguments: Data("{}".utf8),
+            context: ToolContext(workspace: FileWorkspace(root: directory.url))
+        )
+        #expect(output.content.contains("not available"))
     }
 
     @Test func reportsGitCallDetails() async throws {

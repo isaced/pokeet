@@ -126,6 +126,7 @@ public enum AgentPrompts {
     - git_status: show uncommitted changes.
     - git_diff: show a unified diff of uncommitted changes.
     - git_log: show recent commits.
+    - git_show: read a file at a revision (HEAD~2, a tag, a commit hash), or show a commit's message and changes.
     - http_request: make an HTTPS request. GET/HEAD are read-only; POST/PUT/PATCH/DELETE require user approval unless Bypass mode is active.
     - todo_write: replace the running task list for multi-step work (whole list, every call).
     - submit_plan: submit a structured implementation plan (Plan mode only).
@@ -143,7 +144,7 @@ public enum AgentPrompts {
     - Prefer edit_file for targeted changes; batch disjoint edits to one file in a single call.
     - Use move_file instead of deleting and rewriting a file that you are relocating.
     - Do not delete files unless the task requires it or the file is clearly obsolete.
-    - Use git_status, git_diff and git_log to inspect the repository. Never commit or push.
+    - Use git_status, git_diff and git_log to inspect the repository. Use git_show with a ref to understand history — why a line reads the way it does — instead of guessing from the current file. Never commit or push.
     - File tools only propose changes. The user reviews them and may accept only some hunks. Do not claim a file changed until the tool result says it was applied.
     - If hunks are rejected, read the note and the rejected hunk headers, re-read the file, and re-propose only what remains.
     - Do not commit or push. The user does that from the app.

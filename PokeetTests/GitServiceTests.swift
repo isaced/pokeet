@@ -82,6 +82,54 @@ final class GitServiceTests: XCTestCase {
         XCTAssertEqual(commits.first?.hash.count, 40)
     }
 
+    func testShowsFileAtRevisionAndCommitDetails() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pokeet-git-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let repository = try Repository.create(at: directory)
+        try repository.config.set("user.name", to: "Pokeet Tests")
+        try repository.config.set("user.email", to: "tests@pokeet.local")
+
+        let readme = directory.appendingPathComponent("README.md")
+        try "hello\n".write(to: readme, atomically: true, encoding: .utf8)
+
+        let service = SwiftGitXGitService()
+        _ = try await service.commitAll(
+            at: directory,
+            message: "Initial commit",
+            author: GitAuthor(name: "Pokeet Tests", email: "tests@pokeet.local")
+        )
+
+        try "hello world\n".write(to: readme, atomically: true, encoding: .utf8)
+        _ = try await service.commitAll(
+            at: directory,
+            message: "Update README",
+            author: GitAuthor(name: "Pokeet Tests", email: "tests@pokeet.local")
+        )
+
+        let current = try await service.blob(at: directory, ref: "HEAD", path: "README.md")
+        XCTAssertEqual(current.text, "hello world\n")
+        XCTAssertFalse(current.isBinary)
+
+        let previous = try await service.blob(at: directory, ref: "HEAD~1", path: "README.md")
+        XCTAssertEqual(previous.text, "hello\n")
+
+        let details = try await service.commitDetails(at: directory, ref: "HEAD")
+        XCTAssertEqual(details.author, "Pokeet Tests")
+        XCTAssertTrue(details.message.contains("Update README"))
+        XCTAssertTrue(details.diff.contains("+hello world"))
+        XCTAssertEqual(details.hash.count, 40)
+
+        do {
+            _ = try await service.blob(at: directory, ref: "no-such-ref", path: "README.md")
+            XCTFail("Expected an unknown revision error")
+        } catch let error as GitInspectError {
+            XCTAssertEqual(error, .unknownRevision("no-such-ref"))
+        }
+    }
+
     func testCommitAllStagesDeletions() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("pokeet-git-\(UUID().uuidString)", isDirectory: true)

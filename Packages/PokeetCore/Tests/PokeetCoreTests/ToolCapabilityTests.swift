@@ -24,7 +24,7 @@ struct ToolCapabilityTests {
                 .filter { $0.capabilities.contains(.gitRead) }
                 .map(\.schema.name)
         )
-        #expect(gitTools == ["git_status", "git_diff", "git_log"])
+        #expect(gitTools == ["git_status", "git_diff", "git_log", "git_show"])
 
         let networkTools = Set(
             registry.tools
@@ -70,6 +70,7 @@ struct ToolCapabilityTests {
         #expect(names.contains("git_status"))
         #expect(names.contains("git_diff"))
         #expect(names.contains("git_log"))
+        #expect(names.contains("git_show"))
         #expect(names.contains("http_request"))
         #expect(names.contains("submit_plan"))
         #expect(!names.contains("run_script"))

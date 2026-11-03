@@ -750,6 +750,12 @@ public actor AgentSession {
         case "git_log":
             let limit = max(1, min(arguments["limit"] as? Int ?? 10, 50))
             return "last \(limit) commit\(limit == 1 ? "" : "s")"
+        case "git_show":
+            let ref = nonEmpty(arguments["ref"]) ?? "HEAD"
+            if let path = nonEmpty(arguments["path"]) {
+                return "\(ref):\(path)"
+            }
+            return ref
         default:
             return nil
         }

@@ -342,6 +342,112 @@ actor SwiftGitXGitService: GitServicing, GitInspecting {
         }
     }
 
+    // MARK: - History
+
+    func blob(at root: URL, ref: String, path: String) async throws -> GitBlobContent {
+        let repository = try open(root)
+        do {
+            let commit: Commit = try repository.show(id: try resolveCommit(ref, root: root))
+            let blob: Blob = try repository.show(
+                id: try blobID(in: commit, path: path, ref: ref, repository: repository)
+            )
+            let data = blob.content
+            let capped = data.prefix(400_000)
+            let isBinary = capped.contains(0) || String(data: capped, encoding: .utf8) == nil
+            return GitBlobContent(
+                ref: ref,
+                path: path,
+                text: isBinary ? "" : String(decoding: capped, as: UTF8.self),
+                sizeBytes: data.count,
+                isBinary: isBinary
+            )
+        } catch let error as GitInspectError {
+            throw error
+        } catch {
+            throw GitServiceError.openFailed(sanitizedMessage(error, token: nil))
+        }
+    }
+
+    func commitDetails(at root: URL, ref: String) async throws -> GitCommitDetails {
+        let repository = try open(root)
+        do {
+            let commit: Commit = try repository.show(id: try resolveCommit(ref, root: root))
+            let diff = try repository.diff(commit: commit)
+            return GitCommitDetails(
+                hash: commit.id.hex,
+                author: commit.author.name,
+                date: commit.date,
+                message: commit.message,
+                diff: render(patches: diff.patches)
+            )
+        } catch let error as GitInspectError {
+            throw error
+        } catch {
+            throw GitServiceError.openFailed(sanitizedMessage(error, token: nil))
+        }
+    }
+
+    /// SwiftGitX has no revparse, so resolve the revision with libgit2 and hand the id back.
+    private func resolveCommit(_ ref: String, root: URL) throws -> OID {
+        var repositoryPointer: OpaquePointer?
+        let openStatus = root.path.withCString { git_repository_open(&repositoryPointer, $0) }
+        guard openStatus == 0, let repositoryPointer else {
+            throw GitInspectError.unknownRevision(ref)
+        }
+        defer { git_repository_free(repositoryPointer) }
+
+        var objectPointer: OpaquePointer?
+        let revStatus = ref.withCString { git_revparse_single(&objectPointer, repositoryPointer, $0) }
+        guard revStatus == 0, let objectPointer else {
+            throw GitInspectError.unknownRevision(ref)
+        }
+        defer { git_object_free(objectPointer) }
+
+        var commitPointer: OpaquePointer?
+        let peelStatus = git_object_peel(&commitPointer, objectPointer, GIT_OBJECT_COMMIT)
+        guard peelStatus == 0, let commitPointer else {
+            throw GitInspectError.unknownRevision(ref)
+        }
+        defer { git_object_free(commitPointer) }
+
+        guard let identifier = git_object_id(commitPointer) else {
+            throw GitInspectError.unknownRevision(ref)
+        }
+        var buffer = [CChar](repeating: 0, count: 41)
+        git_oid_tostr(&buffer, 41, identifier)
+        return try OID(hex: String(cString: buffer))
+    }
+
+    private func blobID(
+        in commit: Commit,
+        path: String,
+        ref: String,
+        repository: Repository
+    ) throws -> OID {
+        var tree = try commit.tree
+        let components = path.split(separator: "/").map(String.init)
+        guard !components.isEmpty else {
+            throw GitInspectError.notFound(ref: ref, path: path)
+        }
+
+        for (index, component) in components.enumerated() {
+            guard let entry = tree.entries.first(where: { $0.name == component }) else {
+                throw GitInspectError.notFound(ref: ref, path: path)
+            }
+            if index == components.count - 1 {
+                guard entry.type == .blob else {
+                    throw GitInspectError.notFound(ref: ref, path: path)
+                }
+                return entry.id
+            }
+            guard entry.type == .tree else {
+                throw GitInspectError.notFound(ref: ref, path: path)
+            }
+            tree = try repository.show(id: entry.id)
+        }
+        throw GitInspectError.notFound(ref: ref, path: path)
+    }
+
     private func open(_ root: URL) throws -> Repository {
         do {
             return try Repository(at: root, createIfNotExists: false)

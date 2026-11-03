@@ -84,6 +84,7 @@ public struct ToolRegistry: Sendable {
             GitStatusTool(),
             GitDiffTool(),
             GitLogTool(),
+            GitShowTool(),
             HTTPRequestTool(),
             SubmitPlanTool()
         ])
