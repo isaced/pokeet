@@ -125,4 +125,27 @@ struct PathSandboxTests {
         }
         #expect(try sandbox.resolve("", allowRoot: true).path == sandbox.root.path)
     }
+
+    /// A model naturally asks for "." when it means the repository root.
+    @Test func dotMeansRootForReaders() throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+
+        let sandbox = PathSandbox(root: directory.url)
+        for spelling in [".", "./", "././"] {
+            #expect(try sandbox.resolve(spelling, allowRoot: true).path == sandbox.root.path)
+        }
+    }
+
+    @Test func dotIsStillRejectedForWriters() throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+
+        let sandbox = PathSandbox(root: directory.url)
+        for spelling in [".", "./"] {
+            #expect(throws: WorkspaceError.self) {
+                try sandbox.resolve(spelling)
+            }
+        }
+    }
 }

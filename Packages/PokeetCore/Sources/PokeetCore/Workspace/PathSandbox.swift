@@ -38,7 +38,13 @@ public struct PathSandbox: Sendable {
         }
 
         guard !components.isEmpty else {
-            throw WorkspaceError.invalidPath(relativePath)
+            // ".", "./" and "//" all mean the workspace root. Reads allow that;
+            // writes, deletes and moves keep allowRoot false, so they still fail
+            // rather than targeting the repository itself.
+            guard allowRoot else {
+                throw WorkspaceError.invalidPath(relativePath)
+            }
+            return root
         }
 
         let target = root
