@@ -58,7 +58,9 @@ jobs:
           xcrun simctl boot "$udid" 2>/dev/null || true
 
       # Neither package has remote dependencies, so their build directories are
-      # safe to reuse: unchanged files are simply not recompiled.
+      # safe to reuse. Measured: 710s → 477s for the kernel with a 105s restore,
+      # so keep it, but expect a partial win — SwiftPM still rebuilds part of
+      # the graph on a fresh runner.
       - name: Cache Swift package builds
         uses: actions/cache@v6
         with:
@@ -68,12 +70,6 @@ jobs:
           key: ${{ runner.os }}-${{ runner.arch }}-swift-${{ hashFiles('Packages/*/Package.swift', 'Packages/*/Sources/**') }}
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-swift-
-
-      # The cache key covers the sources, so a hit means identical inputs. Touching
-      # the restored products makes them newer than the fresh checkout, which is
-      # what llbuild needs to skip rebuilding everything.
-      - name: Freshen the restored build products
-        run: find Packages/*/.build -exec touch {} + 2>/dev/null || true
 
       - name: swift test (PokeetCore)
         run: swift test --package-path Packages/PokeetCore
