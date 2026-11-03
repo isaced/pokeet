@@ -180,6 +180,7 @@ struct ToolTests {
             "grep",
             "find",
             "file_info",
+            "todo_write",
             "run_script",
             "git_status",
             "git_diff",

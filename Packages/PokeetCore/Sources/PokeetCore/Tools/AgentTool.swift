@@ -4,11 +4,18 @@ public struct ToolOutput: Sendable {
     public var content: String
     public var proposals: [FileProposal]
     public var plan: AgentPlan?
+    public var tasks: [TaskItem]?
 
-    public init(content: String, proposals: [FileProposal] = [], plan: AgentPlan? = nil) {
+    public init(
+        content: String,
+        proposals: [FileProposal] = [],
+        plan: AgentPlan? = nil,
+        tasks: [TaskItem]? = nil
+    ) {
         self.content = content
         self.proposals = proposals
         self.plan = plan
+        self.tasks = tasks
     }
 }
 
@@ -37,6 +44,7 @@ public enum ToolCapability: String, Sendable, Hashable, CaseIterable {
     case gitRead
     case network
     case planning
+    case tasks
     case runScript
 }
 
@@ -71,6 +79,7 @@ public struct ToolRegistry: Sendable {
             GrepTool(),
             FindTool(),
             FileInfoTool(),
+            TodoWriteTool(),
             RunScriptTool(),
             GitStatusTool(),
             GitDiffTool(),

@@ -236,8 +236,12 @@ struct ChatView: View {
         case .bubble(let bubble, let presentation):
             switch presentation {
             case .normal:
-                MessageBubble(bubble: bubble)
-                    .equatable()
+                if bubble.role == .todo, let todos = bubble.todos, !todos.isEmpty {
+                    TodoCardView(todos: todos)
+                } else {
+                    MessageBubble(bubble: bubble)
+                        .equatable()
+                }
             case .trace:
                 if bubble.role == .reasoning {
                     ReasoningBubble(

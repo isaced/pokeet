@@ -46,6 +46,7 @@ public enum AgentEvent: Sendable, Equatable {
     case actionPending(ActionRequest)
     case changesApplied([AppliedChange])
     case planSubmitted(AgentPlan)
+    case todosUpdated([TaskItem])
     case finished
     case failed(String)
 }
@@ -126,11 +127,13 @@ public enum AgentPrompts {
     - git_diff: show a unified diff of uncommitted changes.
     - git_log: show recent commits.
     - http_request: make an HTTPS request. GET/HEAD are read-only; POST/PUT/PATCH/DELETE require user approval unless Bypass mode is active.
+    - todo_write: replace the running task list for multi-step work (whole list, every call).
     - submit_plan: submit a structured implementation plan (Plan mode only).
 
     Rules:
     - All paths are relative to the repository root. Never use absolute paths, "~", "..", or .git paths.
     - Use grep and find to locate code instead of reading many files blindly.
+    - For work that takes three or more steps, call todo_write first, keep exactly one item in_progress, and update the list as you finish each item.
     - Call file_info before reading an unfamiliar, large or possibly binary file, and prefer offset/limit over whole-file reads.
     - Use run_script for what reading cannot settle: compute values, test a regex, parse JSON, or run a few assertions. It cannot run project test suites, npm scripts, compilers or shell commands — do not attempt those.
     - run_script has no network access. Keep scripts small and deterministic, and read files through the provided fs API instead of guessing paths.

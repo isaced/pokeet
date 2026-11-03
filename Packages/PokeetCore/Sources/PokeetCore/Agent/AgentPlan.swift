@@ -1,33 +1,8 @@
 import Foundation
 
 public struct AgentPlan: Codable, Sendable, Equatable, Identifiable {
-    public struct Step: Codable, Sendable, Equatable, Identifiable {
-        public enum Status: String, Codable, Sendable {
-            case pending
-            case done
-            case skipped
-        }
-
-        public let id: UUID
-        public var title: String
-        public var detail: String?
-        public var files: [String]
-        public var status: Status
-
-        public init(
-            id: UUID = UUID(),
-            title: String,
-            detail: String? = nil,
-            files: [String] = [],
-            status: Status = .pending
-        ) {
-            self.id = id
-            self.title = title
-            self.detail = detail
-            self.files = files
-            self.status = status
-        }
-    }
+    /// A plan step is a task: the same shape the running todo list uses.
+    public typealias Step = TaskItem
 
     public let id: UUID
     public var title: String

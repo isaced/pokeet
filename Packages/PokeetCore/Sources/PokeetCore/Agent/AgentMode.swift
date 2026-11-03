@@ -33,7 +33,7 @@ public enum AgentMode: String, Codable, Sendable, CaseIterable, Identifiable, Ha
     public var allowedCapabilities: Set<ToolCapability> {
         switch self {
         case .plan:
-            return [.readFiles, .gitRead, .network, .planning]
+            return [.readFiles, .gitRead, .network, .planning, .tasks]
         case .ask, .auto, .bypass:
             return Set(ToolCapability.allCases).subtracting([.planning])
         }

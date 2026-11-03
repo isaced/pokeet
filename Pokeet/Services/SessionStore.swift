@@ -45,6 +45,7 @@ struct StoredBubble: Codable, Sendable, Equatable {
     let runDuration: TimeInterval?
     let preview: String?
     let output: String?
+    let todos: [TaskItem]?
 
     init(
         id: UUID,
@@ -55,7 +56,8 @@ struct StoredBubble: Codable, Sendable, Equatable {
         reasoningDuration: TimeInterval? = nil,
         runDuration: TimeInterval? = nil,
         preview: String? = nil,
-        output: String? = nil
+        output: String? = nil,
+        todos: [TaskItem]? = nil
     ) {
         self.id = id
         self.role = role
@@ -66,6 +68,7 @@ struct StoredBubble: Codable, Sendable, Equatable {
         self.runDuration = runDuration
         self.preview = preview
         self.output = output
+        self.todos = todos
     }
 }
 
@@ -79,6 +82,7 @@ struct SessionBubble: Sendable, Equatable {
     let runDuration: TimeInterval?
     let preview: String?
     let output: String?
+    let todos: [TaskItem]?
 
     init(
         id: UUID,
@@ -89,7 +93,8 @@ struct SessionBubble: Sendable, Equatable {
         reasoningDuration: TimeInterval? = nil,
         runDuration: TimeInterval? = nil,
         preview: String? = nil,
-        output: String? = nil
+        output: String? = nil,
+        todos: [TaskItem]? = nil
     ) {
         self.id = id
         self.role = role
@@ -100,6 +105,7 @@ struct SessionBubble: Sendable, Equatable {
         self.runDuration = runDuration
         self.preview = preview
         self.output = output
+        self.todos = todos
     }
 }
 
@@ -287,7 +293,8 @@ actor SessionStore {
                 reasoningDuration: stored.reasoningDuration,
                 runDuration: stored.runDuration,
                 preview: stored.preview,
-                output: stored.output
+                output: stored.output,
+                todos: stored.todos
             )
         }
         return SessionSnapshot(
@@ -472,7 +479,8 @@ actor SessionStore {
                 reasoningDuration: bubble.reasoningDuration,
                 runDuration: bubble.runDuration,
                 preview: bubble.preview,
-                output: bubble.output
+                output: bubble.output,
+                todos: bubble.todos
             )
         }
         return SessionHeader(

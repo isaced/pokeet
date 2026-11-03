@@ -110,7 +110,7 @@ The tool set is intentionally small:
 - **Git (read-only)** — `git_status`, `git_diff`, `git_log`
 - **Web** — `http_request` (GET and HEAD always; writes are reviewed, except in Bypass mode)
 - **Scripts** — `run_script` (sandboxed JavaScript via QuickJS; see [docs/scripts.md](docs/scripts.md))
-- **Planning** — `submit_plan`
+- **Planning** — `submit_plan`, `todo_write` (a running checklist for multi-step work)
 
 Guardrails: the agent cannot run shell commands and cannot commit or push — those are UI actions. Network egress is HTTPS-only with private and local addresses blocked. Repository instructions are loaded from `AGENTS.md` or `CLAUDE.md` when a session starts.
 

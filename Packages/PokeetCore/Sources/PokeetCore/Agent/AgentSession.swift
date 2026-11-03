@@ -12,6 +12,8 @@ public actor AgentSession {
     private let instructions: ProjectInstructions
     private let scripting: ScriptRuntimes?
     private var baseSystemPrompt: String
+    private var todos: [TaskItem] = []
+    private var needsTaskReminder = false
     private var mode: AgentMode
     private var networkPolicy: NetworkAccessPolicy
     private var messages: [ChatMessage]
@@ -58,6 +60,15 @@ public actor AgentSession {
 
     public var loadedInstructions: ProjectInstructions {
         instructions
+    }
+
+    public var taskList: [TaskItem] {
+        todos
+    }
+
+    /// Seeded by the app after restoring a conversation, so the reminder survives a reload.
+    public func setTasks(_ items: [TaskItem]) {
+        todos = items
     }
 
     public var currentMode: AgentMode {
@@ -124,6 +135,12 @@ public actor AgentSession {
             iteration += 1
 
             var requestMessages = try await messagesForRequest(onEvent: onEvent)
+            if needsTaskReminder {
+                needsTaskReminder = false
+                if !todos.isEmpty {
+                    requestMessages.append(.user(TaskListFormatter.reminder(todos)))
+                }
+            }
             let roundsLeft = config.maxIterations - iteration + 1
             if iteration > 1, roundsLeft <= 2 {
                 requestMessages.append(.user(
@@ -240,6 +257,11 @@ public actor AgentSession {
             )
             let executions = toolRun.executions
             let submittedPlan = toolRun.plan
+
+            if let updated = executions.reversed().compactMap({ $0.output?.tasks }).first {
+                todos = updated
+                await onEvent(.todosUpdated(updated))
+            }
 
             var proposalsByPath: [String: FileProposal] = [:]
             var proposalOwner: [String: String] = [:]
@@ -847,6 +869,8 @@ public actor AgentSession {
         guard let plan = compactor.plan(messages) else {
             return messages
         }
+        // The task list lives outside the conversation, so re-announce it after compaction.
+        needsTaskReminder = true
         guard plan.hasMessagesToSummarize else {
             return compactor.compact(messages)
         }

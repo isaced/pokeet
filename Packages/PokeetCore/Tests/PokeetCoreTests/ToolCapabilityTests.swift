@@ -40,6 +40,13 @@ struct ToolCapabilityTests {
         )
         #expect(planningTools == ["submit_plan"])
 
+        let taskTools = Set(
+            registry.tools
+                .filter { $0.capabilities.contains(.tasks) }
+                .map(\.schema.name)
+        )
+        #expect(taskTools == ["todo_write"])
+
         let scriptTools = Set(
             registry.tools
                 .filter { $0.capabilities.contains(.runScript) }
@@ -66,6 +73,7 @@ struct ToolCapabilityTests {
         #expect(names.contains("http_request"))
         #expect(names.contains("submit_plan"))
         #expect(!names.contains("run_script"))
+        #expect(names.contains("todo_write"))
     }
 
     @Test func nonPlanModesExcludePlanningTools() {

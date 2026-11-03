@@ -115,7 +115,7 @@ enum ChatTranscriptBuilder {
                 default:
                     rows.append(.bubble(bubble, presentation(for: bubble)))
                 }
-            } else if bubble.role == .notice || bubble.role == .error {
+            } else if bubble.role == .notice || bubble.role == .error || bubble.role == .todo {
                 rows.append(.bubble(bubble, presentation(for: bubble)))
             }
         }

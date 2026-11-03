@@ -16,6 +16,7 @@ final class ChatViewModel {
             case assistant
             case reasoning
             case tool
+            case todo
             case notice
             case error
         }
@@ -32,6 +33,8 @@ final class ChatViewModel {
         var preview: String?
         /// Result text of a script run, shown when the trace row is expanded.
         var output: String?
+        /// Running task list shown as a checklist card.
+        var todos: [TaskItem]?
 
         init(
             id: UUID = UUID(),
@@ -43,7 +46,8 @@ final class ChatViewModel {
             reasoningDuration: TimeInterval? = nil,
             runDuration: TimeInterval? = nil,
             preview: String? = nil,
-            output: String? = nil
+            output: String? = nil,
+            todos: [TaskItem]? = nil
         ) {
             self.id = id
             self.role = role
@@ -55,6 +59,7 @@ final class ChatViewModel {
             self.runDuration = runDuration
             self.preview = preview
             self.output = output
+            self.todos = todos
         }
     }
 
@@ -121,6 +126,7 @@ final class ChatViewModel {
     private var runStartedAt: Date?
     private var runningToolCount = 0
     private var toolBubbleIDs: [String: UUID] = [:]
+    private var todoBubbleID: UUID?
     private var streamBuffer = StreamBuffer()
     private var streamFlushTask: Task<Void, Never>?
     private var checkpointTask: Task<Void, Never>?
@@ -591,6 +597,9 @@ final class ChatViewModel {
                 return
             }
             await session.restore(history)
+            if let todos = bubbles.last(where: { $0.role == .todo })?.todos, !todos.isEmpty {
+                await session.setTasks(todos)
+            }
             needsHistoryRestore = false
         }
 
@@ -723,6 +732,9 @@ final class ChatViewModel {
                 }
             }
             scheduleCheckpoint()
+        case .todosUpdated(let items):
+            updateTodoBubble(items)
+            scheduleCheckpoint()
         case .proposalsPending(let proposals):
             present(proposals)
         case .actionPending:
@@ -768,6 +780,28 @@ final class ChatViewModel {
             errorMessage = message
             status = nil
         }
+    }
+
+    /// A single checklist bubble that is updated in place rather than appended per call.
+    private func updateTodoBubble(_ items: [TaskItem]) {
+        if let id = todoBubbleID, let index = bubbleIndex(of: id) {
+            if items.isEmpty {
+                bubbles.remove(at: index)
+                todoBubbleID = nil
+                pager.reset(total: bubbles.count)
+            } else {
+                bubbles[index].todos = items
+                bubbles[index].text = TaskListFormatter.statusSummary(items)
+            }
+            return
+        }
+        guard !items.isEmpty else { return }
+
+        var bubble = Bubble(role: .todo, text: TaskListFormatter.statusSummary(items))
+        bubble.todos = items
+        bubbles.append(bubble)
+        todoBubbleID = bubble.id
+        pager.reset(total: bubbles.count)
     }
 
     private func scheduleStreamFlush() {
@@ -867,7 +901,8 @@ final class ChatViewModel {
                 reasoningDuration: $0.reasoningDuration,
                 runDuration: $0.runDuration,
                 preview: $0.preview,
-                output: $0.output
+                output: $0.output,
+                todos: $0.todos
             )
         }
         return SessionSnapshot(
@@ -1048,9 +1083,11 @@ final class ChatViewModel {
                 reasoningDuration: stored.reasoningDuration,
                 runDuration: stored.runDuration,
                 preview: stored.preview,
-                output: stored.output
+                output: stored.output,
+                todos: stored.todos
             )
         }
+        todoBubbleID = bubbles.last(where: { $0.role == .todo })?.id
         pager.reset(total: bubbles.count)
         cacheStats = snapshot.cacheStats ?? CacheStats()
         lastRequest = bubbles.last(where: { $0.role == .user })?.text ?? ""

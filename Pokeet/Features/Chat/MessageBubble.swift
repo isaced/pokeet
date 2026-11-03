@@ -87,6 +87,10 @@ struct MessageBubble: View, Equatable {
             .font(.caption)
             .foregroundStyle(.red)
             .frame(maxWidth: .infinity, alignment: .leading)
+        case .todo:
+            if let todos = bubble.todos, !todos.isEmpty {
+                TodoCardView(todos: todos)
+            }
         }
     }
 }

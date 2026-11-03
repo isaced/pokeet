@@ -15,6 +15,12 @@ struct MockModelClient: ModelClient {
                     finishReason: "stop"
                 )
             }
+            if lastTool.contains("[~]") {
+                return ChatResponse(
+                    message: .assistant("Working through the list — the guard is in progress."),
+                    finishReason: "stop"
+                )
+            }
             if lastTool.contains("JavaScript · exit 0") {
                 return ChatResponse(
                     message: .assistant("All three checks passed — the parser returns the expected values."),
@@ -90,6 +96,25 @@ struct MockModelClient: ModelClient {
                         ToolCall(
                             id: "mock-script-\(UUID().uuidString)",
                             name: "run_script",
+                            arguments: arguments
+                        )
+                    ]
+                ),
+                finishReason: "tool_calls"
+            )
+        }
+
+        if lastMessage?.role == .user,
+           let text = lastMessage?.content?.lowercased(),
+           text.contains("todo test") {
+            let arguments = #"{"items":[{"content":"Read the parser and its call sites","status":"done"},{"content":"Add the empty-username guard","status":"in_progress"},{"content":"Update the form tests"},{"content":"Run the checks"}]}"#
+            return ChatResponse(
+                message: .assistant(
+                    nil,
+                    toolCalls: [
+                        ToolCall(
+                            id: "mock-todos-\(UUID().uuidString)",
+                            name: "todo_write",
                             arguments: arguments
                         )
                     ]

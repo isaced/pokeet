@@ -421,7 +421,7 @@ struct AgentLoopTests {
             ),
             summarizer: summarizer
         )
-        await session.restore(history)
+        await session.restore(history, systemPrompt: "You are Pokeet.")
 
         try await session.send(
             "continue",
@@ -1110,6 +1110,73 @@ struct ToolConcurrencyTests {
         }
         #expect(summaries.first?.contains("exit 0") == true)
         #expect(summaries.first?.contains("ok") == true)
+    }
+
+    @Test func todoToolUpdatesSessionTaskList() async throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+
+        let client = ScriptedModelClient([
+            toolCall(
+                name: "todo_write",
+                arguments: #"{"items":[{"content":"Read the code"},{"content":"Fix it","status":"in_progress"}]}"#
+            ),
+            ChatResponse(message: .assistant("done"), finishReason: "stop")
+        ])
+        let session = AgentSession(
+            client: client,
+            workspace: FileWorkspace(root: directory.url),
+            mode: .bypass
+        )
+        let recorder = EventRecorder()
+
+        try await session.send(
+            "fix it",
+            approval: { _ in [] },
+            onEvent: { await recorder.record($0) }
+        )
+
+        let tasks = await session.taskList
+        #expect(tasks.map(\.title) == ["Read the code", "Fix it"])
+        #expect(tasks.map(\.status) == [.pending, .inProgress])
+
+        let events = await recorder.snapshot()
+        let updates = events.compactMap { event -> [String]? in
+            if case .todosUpdated(let items) = event { return items.map(\.title) }
+            return nil
+        }
+        #expect(updates == [["Read the code", "Fix it"]])
+    }
+
+    @Test func taskListIsRestatedAfterCompaction() async throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+
+        let client = ScriptedModelClient([
+            toolCall(name: "todo_write", arguments: #"{"items":[{"content":"Keep going"}]}"#),
+            ChatResponse(message: .assistant("done"), finishReason: "stop")
+        ])
+        let session = AgentSession(
+            client: client,
+            workspace: FileWorkspace(root: directory.url),
+            mode: .bypass,
+            config: AgentConfiguration(contextCharacterBudget: 400, retainedTurns: 1),
+            summarizer: RecordingSummarizer(summary: "summary")
+        )
+        let recorder = EventRecorder()
+
+        try await session.send(
+            "start",
+            approval: { _ in [] },
+            onEvent: { await recorder.record($0) }
+        )
+
+        let requests = await client.recordedRequests()
+        let reminder = requests
+            .flatMap(\.messages)
+            .compactMap(\.content)
+            .first { $0.contains("[Task list") }
+        #expect(reminder?.contains("[ ] Keep going") == true)
     }
 
     @Test func writeToolsRemainSequential() async throws {
