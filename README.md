@@ -4,7 +4,7 @@
 
 **Poke it, it ships.**
 
-An agentic coding workshop in your pocket: a Claude Code-style agent that reads, writes and commits code — entirely on your iPhone. No computer needed.
+An agentic coding workshop in your pocket: a Claude Code-style agent that reads, searches, edits and explains your code — entirely on your iPhone. You review every change, then commit and push from the app. No computer needed.
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 ![iOS](https://img.shields.io/badge/iOS-18%2B-black)
@@ -12,44 +12,72 @@ An agentic coding workshop in your pocket: a Claude Code-style agent that reads,
 
 > ⚠️ Pokeet is in early development. We're building it in public — follow along, and watch this space for the first demo.
 
-<!-- TODO: record the golden-path demo: clone → agent fixes a bug → diff cards → approve → push, all on iPhone -->
+<!-- TODO: record the golden-path demo: clone → agent fixes a bug → diff cards → approve → commit & push, all on iPhone -->
 
 </div>
 
 ## Why Pokeet?
 
-Coding agents live in terminals on computers. But most of what an agent does — reading, writing, editing, committing — doesn't need a computer at all.
+Coding agents live in terminals on computers. But most of what an agent does — reading, searching, editing, reviewing — doesn't need a computer at all.
 
 Pokeet puts the whole loop on your iPhone:
 
 | | |
 |---|---|
-| 🤖 **A real agent, not a chatbot** | ReAct loop with tools: read, write, edit, shell, git. It works until the job is done. |
+| 🤖 **A real agent, not a chatbot** | ReAct loop with a file, search, git and HTTP tool set. It works until the job is done. |
 | 📁 **A real workspace** | Each project lives in its own sandbox, visible in the Files app. Start empty or from a Git repository. |
-| 🗂️ **Multiple sessions** | Every project keeps a list of conversations. Create, rename, switch and delete them independently. |
-| 🌳 **Real git** | Clone, diff, commit, push — libgit2 on the phone, over HTTPS with a personal access token. |
-| 🖥️ **A virtual shell** | A curated set of shell commands for the agent, backed by the workspace. |
-| 🔍 **Diff-first review** | Every edit arrives as a diff card. Approve per hunk, per file. Nothing lands without your poke. |
+| 🗂️ **Multiple sessions** | Every project keeps a list of conversations. Create, rename, switch and delete them independently — each with its own agent mode. |
+| 🌳 **Real git** | Clone, diff, commit, push — libgit2 on the phone, over HTTPS with a personal access token. You review applied changes, then tap Commit & Push. |
+| 🎛️ **Four modes** | Plan, Ask, Auto and Bypass — chosen per session, from read-only proposals to fully automatic edits. |
+| 🔍 **Review-first by default** | In Ask mode every edit arrives as a diff card — approve per hunk or per file, reject with a note. Auto and Bypass trade review for speed. |
+| 🌐 **Guarded web access** | The agent can fetch HTTPS URLs, but private and local addresses are blocked and hosts can be allowlisted. Network writes are reviewed except in Bypass mode. |
 | 🖼️ **Image input** | Attach up to four photos. Images are downscaled and sent as native image parts to vision-capable models. |
+| 📌 **Project context** | Attach project files as `@` context chips, and the agent loads `AGENTS.md` or `CLAUDE.md` at session start. Long sessions compact automatically. |
+| 🧵 **A readable run** | Tool calls collapse into an expandable execution trace, reasoning gets its own bubble, and answers stream in as rendered markdown. |
+| 🖥️ **Two-pane on landscape** | Project and session sidebar beside the conversation when width allows. |
 | 🔑 **Your key, your model** | Bring your own API key. Add any number of providers — OpenAI, Anthropic, Gemini, or an OpenAI-compatible gateway/local server — each with its own key, base URL and model list. |
 | 🔒 **Local-first** | No Pokeet server. No account. Your code leaves your phone only through your own model requests and git push. |
 
 ## How a task flows
 
 ```
-You:     "Fix the crash when the username is empty"
+You:     "Fix the crash when the username is empty"   (Ask mode)
 
-Pokeet:  📖 reads the repo
-         ✏️ edits 3 files → shows you 3 diff cards
+Pokeet:  📖 reads the repo, traces the call site
+         ✏️ proposes 3 file edits → 3 diff cards
 You:     ✅ approves 2, rejects 1 with a note
-Pokeet:  🔧 revises, commits, pushes to GitHub
+Pokeet:  🔧 revises
+You:     🚀 Changes → Commit & Push
 ```
+
+Plan mode stops at a reviewed plan instead of editing. Auto and Bypass trade some or all of the diff cards for speed.
+
+## The agent
+
+Four modes, chosen per session:
+
+| Mode | What it does |
+|---|---|
+| **Plan** | Read-only exploration. The agent investigates and submits a structured plan for you to approve. |
+| **Ask** | Default. Every file change is proposed as a diff and waits for your approval. |
+| **Auto** | Edits apply immediately; deletes and moves still need review. |
+| **Bypass** | Every file change applies without review. |
+
+The tool set is intentionally small:
+
+- **Files** — `list_files`, `read_file`, `write_file`, `edit_file`, `delete_file`, `move_file`
+- **Search** — `grep`, `find`
+- **Git (read-only)** — `git_status`, `git_diff`, `git_log`
+- **Web** — `http_request` (GET and HEAD always; writes are reviewed, except in Bypass mode)
+- **Planning** — `submit_plan`
+
+Guardrails: the agent cannot run shell commands and cannot commit or push — those are UI actions. Network egress is HTTPS-only with private and local addresses blocked. Repository instructions are loaded from `AGENTS.md` or `CLAUDE.md` when a session starts.
 
 ## Get started
 
 1. **Install**: TestFlight link (coming soon). Or build it yourself — it's open source.
 2. **Add a model**: Settings → Manage providers → pick a template or add a provider. Choose an API format, base URL and key, then fetch the model list or add model IDs manually. Pick the active provider and model.
-3. **Poke it**: create a project — empty, or from an optional Git repository — then say what needs doing. Private repos use an HTTPS personal access token; SSH isn't supported yet.
+3. **Poke it**: create a project — empty, or from an optional Git repository — then say what needs doing. Approve the changes you want, then use Changes → Commit & Push. Private repos use an HTTPS personal access token; SSH isn't supported yet.
 
 ### Supported API formats
 
@@ -60,7 +88,7 @@ Pokeet:  🔧 revises, commits, pushes to GitHub
 | Anthropic Messages | `{base}/messages` | `x-api-key` + `anthropic-version` |
 | Gemini generateContent | `{base}/models/{model}:generateContent` | `x-goog-api-key` |
 
-All four support streaming and tool calling. API keys are stored per provider in the iOS Keychain; provider and model settings live in `UserDefaults`.
+All four support streaming, tool calling and image input. Provider templates include OpenAI, Anthropic, Gemini and a generic OpenAI-compatible option. API keys are stored per provider in the iOS Keychain; provider and model settings live in `UserDefaults`.
 
 ## Development
 
@@ -77,7 +105,9 @@ Run the agent-kernel tests:
 swift test --package-path Packages/PokeetCore
 ```
 
-Debug builds support a scripted demo model with no API key: launch the app with the `-PokeetMockModel` argument.
+App tests (15 XCTest files) run from the generated `Pokeet` scheme in Xcode.
+
+Debug builds support a scripted demo model with no API key: launch the app with the `-PokeetMockModel` argument. `-PokeetSyntheticHistory` seeds a long conversation for scrolling and performance testing.
 
 ## Architecture
 
@@ -85,22 +115,25 @@ Native Swift / SwiftUI. The agent kernel is isolated behind protocols so it can 
 
 ```
 ┌──────────────────────────────────────┐
-│  PokeetApp (iOS shell)               │
+│  PokeetApp (iOS app)                 │
 │  SwiftUI · workspace · Files         │
-│  SwiftGitX · libgit2 · shell · diff  │
+│  SwiftGitX · libgit2 · review UI     │
+│  session snapshots                   │
 └───────────────┬──────────────────────┘
                 │  protocols
 ┌───────────────▼──────────────────────┐
 │  PokeetCore (agent kernel)           │
-│  ReAct loop · tool registry          │
-│  session persistence · model client  │
+│  ReAct loop · tools & modes          │
+│  model clients · context compaction  │
 └──────────────────────────────────────┘
 ```
 
+Session snapshots live in the app, so the kernel stays portable.
+
 ## Roadmap
 
-- **v1** — Agent loop, workspace, git (clone/diff/commit/push over HTTPS with a personal access token), curated shell, diff-review UI, BYOK.
-  The golden path: clone → fix → review → push, all on iPhone, no computer.
+- **v1** — Agent loop with four review modes, workspace, git (clone/diff/commit/push over HTTPS with a personal access token), diff review, guarded HTTP tool, context compaction, BYOK.
+  The golden path: clone → fix → review → commit & push, all on iPhone, no computer.
 - **v2** — `run_script`: JavaScript via JavaScriptCore, embedded CPython; Mac mini one-tap test runs.
 - **Later** — SSH remotes, more tools, skills learned from your repos, maybe Android.
 
@@ -108,7 +141,7 @@ Native Swift / SwiftUI. The agent kernel is isolated behind protocols so it can 
 
 Pokeet is built in public. Issues, PRs and ideas are welcome — especially:
 
-- curated shell commands,
+- agent tools and safety policy,
 - new tool implementations,
 - translations,
 - device testing (it should run on any iPhone, not just the newest one).
