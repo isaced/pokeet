@@ -657,11 +657,18 @@ struct AgentLoopTests {
         }
 
         let events = await recorder.snapshot()
-        let hasFailure = events.contains {
-            if case .failed = $0 { return true }
-            return false
-        }
-        #expect(hasFailure)
+        let failure = events.compactMap { event -> String? in
+            if case .failed(let message) = event { return message }
+            return nil
+        }.first
+        #expect(failure?.contains("continue") == true)
+
+        let requests = await client.recordedRequests()
+        #expect(requests.count == 2)
+        #expect(requests[0].messages.contains {
+            $0.content?.contains("Tool budget") == true
+        } == false)
+        #expect(requests[1].messages.last?.content?.contains("final tool round") == true)
     }
 }
 

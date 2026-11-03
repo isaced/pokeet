@@ -113,14 +113,24 @@ public actor AgentSession {
             }
 
             if iteration >= config.maxIterations {
-                let message = "Stopped after \(config.maxIterations) iterations without finishing."
+                let message = "Stopped after \(config.maxIterations) tool rounds without a final answer. "
+                    + "Send “continue” to keep going."
                 await onEvent(.failed(message))
                 throw AgentError.iterationLimit
             }
             iteration += 1
 
+            var requestMessages = try await messagesForRequest(onEvent: onEvent)
+            let roundsLeft = config.maxIterations - iteration + 1
+            if iteration > 1, roundsLeft <= 2 {
+                requestMessages.append(.user(
+                    roundsLeft == 1
+                        ? "[Tool budget: this is your final tool round. Stop calling tools and write your final answer now.]"
+                        : "[Tool budget: 2 tool rounds remain, including this one. Start wrapping up and answer.]"
+                ))
+            }
             var request = ChatRequest(
-                messages: try await messagesForRequest(onEvent: onEvent),
+                messages: requestMessages,
                 tools: activeRegistry.schemas,
                 sessionID: sessionID
             )
@@ -644,10 +654,13 @@ public actor AgentSession {
     }
 
     private static func toolDetail(for call: ToolCall) -> String? {
-        guard let data = call.arguments.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else {
-            return nil
+        let data = call.arguments.data(using: .utf8)
+        let object = data.flatMap {
+            try? JSONSerialization.jsonObject(with: $0) as? [String: Any]
+        } ?? [:]
+
+        if let detail = gitDetail(for: call.name, arguments: object) {
+            return detail
         }
 
         if let from = object["from"] as? String,
@@ -666,6 +679,34 @@ public actor AgentSession {
             }
         }
         return nil
+    }
+
+    private static func gitDetail(
+        for name: String,
+        arguments: [String: Any]
+    ) -> String? {
+        switch name {
+        case "git_status":
+            return nonEmpty(arguments["path"]) ?? "working tree"
+        case "git_diff":
+            let staged = arguments["staged"] as? Bool ?? false
+            var parts = [staged ? "staged" : "unstaged"]
+            if let path = nonEmpty(arguments["path"]) {
+                parts.append(path)
+            }
+            return parts.joined(separator: " · ")
+        case "git_log":
+            let limit = max(1, min(arguments["limit"] as? Int ?? 10, 50))
+            return "last \(limit) commit\(limit == 1 ? "" : "s")"
+        default:
+            return nil
+        }
+    }
+
+    private static func nonEmpty(_ value: Any?) -> String? {
+        guard let string = value as? String else { return nil }
+        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private func consume(

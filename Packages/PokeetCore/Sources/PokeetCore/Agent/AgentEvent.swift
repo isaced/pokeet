@@ -60,7 +60,7 @@ public enum AgentError: Error, Sendable, Equatable, LocalizedError {
         case .model(let message):
             message
         case .iterationLimit:
-            "The agent reached its iteration limit without finishing."
+            "The agent reached its tool-round limit without finishing. Send “continue” to keep going."
         case .cancelled:
             "The agent run was cancelled."
         }
@@ -80,7 +80,7 @@ public struct AgentConfiguration: Sendable {
     public var toolTimeoutMilliseconds: Int
 
     public init(
-        maxIterations: Int = 20,
+        maxIterations: Int = 40,
         maxToolOutputBytes: Int = 24_000,
         contextCharacterBudget: Int = 80_000,
         retainedTurns: Int = 10,
@@ -129,6 +129,7 @@ public enum AgentPrompts {
     Rules:
     - All paths are relative to the repository root. Never use absolute paths, "~", "..", or .git paths.
     - Use grep and find to locate code instead of reading many files blindly.
+    - Work within a limited tool budget: survey first, read only what you need, and answer as soon as you have enough information.
     - User messages may include <file path="..."> blocks with file contents. Treat them as provided context.
     - Read before you write. Keep changes focused and minimal.
     - Prefer edit_file for targeted changes; batch disjoint edits to one file in a single call.

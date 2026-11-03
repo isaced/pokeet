@@ -30,6 +30,34 @@ struct MockModelClient: ModelClient {
 
         if lastMessage?.role == .user,
            let text = lastMessage?.content?.lowercased(),
+           text.contains("git test") {
+            return ChatResponse(
+                message: .assistant(
+                    nil,
+                    toolCalls: [
+                        ToolCall(
+                            id: "mock-git-status-\(UUID().uuidString)",
+                            name: "git_status",
+                            arguments: "{}"
+                        ),
+                        ToolCall(
+                            id: "mock-git-diff-\(UUID().uuidString)",
+                            name: "git_diff",
+                            arguments: #"{"staged":true}"#
+                        ),
+                        ToolCall(
+                            id: "mock-git-log-\(UUID().uuidString)",
+                            name: "git_log",
+                            arguments: #"{"limit":5}"#
+                        )
+                    ]
+                ),
+                finishReason: "tool_calls"
+            )
+        }
+
+        if lastMessage?.role == .user,
+           let text = lastMessage?.content?.lowercased(),
            text.contains("read test") {
             return ChatResponse(
                 message: .assistant(

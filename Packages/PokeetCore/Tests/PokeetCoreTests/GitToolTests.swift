@@ -123,4 +123,56 @@ struct GitToolTests {
         let output = try await GitLogTool().execute(arguments: Data(), context: context)
         #expect(output.content == "No commits yet.")
     }
+
+    @Test func reportsGitCallDetails() async throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+
+        let client = ScriptedModelClient([
+            ChatResponse(
+                message: .assistant(
+                    nil,
+                    toolCalls: [
+                        ToolCall(
+                            id: "diff_1",
+                            name: "git_diff",
+                            arguments: #"{"staged":true,"path":"Sources/App.swift"}"#
+                        ),
+                        ToolCall(id: "status_1", name: "git_status", arguments: "{}"),
+                        ToolCall(id: "log_1", name: "git_log", arguments: #"{"limit":5}"#)
+                    ]
+                ),
+                finishReason: "tool_calls"
+            ),
+            ChatResponse(message: .assistant("done"), finishReason: "stop")
+        ])
+        let session = AgentSession(
+            client: client,
+            workspace: FileWorkspace(root: directory.url),
+            git: StubGitInspector(),
+            mode: .bypass
+        )
+        let recorder = EventRecorder()
+
+        try await session.send(
+            "inspect",
+            approval: { _ in [] },
+            onEvent: { await recorder.record($0) }
+        )
+
+        let details = await recorder.snapshot().compactMap { event -> (String, String?)? in
+            if case .toolStarted(let name, _, let detail) = event {
+                return (name, detail)
+            }
+            return nil
+        }
+
+        #expect(details.count == 3)
+        #expect(details[0].0 == "git_diff")
+        #expect(details[0].1 == "staged · Sources/App.swift")
+        #expect(details[1].0 == "git_status")
+        #expect(details[1].1 == "working tree")
+        #expect(details[2].0 == "git_log")
+        #expect(details[2].1 == "last 5 commits")
+    }
 }

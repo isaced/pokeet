@@ -185,7 +185,9 @@ struct TraceStepRow: View {
         case "edit_file": "Edited"
         case "delete_file": "Deleted"
         case "move_file": "Moved"
-        case "git_status", "git_diff", "git_log": "Git"
+        case "git_status": "Git status"
+        case "git_diff": "Git diff"
+        case "git_log": "Git log"
         case "http_request": "Requested"
         case "submit_plan": "Planned"
         default: name
