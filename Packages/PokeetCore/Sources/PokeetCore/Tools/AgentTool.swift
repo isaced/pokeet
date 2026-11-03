@@ -3,10 +3,12 @@ import Foundation
 public struct ToolOutput: Sendable {
     public var content: String
     public var proposals: [FileProposal]
+    public var plan: AgentPlan?
 
-    public init(content: String, proposals: [FileProposal] = []) {
+    public init(content: String, proposals: [FileProposal] = [], plan: AgentPlan? = nil) {
         self.content = content
         self.proposals = proposals
+        self.plan = plan
     }
 }
 
@@ -25,6 +27,7 @@ public enum ToolCapability: String, Sendable, Hashable, CaseIterable {
     case writeFiles
     case gitRead
     case network
+    case planning
 }
 
 public protocol AgentTool: Sendable {
@@ -53,7 +56,8 @@ public struct ToolRegistry: Sendable {
             GitStatusTool(),
             GitDiffTool(),
             GitLogTool(),
-            HTTPRequestTool()
+            HTTPRequestTool(),
+            SubmitPlanTool()
         ])
     }
 

@@ -32,6 +32,13 @@ struct ToolCapabilityTests {
                 .map(\.schema.name)
         )
         #expect(networkTools == ["http_request"])
+
+        let planningTools = Set(
+            registry.tools
+                .filter { $0.capabilities.contains(.planning) }
+                .map(\.schema.name)
+        )
+        #expect(planningTools == ["submit_plan"])
     }
 
     @Test func planModeFiltersWriteTools() {
@@ -49,13 +56,16 @@ struct ToolCapabilityTests {
         #expect(names.contains("git_diff"))
         #expect(names.contains("git_log"))
         #expect(names.contains("http_request"))
+        #expect(names.contains("submit_plan"))
     }
 
-    @Test func nonPlanModesKeepEveryTool() {
-        let all = Set(ToolRegistry.standard.schemas.map(\.name))
+    @Test func nonPlanModesExcludePlanningTools() {
+        let expected = Set(ToolRegistry.standard.schemas.map(\.name))
+            .subtracting(["submit_plan"])
         for mode in [AgentMode.ask, .auto, .bypass] {
             let names = Set(ToolRegistry.standard.filtered(for: mode).schemas.map(\.name))
-            #expect(names == all)
+            #expect(names == expected)
+            #expect(!names.contains("submit_plan"))
         }
     }
 }

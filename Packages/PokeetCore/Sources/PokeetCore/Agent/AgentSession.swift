@@ -212,6 +212,7 @@ public actor AgentSession {
             }
 
             var executions: [ToolExecution] = []
+            var submittedPlan: AgentPlan?
             for call in toolCalls {
                 if Task.isCancelled {
                     throw AgentError.cancelled
@@ -240,6 +241,9 @@ public actor AgentSession {
                         context: ToolContext(workspace: workspace, git: git)
                     )
                     executions.append(ToolExecution(call: call, output: output))
+                    if let plan = output.plan {
+                        submittedPlan = plan
+                    }
                     await onEvent(.toolFinished(
                         name: call.name,
                         summary: String(output.content.prefix(200))
@@ -312,7 +316,10 @@ public actor AgentSession {
                         proposalResults[proposal.id] = message
                         changes.append(AppliedChange(
                             path: proposal.path,
+                            kind: proposal.kind.rawValue,
                             didWrite: application.didWrite,
+                            addedLines: proposal.addedLines,
+                            removedLines: proposal.removedLines,
                             message: message
                         ))
                     } catch {
@@ -322,7 +329,10 @@ public actor AgentSession {
                         proposalResults[proposal.id] = message
                         changes.append(AppliedChange(
                             path: proposal.path,
+                            kind: proposal.kind.rawValue,
                             didWrite: false,
+                            addedLines: proposal.addedLines,
+                            removedLines: proposal.removedLines,
                             message: message
                         ))
                     }
@@ -348,6 +358,12 @@ public actor AgentSession {
                 }
 
                 messages.append(.tool(clip(content), callID: execution.call.id))
+            }
+
+            if let submittedPlan {
+                await onEvent(.planSubmitted(submittedPlan))
+                await onEvent(.finished)
+                return
             }
         }
     }

@@ -7,14 +7,16 @@ struct AgentModeTests {
         #expect(AgentMode.plan.allows([.readFiles]))
         #expect(AgentMode.plan.allows([.gitRead]))
         #expect(AgentMode.plan.allows([.network]))
+        #expect(AgentMode.plan.allows([.planning]))
         #expect(!AgentMode.plan.allows([.writeFiles]))
         #expect(!AgentMode.plan.allows([.readFiles, .writeFiles]))
         #expect(!AgentMode.plan.allowedCapabilities.contains(.writeFiles))
     }
 
-    @Test func otherModesAllowEveryCapability() {
+    @Test func otherModesAllowEveryCapabilityExceptPlanning() {
+        let expected = Set(ToolCapability.allCases).subtracting([.planning])
         for mode in [AgentMode.ask, .auto, .bypass] {
-            #expect(mode.allows(Set(ToolCapability.allCases)), "\(mode) should allow all tools")
+            #expect(mode.allowedCapabilities == expected, "\(mode) capabilities mismatch")
         }
     }
 

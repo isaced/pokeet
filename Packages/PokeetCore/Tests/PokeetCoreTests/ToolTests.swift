@@ -182,7 +182,8 @@ struct ToolTests {
             "git_status",
             "git_diff",
             "git_log",
-            "http_request"
+            "http_request",
+            "submit_plan"
         ])
     }
 }

@@ -20,7 +20,7 @@ public enum AgentMode: String, Codable, Sendable, CaseIterable, Identifiable, Ha
     public var shortDescription: String {
         switch self {
         case .plan:
-            return "Read-only exploration. Produce a plan before making changes."
+            return "Read-only exploration. Submit a structured plan before making changes."
         case .ask:
             return "Review every file change before it is applied."
         case .auto:
@@ -33,9 +33,9 @@ public enum AgentMode: String, Codable, Sendable, CaseIterable, Identifiable, Ha
     public var allowedCapabilities: Set<ToolCapability> {
         switch self {
         case .plan:
-            return [.readFiles, .gitRead, .network]
+            return [.readFiles, .gitRead, .network, .planning]
         case .ask, .auto, .bypass:
-            return Set(ToolCapability.allCases)
+            return Set(ToolCapability.allCases).subtracting([.planning])
         }
     }
 
@@ -63,9 +63,9 @@ public enum AgentMode: String, Codable, Sendable, CaseIterable, Identifiable, Ha
             Current mode: Plan (read-only).
             You can inspect the repository and fetch public HTTPS URLs, but you cannot change files.
             write_file, edit_file, delete_file, and move_file are disabled in this mode.
-            Use the read-only tools to investigate, then answer with a concrete plan: the files to change,
-            the exact edits you would make, and any risks. Do not claim that changes were made.
-            The user can switch to Auto to execute the plan.
+            Use the read-only tools to investigate. When your investigation is complete, call
+            submit_plan with a title, summary, and concrete steps (title/detail/files).
+            Do not claim that changes were made. The user reviews the plan and approves execution.
             """
         case .auto:
             return """
@@ -75,6 +75,7 @@ public enum AgentMode: String, Codable, Sendable, CaseIterable, Identifiable, Ha
             write_file and edit_file changes are applied immediately without a review step.
             delete_file and move_file still require user review.
             Keep edits minimal, verify each result, and report exactly what changed.
+            If you are executing an approved plan, output [DONE:n] after completing step n.
             You still cannot commit or push.
             """
         case .bypass:

@@ -1,13 +1,32 @@
 import Foundation
 
-public struct AppliedChange: Sendable, Equatable {
+public struct AppliedChange: Codable, Sendable, Equatable, Identifiable {
+    public let id: UUID
+    public let timestamp: Date
     public let path: String
+    public let kind: String
     public let didWrite: Bool
+    public let addedLines: Int
+    public let removedLines: Int
     public let message: String
 
-    public init(path: String, didWrite: Bool, message: String) {
+    public init(
+        id: UUID = UUID(),
+        timestamp: Date = Date(),
+        path: String,
+        kind: String = "",
+        didWrite: Bool,
+        addedLines: Int = 0,
+        removedLines: Int = 0,
+        message: String
+    ) {
+        self.id = id
+        self.timestamp = timestamp
         self.path = path
+        self.kind = kind
         self.didWrite = didWrite
+        self.addedLines = addedLines
+        self.removedLines = removedLines
         self.message = message
     }
 }
@@ -25,6 +44,7 @@ public enum AgentEvent: Sendable, Equatable {
     case toolFinished(name: String, summary: String)
     case proposalsPending([FileProposal])
     case changesApplied([AppliedChange])
+    case planSubmitted(AgentPlan)
     case finished
     case failed(String)
 }
@@ -97,6 +117,7 @@ public enum AgentPrompts {
     - git_diff: show a unified diff of uncommitted changes.
     - git_log: show recent commits.
     - http_request: fetch a public HTTPS URL with GET or HEAD and return the status, headers, and a text body preview.
+    - submit_plan: submit a structured implementation plan (Plan mode only).
 
     Rules:
     - All paths are relative to the repository root. Never use absolute paths, "~", "..", or .git paths.

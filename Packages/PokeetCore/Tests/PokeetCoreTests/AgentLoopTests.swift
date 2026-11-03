@@ -863,3 +863,48 @@ struct AgentModeLoopTests {
         requests.first?.messages.first?.content?.contains("Current mode: Bypass") == true
     }
 }
+
+struct AgentPlanLoopTests {
+    @Test func submittedPlanEndsTheRun() async throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+
+        let client = ScriptedModelClient([
+            toolCall(
+                name: "submit_plan",
+                arguments: #"{"title":"Ship it","steps":[{"title":"Edit README","files":["README.md"]}]}"#
+            )
+        ])
+        let session = AgentSession(
+            client: client,
+            workspace: FileWorkspace(root: directory.url),
+            mode: .plan
+        )
+        let recorder = EventRecorder()
+
+        try await session.send(
+            "plan",
+            approval: { _ in [] },
+            onEvent: { await recorder.record($0) }
+        )
+
+        let events = await recorder.snapshot()
+        let plans = events.compactMap { event -> AgentPlan? in
+            if case .planSubmitted(let plan) = event {
+                return plan
+            }
+            return nil
+        }
+        #expect(plans.first?.title == "Ship it")
+        #expect(plans.first?.steps.first?.title == "Edit README")
+        #expect(events.last == .finished)
+
+        let requests = await client.recordedRequests()
+        #expect(requests.count == 1)
+        #expect(requests[0].tools.map(\.name).contains("submit_plan"))
+
+        let history = await session.history
+        #expect(history.last?.role == .tool)
+        #expect(history.last?.content == "Plan submitted.")
+    }
+}
