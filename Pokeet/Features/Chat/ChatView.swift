@@ -135,6 +135,13 @@ struct ChatView: View {
                 onRefine: model.refinePlan
             )
         }
+        .sheet(isPresented: $model.isShowingActionReview) {
+            if let action = model.pendingAction {
+                ActionReviewView(action: action) { allow in
+                    model.resolveAction(allow: allow)
+                }
+            }
+        }
         .sheet(isPresented: $isShowingAppliedChanges) {
             AppliedChangesView(changes: model.appliedChanges)
         }

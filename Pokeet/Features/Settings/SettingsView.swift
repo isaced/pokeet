@@ -25,6 +25,22 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    Toggle("Allow network access", isOn: $settings.networkEnabled)
+                    TextField(
+                        "Allowed hosts",
+                        text: $settings.networkAllowedHosts,
+                        axis: .vertical
+                    )
+                    .lineLimit(2...4)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                } header: {
+                    Text("Network")
+                } footer: {
+                    Text("Comma or newline separated. Leave empty to allow any public HTTPS host. Local and private addresses stay blocked.")
+                }
+
+                Section {
                     NavigationLink {
                         ProvidersView()
                     } label: {

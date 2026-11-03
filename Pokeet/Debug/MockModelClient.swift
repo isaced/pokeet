@@ -28,6 +28,25 @@ struct MockModelClient: ModelClient {
             )
         }
 
+        if lastMessage?.role == .user,
+           let text = lastMessage?.content?.lowercased(),
+           text.contains("post test") {
+            let arguments = #"{"url":"https://httpbin.org/post","method":"POST","headers":{"Content-Type":"application/json"},"body":"{\"hello\":\"world\"}"}"#
+            return ChatResponse(
+                message: .assistant(
+                    nil,
+                    toolCalls: [
+                        ToolCall(
+                            id: "mock-http-\(UUID().uuidString)",
+                            name: "http_request",
+                            arguments: arguments
+                        )
+                    ]
+                ),
+                finishReason: "tool_calls"
+            )
+        }
+
         if request.tools.contains(where: { $0.name == "submit_plan" }) {
             let arguments = #"{"title":"Demo plan","summary":"Create the demo file, then review it.","steps":[{"title":"Create POKEET_DEMO.md","files":["POKEET_DEMO.md"]},{"title":"Review the demo content"}]}"#
             return ChatResponse(

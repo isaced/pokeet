@@ -70,6 +70,8 @@ final class ChatViewModel {
     var errorMessage: String?
     private(set) var pendingProposals: [FileProposal] = []
     var isShowingReview = false
+    private(set) var pendingAction: ActionRequest?
+    var isShowingActionReview = false
     private(set) var hasChanges = false
     private(set) var isCommitting = false
     private(set) var cacheStats = CacheStats()
@@ -94,6 +96,7 @@ final class ChatViewModel {
     private let router = ModelClientRouter()
     private let usesMockModel: Bool
     private let coordinator = ProposalCoordinator()
+    private let actionCoordinator = ActionCoordinator()
     private var appliedConfiguration: ModelConfigurationSnapshot?
     private var runTask: Task<Void, Never>?
     private var lastRequest = ""
@@ -127,7 +130,11 @@ final class ChatViewModel {
             workspace: FileWorkspace(root: project.directory),
             git: project.isGitRepository ? environment.git : nil,
             sessionID: sessionID.uuidString,
-            mode: initialMode
+            mode: initialMode,
+            networkPolicy: NetworkAccessPolicy(
+                isEnabled: environment.settings.networkEnabled,
+                allowedHosts: Self.parseHosts(environment.settings.networkAllowedHosts)
+            )
         )
 
         coordinator.onPending = { [weak self] proposals in
@@ -136,6 +143,16 @@ final class ChatViewModel {
         coordinator.onCleared = { [weak self] in
             self?.pendingProposals = []
             self?.isShowingReview = false
+        }
+
+        actionCoordinator.onPending = { [weak self] action in
+            self?.pendingAction = action
+            self?.isShowingActionReview = true
+            self?.status = nil
+        }
+        actionCoordinator.onCleared = { [weak self] in
+            self?.pendingAction = nil
+            self?.isShowingActionReview = false
         }
 
         _ = applyActiveConfiguration(reportErrors: false)
@@ -183,6 +200,21 @@ final class ChatViewModel {
             }
             return false
         }
+    }
+
+    private var currentNetworkPolicy: NetworkAccessPolicy {
+        NetworkAccessPolicy(
+            isEnabled: environment.settings.networkEnabled,
+            allowedHosts: Self.parseHosts(environment.settings.networkAllowedHosts)
+        )
+    }
+
+    private static func parseHosts(_ text: String) -> Set<String> {
+        Set(
+            text.split(whereSeparator: { $0 == "," || $0 == "\n" })
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+                .filter { !$0.isEmpty }
+        )
     }
 
     var activeModelLabel: String? {
@@ -362,6 +394,9 @@ final class ChatViewModel {
         planIsExecuting = false
         runningToolCount = 0
         coordinator.cancelPending()
+        actionCoordinator.cancelPending()
+        pendingAction = nil
+        isShowingActionReview = false
         runTask?.cancel()
         scheduleCheckpoint(immediate: true)
     }
@@ -441,6 +476,10 @@ final class ChatViewModel {
         coordinator.resolve(decisions)
     }
 
+    func resolveAction(allow: Bool) {
+        actionCoordinator.resolve(allow ? .allowed : .denied)
+    }
+
     func clearErrorMessage() {
         errorMessage = nil
     }
@@ -491,6 +530,7 @@ final class ChatViewModel {
 
     private func run(_ text: String, images: [ChatImage]) async {
         coordinator.reset()
+        actionCoordinator.reset()
         reasoningBubbleID = nil
         isRunning = true
         errorMessage = nil
@@ -532,11 +572,15 @@ final class ChatViewModel {
 
         do {
             await session.setMode(modeSnapshot)
+            await session.setNetworkPolicy(currentNetworkPolicy)
             try await session.send(
                 text,
                 images: images,
                 approval: { [coordinator] proposals in
                     await coordinator.request(proposals)
+                },
+                actionApproval: { [actionCoordinator] action in
+                    await actionCoordinator.request(action)
                 },
                 onEvent: { [weak self] event in
                     await MainActor.run {
@@ -633,6 +677,8 @@ final class ChatViewModel {
             scheduleCheckpoint()
         case .proposalsPending(let proposals):
             present(proposals)
+        case .actionPending:
+            status = "Waiting for approval…"
         case .changesApplied(let changes):
             appliedChanges.append(contentsOf: changes)
             if appliedChanges.count > 200 {

@@ -191,4 +191,18 @@ final class AppSettingsTests: XCTestCase {
         let reloaded = AppSettings(defaults: defaults, secrets: secrets)
         XCTAssertEqual(reloaded.defaultAgentMode, .plan)
     }
+
+    func testNetworkSettingsPersist() {
+        let secrets = MemorySecretStore()
+        let settings = AppSettings(defaults: defaults, secrets: secrets)
+        XCTAssertTrue(settings.networkEnabled)
+        XCTAssertEqual(settings.networkAllowedHosts, "")
+
+        settings.networkEnabled = false
+        settings.networkAllowedHosts = "api.example.com"
+
+        let reloaded = AppSettings(defaults: defaults, secrets: secrets)
+        XCTAssertFalse(reloaded.networkEnabled)
+        XCTAssertEqual(reloaded.networkAllowedHosts, "api.example.com")
+    }
 }

@@ -11,6 +11,8 @@ final class AppSettings {
         static let authorName = "settings.authorName"
         static let authorEmail = "settings.authorEmail"
         static let defaultAgentMode = "settings.agent.mode.v1"
+        static let networkEnabled = "settings.network.enabled.v1"
+        static let networkAllowedHosts = "settings.network.allowedHosts.v1"
         static let gitToken = "secret.git.token"
         static func apiKey(_ providerID: UUID) -> String {
             "secret.llm.\(providerID.uuidString).apiKey"
@@ -50,6 +52,14 @@ final class AppSettings {
         didSet { defaults.set(defaultAgentMode.rawValue, forKey: Key.defaultAgentMode) }
     }
 
+    var networkEnabled: Bool {
+        didSet { defaults.set(networkEnabled, forKey: Key.networkEnabled) }
+    }
+
+    var networkAllowedHosts: String {
+        didSet { defaults.set(networkAllowedHosts, forKey: Key.networkAllowedHosts) }
+    }
+
     init(
         defaults: UserDefaults = .standard,
         secrets: any SecretStore = KeychainStore()
@@ -82,6 +92,8 @@ final class AppSettings {
         authorEmail = defaults.string(forKey: Key.authorEmail) ?? "pokeet@localhost"
         defaultAgentMode = defaults.string(forKey: Key.defaultAgentMode)
             .flatMap(AgentMode.init(rawValue:)) ?? .ask
+        networkEnabled = defaults.object(forKey: Key.networkEnabled) as? Bool ?? true
+        networkAllowedHosts = defaults.string(forKey: Key.networkAllowedHosts) ?? ""
         gitToken = secrets.string(for: Key.gitToken) ?? ""
     }
 
