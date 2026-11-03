@@ -47,23 +47,16 @@ struct ChatView: View {
     var body: some View {
         @Bindable var model = model
 
-        VStack(spacing: 0) {
+        Group {
             if model.isRestoringSession {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 messageList
+                    .safeAreaInset(edge: .bottom, spacing: 0) {
+                        bottomBar(bindable: $model)
+                    }
             }
-            statusArea
-            pendingAttachments
-            if let plan = model.currentPlan {
-                PlanProgressView(plan: plan, isExecuting: model.planIsExecuting) {
-                    model.showPlan()
-                }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 4)
-            }
-            composer(bindable: $model)
         }
         .background(Color(.systemBackground))
         .navigationTitle(model.title)
@@ -395,6 +388,23 @@ struct ChatView: View {
         }
     }
 
+    private func bottomBar(bindable: Bindable<ChatViewModel>) -> some View {
+        VStack(spacing: 0) {
+            statusArea
+            pendingAttachments
+
+            if let plan = model.currentPlan {
+                PlanProgressView(plan: plan, isExecuting: model.planIsExecuting) {
+                    model.showPlan()
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 4)
+            }
+
+            composer(bindable: bindable)
+        }
+    }
+
     private func composer(bindable: Bindable<ChatViewModel>) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             TextField("Message", text: bindable.input, axis: .vertical)
@@ -478,7 +488,7 @@ struct ChatView: View {
             .padding(.bottom, 10)
         }
         .background(
-            Color(.systemBackground),
+            .ultraThinMaterial,
             in: RoundedRectangle(cornerRadius: 24, style: .continuous)
         )
         .overlay(
