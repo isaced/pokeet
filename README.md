@@ -31,7 +31,7 @@ Pokeet puts the whole loop on your iPhone:
 | 🎛️ **Four modes** | Plan, Ask, Auto and Bypass — chosen per session, from read-only proposals to fully automatic edits. |
 | 🔍 **Review-first by default** | In Ask mode every edit arrives as a diff card — approve per hunk or per file, reject with a note. Auto and Bypass trade review for speed. |
 | 🧪 **Checks its own work** | A sandboxed JavaScript runtime runs quick verification scripts on-device: hard deadline, heap and stack limits, no network, and script writes still arrive as diff cards. |
-| 🔎 **Web search** | Bring your own search key — Brave, Tavily, DeepSeek Search or Exa. The agent searches, then reads the pages it picked with the guarded fetch tool — snippets alone are never trusted. |
+| 🔎 **Web search** | Bring your own search key — Brave, Tavily, DeepSeek Search or Exa. The agent searches, then reads the pages it picked with the guarded fetch tool — snippets alone are never trusted. See [docs/web-search.md](docs/web-search.md). |
 | 🌐 **Guarded web access** | The agent can fetch HTTPS URLs, but private and local addresses are blocked and hosts can be allowlisted. Network writes are reviewed except in Bypass mode. |
 | 🖼️ **Image input** | Attach up to four photos. Images are downscaled and sent as native image parts to vision-capable models. |
 | 📌 **Project context** | Attach project files as `@` context chips, and the agent loads `AGENTS.md` or `CLAUDE.md` at session start. Long sessions compact automatically. |
@@ -72,9 +72,9 @@ Pokeet puts the whole loop on your iPhone:
       <sub><b>Commit &amp; push</b><br>Ship without a computer.</sub>
     </td>
     <td align="center" valign="top">
-      <a href="docs/images/06-settings.webp"><img src="docs/images/thumbs/06-settings.webp" width="250" height="312" alt="Provider and model settings"></a>
+      <a href="docs/images/06-settings.webp"><img src="docs/images/thumbs/06-settings.webp" width="250" height="312" alt="Web search settings listing Brave, Tavily, DeepSeek Search and Exa with a per-provider API key field"></a>
       <br>
-      <sub><b>Your key, your model</b><br>OpenAI, Anthropic, Gemini.</sub>
+      <sub><b>Bring your own key</b><br>Search and model providers.</sub>
     </td>
   </tr>
 </table>
@@ -131,8 +131,9 @@ Toolchain is JavaScript today. Embedded CPython is a later step; a remote runner
 ## Get started
 
 1. **Install**: TestFlight link (coming soon). Or build it yourself — it's open source.
-2. **Add a model**: Settings → Model → Manage providers → pick a template or add a provider. Choose an API format, base URL and key, then fetch the model list or add model IDs manually. Back on Settings → Model, pick the active provider and model. Settings → Tools → Web Search configures an optional search backend.
-3. **Poke it**: create a project — empty, or from an optional Git repository — then say what needs doing. Approve the changes you want, then use Changes → Commit & Push. Private repos use an HTTPS personal access token; SSH isn't supported yet.
+2. **Add a model**: Settings → Model → Manage providers. Pick a template or add a provider, choose an API format, base URL and key, then fetch its model list (or add model IDs by hand). Back on the Model page, pick the active provider and model.
+3. **Optionally, add search**: Settings → Tools → Web Search. Toggle it on, pick a provider, paste that provider's key. Each provider keeps its own key in the Keychain, so switching does not lose one.
+4. **Poke it**: create a project — empty, or from an optional Git repository — then say what needs doing. Approve the changes you want, then use Changes → Commit & Push. Private repos use an HTTPS personal access token; SSH isn't supported yet.
 
 ### Supported API formats
 
@@ -161,7 +162,7 @@ swift test --package-path Packages/PokeetCore
 swift test --package-path Packages/PokeetScripting
 ```
 
-App tests (24 XCTest files) run from the generated `Pokeet` scheme in Xcode.
+App tests run from the generated `Pokeet` scheme in Xcode: pick any available simulator, or use `xcodebuild test -project Pokeet.xcodeproj -scheme Pokeet -destination 'platform=iOS Simulator,name=iPhone 17'`.
 
 Ship a build to a cabled iPhone — regenerate, build, install, launch:
 
@@ -182,7 +183,7 @@ Native Swift / SwiftUI. The agent kernel is isolated behind protocols so it can 
 │  PokeetApp (iOS app)                 │
 │  SwiftUI · workspace · Files         │
 │  SwiftGitX · libgit2 · review UI     │
-│  session snapshots                   │
+│  QuickJS sandbox · session snapshots │
 └───────────────┬──────────────────────┘
                 │  protocols
 ┌───────────────▼──────────────────────┐
@@ -192,11 +193,11 @@ Native Swift / SwiftUI. The agent kernel is isolated behind protocols so it can 
 └──────────────────────────────────────┘
 ```
 
-Session snapshots live in the app, so the kernel stays portable.
+Session snapshots live in the app, so the kernel stays portable. QuickJS sits behind a `ScriptRuntime` protocol in the app, so another interpreter can be swapped in without touching the agent loop.
 
 ## Roadmap
 
-- **v1** — Agent loop with four review modes, workspace, git (clone/diff/commit/push over HTTPS with a personal access token), diff review, guarded HTTP tool, sandboxed `run_script`, context compaction, BYOK.
+- **v1** — Agent loop with four review modes, workspace, git (clone/diff/commit/push over HTTPS with a personal access token), diff review, guarded HTTP tool, web search, sandboxed `run_script`, context compaction, BYOK.
   The golden path: clone → fix → verify → review → commit & push, all on iPhone, no computer.
 - **v2** — Embedded CPython with an audit-hook sandbox so Python repositories can run their own tests; Mac mini one-tap test runs for everything the phone cannot execute.
 - **Later** — SSH remotes, more tools, skills learned from your repos, maybe Android.
@@ -211,6 +212,8 @@ Pokeet is built in public. Issues, PRs and ideas are welcome — especially:
 - device testing (it should run on any iPhone, not just the newest one).
 
 No SLA: this is an indie project, maintained with care but not on a schedule. Please be kind.
+
+Working with an AI agent? [`AGENTS.md`](AGENTS.md) has the repository map, the checks and the conventions — the same file Pokeet itself reads when you open this repo in the app.
 
 ## License
 
