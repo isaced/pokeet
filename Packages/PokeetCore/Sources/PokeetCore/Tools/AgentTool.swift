@@ -5,17 +5,21 @@ public struct ToolOutput: Sendable {
     public var proposals: [FileProposal]
     public var plan: AgentPlan?
     public var tasks: [TaskItem]?
+    /// Images the tool wants the model to see, delivered in the next request.
+    public var images: [ChatImage]
 
     public init(
         content: String,
         proposals: [FileProposal] = [],
         plan: AgentPlan? = nil,
-        tasks: [TaskItem]? = nil
+        tasks: [TaskItem]? = nil,
+        images: [ChatImage] = []
     ) {
         self.content = content
         self.proposals = proposals
         self.plan = plan
         self.tasks = tasks
+        self.images = images
     }
 }
 
@@ -79,6 +83,7 @@ public struct ToolRegistry: Sendable {
             GrepTool(),
             FindTool(),
             FileInfoTool(),
+            ReadImageTool(),
             TodoWriteTool(),
             RunScriptTool(),
             GitStatusTool(),

@@ -710,7 +710,8 @@ final class ChatViewModel {
             if runningToolCount == 0 {
                 status = "Thinking…"
             }
-            if let id = toolBubbleIDs.removeValue(forKey: callID),
+            // The id stays until the next run so a later toolImages event can find the row.
+            if let id = toolBubbleIDs[callID],
                let index = bubbleIndex(of: id) {
                 bubbles[index].isStreaming = false
                 let line = summary
@@ -732,6 +733,11 @@ final class ChatViewModel {
                 }
             }
             scheduleCheckpoint()
+        case .toolImages(let callID, let images):
+            if let id = toolBubbleIDs[callID], let index = bubbleIndex(of: id) {
+                bubbles[index].images = images
+                scheduleCheckpoint()
+            }
         case .todosUpdated(let items):
             updateTodoBubble(items)
             scheduleCheckpoint()

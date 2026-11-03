@@ -115,6 +115,10 @@ struct TraceStepRow: View {
                     .padding(.leading, 20)
             }
 
+            if !bubble.images.isEmpty {
+                thumbnails
+            }
+
             if isExpanded, hasDetails {
                 details
             }
@@ -161,6 +165,22 @@ struct TraceStepRow: View {
             }
         }
         .contentShape(Rectangle())
+    }
+
+    private var thumbnails: some View {
+        HStack(spacing: 6) {
+            ForEach(Array(bubble.images.enumerated()), id: \.offset) { _, image in
+                if let uiImage = UIImage(data: image.data) {
+                    Image(uiImage: uiImage)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 56, height: 56)
+                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                }
+            }
+        }
+        .padding(.leading, 20)
+        .padding(.top, 2)
     }
 
     private var details: some View {
@@ -238,6 +258,7 @@ struct TraceStepRow: View {
         case "list_files": "Listed"
         case "find": "Found"
         case "file_info": "Inspected"
+        case "read_image": "Attached"
         case "grep": "Searched"
         case "write_file": "Wrote"
         case "edit_file": "Edited"
@@ -260,6 +281,7 @@ struct TraceStepRow: View {
         case "list_files": "folder"
         case "find", "grep": "magnifyingglass"
         case "file_info": "info.circle"
+        case "read_image": "photo"
         case "write_file": "square.and.pencil"
         case "edit_file": "pencil.line"
         case "delete_file": "trash"

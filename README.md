@@ -108,6 +108,7 @@ The tool set is intentionally small:
 - **Files** — `list_files`, `read_file`, `write_file`, `edit_file`, `delete_file`, `move_file`
 - **Search** — `grep`, `find` (both respect `.gitignore`), `file_info` (size, lines, text vs binary)
 - **Git (read-only)** — `git_status`, `git_diff`, `git_log`, `git_show` (a file at any revision, or a commit)
+- **Images** — `read_image` (a repository screenshot or diagram, downscaled and attached for vision models)
 - **Web** — `http_request` (GET and HEAD always; writes are reviewed, except in Bypass mode)
 - **Scripts** — `run_script` (sandboxed JavaScript via QuickJS; see [docs/scripts.md](docs/scripts.md))
 - **Planning** — `submit_plan`, `todo_write` (a running checklist for multi-step work)

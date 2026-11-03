@@ -350,6 +350,7 @@ public actor AgentSession {
                 }
             }
 
+            var attachedImages: [ChatImage] = []
             for execution in executions {
                 let content: String
                 if let proposals = execution.output?.proposals, let proposal = proposals.first {
@@ -365,6 +366,20 @@ public actor AgentSession {
                 }
 
                 messages.append(.tool(clip(content), callID: execution.call.id))
+
+                if let images = execution.output?.images, !images.isEmpty {
+                    await onEvent(.toolImages(callID: execution.call.id, images: images))
+                    attachedImages.append(contentsOf: images)
+                }
+            }
+
+            if !attachedImages.isEmpty {
+                // Tool messages are text-only across providers, so images ride in a user turn.
+                messages.append(ChatMessage(
+                    role: .user,
+                    content: "[Image content attached by \(ReadImageTool.toolName).]",
+                    images: attachedImages
+                ))
             }
 
             if let submittedPlan {

@@ -94,6 +94,28 @@ struct FailingSummarizer: ContextSummarizer {
     }
 }
 
+private struct StubImageTool: AgentTool {
+    var capabilities: Set<ToolCapability> { [.readFiles] }
+
+    var schema: ToolSchema {
+        ToolSchema(
+            name: "read_image",
+            description: "Attach an image.",
+            parameters: .object([
+                "type": .string("object"),
+                "properties": .object(["path": .object(["type": .string("string")])])
+            ])
+        )
+    }
+
+    func execute(arguments: Data, context: ToolContext) async throws -> ToolOutput {
+        ToolOutput(
+            content: "Attached shot.png",
+            images: [ChatImage(mimeType: "image/jpeg", data: Data([0xFF, 0xD8, 0xFF]))]
+        )
+    }
+}
+
 actor EventRecorder {
     private(set) var events: [AgentEvent] = []
 
@@ -1110,6 +1132,45 @@ struct ToolConcurrencyTests {
         }
         #expect(summaries.first?.contains("exit 0") == true)
         #expect(summaries.first?.contains("ok") == true)
+    }
+
+    @Test func toolImagesBecomeAUserTurn() async throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+
+        let client = ScriptedModelClient([
+            toolCall(name: "read_image", arguments: #"{"path":"shot.png"}"#),
+            ChatResponse(message: .assistant("seen"), finishReason: "stop")
+        ])
+        let session = AgentSession(
+            client: client,
+            workspace: FileWorkspace(root: directory.url),
+            tools: ToolRegistry([StubImageTool()]),
+            mode: .bypass
+        )
+        let recorder = EventRecorder()
+
+        try await session.send(
+            "look",
+            approval: { _ in [] },
+            onEvent: { await recorder.record($0) }
+        )
+
+        let requests = await client.recordedRequests()
+        #expect(requests.count == 2)
+
+        let followUp = requests[1].messages
+        #expect(followUp.first(where: { $0.role == .tool })?.images == nil)
+        let imageTurn = followUp.last { $0.role == .user }
+        #expect(imageTurn?.images?.count == 1)
+        #expect(imageTurn?.content?.contains("read_image") == true)
+
+        let events = await recorder.snapshot()
+        let images = events.compactMap { event -> Int? in
+            if case .toolImages(_, let images) = event { return images.count }
+            return nil
+        }
+        #expect(images == [1])
     }
 
     @Test func todoToolUpdatesSessionTaskList() async throws {

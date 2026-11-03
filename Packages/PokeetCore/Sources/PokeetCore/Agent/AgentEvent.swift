@@ -42,6 +42,7 @@ public enum AgentEvent: Sendable, Equatable {
     case assistantMessage(String)
     case toolStarted(name: String, callID: String, detail: String?, preview: String?)
     case toolFinished(name: String, callID: String, summary: String)
+    case toolImages(callID: String, images: [ChatImage])
     case proposalsPending([FileProposal])
     case actionPending(ActionRequest)
     case changesApplied([AppliedChange])
@@ -118,6 +119,7 @@ public enum AgentPrompts {
     - grep: search file contents for a regex or literal string.
     - find: find files and directories by glob pattern.
     - file_info: inspect a path before reading it (kind, size, line count, text vs binary, modified).
+    - read_image: attach a repository image (PNG, JPEG, GIF, WebP) so you can look at it.
     - run_script: run a short sandboxed script (JavaScript) to verify logic or inspect data. There is no shell, no network, and no package manager. Writes are captured as proposals and still need approval.
     - edit_file: propose precise text replacements in an existing file. Each old_text must appear exactly once and edits must not overlap.
     - write_file: propose a complete file write. Use it for new files or full rewrites.
@@ -135,6 +137,7 @@ public enum AgentPrompts {
     - All paths are relative to the repository root. Never use absolute paths, "~", "..", or .git paths.
     - Use grep and find to locate code instead of reading many files blindly.
     - For work that takes three or more steps, call todo_write first, keep exactly one item in_progress, and update the list as you finish each item.
+    - Use read_image when the answer depends on a screenshot, design or diagram; it is expensive in tokens, so read only what matters.
     - Call file_info before reading an unfamiliar, large or possibly binary file, and prefer offset/limit over whole-file reads.
     - Use run_script for what reading cannot settle: compute values, test a regex, parse JSON, or run a few assertions. It cannot run project test suites, npm scripts, compilers or shell commands — do not attempt those.
     - run_script has no network access. Keep scripts small and deterministic, and read files through the provided fs API instead of guessing paths.

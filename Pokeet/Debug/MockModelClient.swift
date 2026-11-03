@@ -15,6 +15,12 @@ struct MockModelClient: ModelClient {
                     finishReason: "stop"
                 )
             }
+            if lastTool.contains("JPEG") {
+                return ChatResponse(
+                    message: .assistant("The layout reads cleanly: one diff card per file, hunks aligned."),
+                    finishReason: "stop"
+                )
+            }
             if lastTool.contains("[~]") {
                 return ChatResponse(
                     message: .assistant("Working through the list — the guard is in progress."),
@@ -97,6 +103,24 @@ struct MockModelClient: ModelClient {
                             id: "mock-script-\(UUID().uuidString)",
                             name: "run_script",
                             arguments: arguments
+                        )
+                    ]
+                ),
+                finishReason: "tool_calls"
+            )
+        }
+
+        if lastMessage?.role == .user,
+           let text = lastMessage?.content?.lowercased(),
+           text.contains("image test") {
+            return ChatResponse(
+                message: .assistant(
+                    nil,
+                    toolCalls: [
+                        ToolCall(
+                            id: "mock-image-\(UUID().uuidString)",
+                            name: "read_image",
+                            arguments: #"{"path":"shot.png"}"#
                         )
                     ]
                 ),
