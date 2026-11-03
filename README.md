@@ -38,6 +38,45 @@ Pokeet puts the whole loop on your iPhone:
 | 🔑 **Your key, your model** | Bring your own API key. Add any number of providers — OpenAI, Anthropic, Gemini, or an OpenAI-compatible gateway/local server — each with its own key, base URL and model list. |
 | 🔒 **Local-first** | No Pokeet server. No account. Your code leaves your phone only through your own model requests and git push. |
 
+## See it in action
+
+<table align="center">
+  <tr>
+    <td align="center" valign="top">
+      <a href="docs/images/01-agent-trace.webp"><img src="docs/images/thumbs/01-agent-trace.webp" width="250" height="312" alt="Agent execution trace with tool calls and reasoning"></a>
+      <br>
+      <sub><b>A real agent</b><br>Tools, reasoning, final answer.</sub>
+    </td>
+    <td align="center" valign="top">
+      <a href="docs/images/02-diff-review.webp"><img src="docs/images/thumbs/02-diff-review.webp" width="250" height="312" alt="Diff review with per-hunk approval"></a>
+      <br>
+      <sub><b>Review every change</b><br>Approve per hunk, add notes.</sub>
+    </td>
+    <td align="center" valign="top">
+      <a href="docs/images/05-plan-mode.webp"><img src="docs/images/thumbs/05-plan-mode.webp" width="250" height="312" alt="Plan mode showing a structured plan with steps and file paths"></a>
+      <br>
+      <sub><b>Plan first</b><br>Investigate first, then plan.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" valign="top">
+      <a href="docs/images/03-changes.webp"><img src="docs/images/thumbs/03-changes.webp" width="250" height="312" alt="Changes list showing added and removed line counts per file"></a>
+      <br>
+      <sub><b>Changes</b><br>See exactly what changed.</sub>
+    </td>
+    <td align="center" valign="top">
+      <a href="docs/images/04-commit-push.webp"><img src="docs/images/thumbs/04-commit-push.webp" width="250" height="312" alt="Commit and push dialog"></a>
+      <br>
+      <sub><b>Commit &amp; push</b><br>Ship without a computer.</sub>
+    </td>
+    <td align="center" valign="top">
+      <a href="docs/images/06-settings.webp"><img src="docs/images/thumbs/06-settings.webp" width="250" height="312" alt="Provider and model settings"></a>
+      <br>
+      <sub><b>Your key, your model</b><br>OpenAI, Anthropic, Gemini.</sub>
+    </td>
+  </tr>
+</table>
+
 ## How a task flows
 
 ```
