@@ -31,7 +31,7 @@ Pokeet puts the whole loop on your iPhone:
 | 🎛️ **Four modes** | Plan, Ask, Auto and Bypass — chosen per session, from read-only proposals to fully automatic edits. |
 | 🔍 **Review-first by default** | In Ask mode every edit arrives as a diff card — approve per hunk or per file, reject with a note. Auto and Bypass trade review for speed. |
 | 🧪 **Checks its own work** | A sandboxed JavaScript runtime runs quick verification scripts on-device: hard deadline, heap and stack limits, no network, and script writes still arrive as diff cards. |
-| 🔎 **Web search** | Bring a Brave Search key. The agent searches, then reads the pages it picked with the guarded fetch tool — snippets alone are never trusted. |
+| 🔎 **Web search** | Bring your own search key — Brave, Tavily, DeepSeek Search or Exa. The agent searches, then reads the pages it picked with the guarded fetch tool — snippets alone are never trusted. |
 | 🌐 **Guarded web access** | The agent can fetch HTTPS URLs, but private and local addresses are blocked and hosts can be allowlisted. Network writes are reviewed except in Bypass mode. |
 | 🖼️ **Image input** | Attach up to four photos. Images are downscaled and sent as native image parts to vision-capable models. |
 | 📌 **Project context** | Attach project files as `@` context chips, and the agent loads `AGENTS.md` or `CLAUDE.md` at session start. Long sessions compact automatically. |
@@ -111,7 +111,7 @@ The tool set is intentionally small:
 - **Git (read-only)** — `git_status`, `git_diff`, `git_log`, `git_show` (a file at any revision, or a commit)
 - **Images** — `read_image` (a repository screenshot or diagram, downscaled and attached for vision models)
 - **Web** — `http_request` (GET and HEAD always; writes are reviewed, except in Bypass mode)
-- **Search** — `web_search` (your Brave Search key; returns snippets, pages are read with `http_request`)
+- **Search** — `web_search` (your own search provider key; returns snippets, pages are read with `http_request`)
 - **Scripts** — `run_script` (sandboxed JavaScript via QuickJS; see [docs/scripts.md](docs/scripts.md))
 - **Planning** — `submit_plan`, `todo_write` (a running checklist for multi-step work)
 
@@ -131,7 +131,7 @@ Toolchain is JavaScript today. Embedded CPython is a later step; a remote runner
 ## Get started
 
 1. **Install**: TestFlight link (coming soon). Or build it yourself — it's open source.
-2. **Add a model**: Settings → Manage providers → pick a template or add a provider. Choose an API format, base URL and key, then fetch the model list or add model IDs manually. Pick the active provider and model.
+2. **Add a model**: Settings → Model → Manage providers → pick a template or add a provider. Choose an API format, base URL and key, then fetch the model list or add model IDs manually. Back on Settings → Model, pick the active provider and model. Settings → Tools → Web Search configures an optional search backend.
 3. **Poke it**: create a project — empty, or from an optional Git repository — then say what needs doing. Approve the changes you want, then use Changes → Commit & Push. Private repos use an HTTPS personal access token; SSH isn't supported yet.
 
 ### Supported API formats
@@ -161,7 +161,15 @@ swift test --package-path Packages/PokeetCore
 swift test --package-path Packages/PokeetScripting
 ```
 
-App tests (15 XCTest files) run from the generated `Pokeet` scheme in Xcode.
+App tests (24 XCTest files) run from the generated `Pokeet` scheme in Xcode.
+
+Ship a build to a cabled iPhone — regenerate, build, install, launch:
+
+```sh
+scripts/run-on-device.sh
+```
+
+It picks the single connected iPhone automatically. With several devices, or when signing needs a specific team, copy `scripts/local.env.example` to `scripts/local.env` (gitignored) and fill in `POKEET_DEVICE_ID` / `POKEET_TEAM_ID`; the same names work as environment variables. `POKEET_SKIP_XCODEGEN=1` / `POKEET_SKIP_BUILD=1` keep the existing project or build.
 
 Debug builds support a scripted demo model with no API key: launch the app with the `-PokeetMockModel` argument. `-PokeetSyntheticHistory` seeds a long conversation for scrolling and performance testing.
 

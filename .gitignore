@@ -67,3 +67,6 @@ Pokeet/Info.plist
 DerivedData/
 *.xcresult
 .swiftpm/
+
+# Local device and signing values for scripts/run-on-device.sh
+scripts/local.env
