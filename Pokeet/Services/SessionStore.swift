@@ -435,6 +435,11 @@ actor SessionStore {
         writeIndex(index, projectName: projectName)
     }
 
+    func deleteProject(projectName: String) {
+        guard !projectName.isEmpty else { return }
+        try? FileManager.default.removeItem(at: projectDirectory(projectName))
+    }
+
     private func makeHeader(
         from snapshot: SessionSnapshot,
         imagesDirectory: URL,

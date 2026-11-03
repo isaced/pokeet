@@ -14,6 +14,7 @@ enum ProjectError: Error, Sendable, Equatable, LocalizedError {
     case invalidName
     case reservedName(String)
     case creationFailed(String)
+    case deletionFailed(String)
 
     var errorDescription: String? {
         switch self {
@@ -23,6 +24,8 @@ enum ProjectError: Error, Sendable, Equatable, LocalizedError {
             "\"\(name)\" is reserved. Pick another name."
         case .creationFailed(let message):
             "Could not create the project: \(message)"
+        case .deletionFailed(let message):
+            "Could not delete the project: \(message)"
         }
     }
 }
@@ -90,6 +93,31 @@ final class ProjectStore {
     @discardableResult
     func createProject(named rawName: String) async throws -> Project {
         try await createEmptyProject(named: rawName)
+    }
+
+    func delete(_ project: Project) async throws {
+        let directory = project.directory.standardizedFileURL
+        let parent = directory.deletingLastPathComponent().standardizedFileURL
+        let root = documentsURL.standardizedFileURL
+        let name = directory.lastPathComponent
+
+        guard parent == root,
+              !reservedProjectNames.contains(name.lowercased())
+        else {
+            throw ProjectError.deletionFailed("The project is outside the projects folder.")
+        }
+
+        do {
+            try await Task.detached(priority: .userInitiated) {
+                if FileManager.default.fileExists(atPath: directory.path) {
+                    try FileManager.default.removeItem(at: directory)
+                }
+            }.value
+        } catch {
+            throw ProjectError.deletionFailed(error.localizedDescription)
+        }
+
+        await refresh()
     }
 
     func project(at destination: URL) -> Project? {

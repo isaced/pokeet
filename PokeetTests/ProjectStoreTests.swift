@@ -94,4 +94,41 @@ final class ProjectStoreTests: XCTestCase {
             }
         }
     }
+
+    func testDeleteProjectRemovesDirectoryAndRefreshes() async throws {
+        let store = ProjectStore(documentsURL: root)
+        let project = try await store.createProject(named: "Delete Me")
+        try "hello".write(
+            to: project.directory.appendingPathComponent("note.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        try await store.delete(project)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: project.directory.path))
+        XCTAssertFalse(store.projects.contains { $0.id == project.id })
+    }
+
+    func testDeleteRejectsProjectOutsideDocuments() async throws {
+        let outside = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pokeet-outside-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: outside) }
+
+        let store = ProjectStore(documentsURL: root)
+        let project = Project(directory: outside, remoteHost: nil, isGitRepository: false)
+
+        do {
+            try await store.delete(project)
+            XCTFail("Expected deletion to be rejected")
+        } catch let error as ProjectError {
+            guard case .deletionFailed = error else {
+                XCTFail("Unexpected error: \(error)")
+                return
+            }
+        }
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: outside.path))
+    }
 }

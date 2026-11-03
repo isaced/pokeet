@@ -436,4 +436,24 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertEqual(listed.first?.title, "Old chat")
         XCTAssertNil(listed.first?.mode)
     }
+
+    func testDeletesAllSessionsForProject() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = SessionStore(directory: directory)
+        _ = await store.create(projectName: "demo", title: "Chat")
+        let initial = await store.list(projectName: "demo")
+        XCTAssertEqual(initial.count, 1)
+
+        await store.deleteProject(projectName: "demo")
+
+        let remaining = await store.list(projectName: "demo")
+        XCTAssertTrue(remaining.isEmpty)
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: directory.appendingPathComponent("demo").path
+            )
+        )
+    }
 }
