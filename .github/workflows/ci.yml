@@ -31,11 +31,13 @@ jobs:
   # runs lost a job exactly that way while the other one ran.
   #
   # Everything needs macOS: PokeetCore links ImageIO/CoreGraphics, so Linux
-  # runners are out. "latest" tracks the newest image (macOS 26 / Xcode 26 at the
-  # time of writing) rather than pinning a macOS 15 image that ships Xcode 16.
+  # runners are out. The arm64 images are capacity-starved ("jobs targeting
+  # macOS arm64 runners may experience longer queue times", then cancelled after
+  # 15 minutes), and the Intel image has more cores and RAM anyway: 4 / 14 GB
+  # against 3 / 7 GB. Switch back to macos-latest when arm64 stops queueing.
   test:
     name: Build & test
-    runs-on: macos-latest
+    runs-on: macos-26-intel
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
@@ -63,9 +65,9 @@ jobs:
           path: |
             Packages/PokeetCore/.build
             Packages/PokeetScripting/.build
-          key: ${{ runner.os }}-swift-${{ hashFiles('Packages/*/Package.swift', 'Packages/*/Sources/**') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-swift-${{ hashFiles('Packages/*/Package.swift', 'Packages/*/Sources/**') }}
           restore-keys: |
-            ${{ runner.os }}-swift-
+            ${{ runner.os }}-${{ runner.arch }}-swift-
 
       - name: swift test (PokeetCore)
         run: swift test --package-path Packages/PokeetCore
@@ -93,9 +95,9 @@ jobs:
           path: |
             ~/Library/Caches/org.swift.swiftpm
             ~/Library/Developer/Xcode/DerivedData/Pokeet-*
-          key: ${{ runner.os }}-${{ steps.toolchain.outputs.version }}-deps-${{ hashFiles('project.yml', 'Packages/*/Package.swift') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.version }}-deps-${{ hashFiles('project.yml', 'Packages/*/Package.swift') }}
           restore-keys: |
-            ${{ runner.os }}-${{ steps.toolchain.outputs.version }}-deps-
+            ${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.version }}-deps-
 
       - name: xcodebuild test
         run: |
