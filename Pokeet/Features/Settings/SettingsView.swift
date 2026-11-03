@@ -41,6 +41,19 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    Toggle("Enable web search", isOn: $settings.webSearchEnabled)
+                    if settings.webSearchEnabled {
+                        SecureField("Brave Search API key", text: $settings.braveSearchKey)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                    }
+                } header: {
+                    Text("Web search")
+                } footer: {
+                    Text("Your own Brave Search API key. Queries go straight to api.search.brave.com; the agent then reads pages with the network tool.")
+                }
+
+                Section {
                     NavigationLink {
                         ProvidersView()
                     } label: {

@@ -188,6 +188,7 @@ struct ToolTests {
             "git_log",
             "git_show",
             "http_request",
+            "web_search",
             "submit_plan"
         ])
     }

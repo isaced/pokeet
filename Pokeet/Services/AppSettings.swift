@@ -13,6 +13,9 @@ final class AppSettings {
         static let defaultAgentMode = "settings.agent.mode.v1"
         static let networkEnabled = "settings.network.enabled.v1"
         static let networkAllowedHosts = "settings.network.allowedHosts.v1"
+        static let webSearchEnabled = "settings.websearch.enabled.v1"
+        static let webSearchProvider = "settings.websearch.provider.v1"
+        static let braveSearchKey = "secret.websearch.brave.apiKey"
         static let gitToken = "secret.git.token"
         static func apiKey(_ providerID: UUID) -> String {
             "secret.llm.\(providerID.uuidString).apiKey"
@@ -60,6 +63,19 @@ final class AppSettings {
         didSet { defaults.set(networkAllowedHosts, forKey: Key.networkAllowedHosts) }
     }
 
+    var webSearchEnabled: Bool {
+        didSet { defaults.set(webSearchEnabled, forKey: Key.webSearchEnabled) }
+    }
+
+    /// Provider identifier. Only `brave` ships today; the field keeps room for more.
+    var webSearchProviderID: String {
+        didSet { defaults.set(webSearchProviderID, forKey: Key.webSearchProvider) }
+    }
+
+    var braveSearchKey: String {
+        didSet { storeSecret(braveSearchKey, for: Key.braveSearchKey) }
+    }
+
     init(
         defaults: UserDefaults = .standard,
         secrets: any SecretStore = KeychainStore()
@@ -94,6 +110,9 @@ final class AppSettings {
             .flatMap(AgentMode.init(rawValue:)) ?? .ask
         networkEnabled = defaults.object(forKey: Key.networkEnabled) as? Bool ?? true
         networkAllowedHosts = defaults.string(forKey: Key.networkAllowedHosts) ?? ""
+        webSearchEnabled = defaults.object(forKey: Key.webSearchEnabled) as? Bool ?? false
+        webSearchProviderID = defaults.string(forKey: Key.webSearchProvider) ?? "brave"
+        braveSearchKey = secrets.string(for: Key.braveSearchKey) ?? ""
         gitToken = secrets.string(for: Key.gitToken) ?? ""
     }
 
@@ -120,6 +139,21 @@ final class AppSettings {
 
     func provider(id: UUID) -> ProviderConfiguration? {
         providers.first { $0.id == id }
+    }
+
+    var isWebSearchConfigured: Bool {
+        webSearchEnabled && !braveSearchKey.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    /// Built per session; the key itself is read per request, so editing it applies immediately.
+    func makeWebSearchProvider() -> (any WebSearchProviding)? {
+        guard webSearchEnabled else { return nil }
+        switch webSearchProviderID {
+        case "brave":
+            return BraveSearchProvider(secrets: secrets, keyName: Key.braveSearchKey)
+        default:
+            return nil
+        }
     }
 
     func apiKey(for providerID: UUID) -> String {

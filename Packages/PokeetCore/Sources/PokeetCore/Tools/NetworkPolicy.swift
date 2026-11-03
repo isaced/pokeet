@@ -326,7 +326,7 @@ struct NetworkPolicy: Sendable {
         }
     }
 
-    private static func addressLiteral(_ host: String) -> String? {
+    static func addressLiteral(_ host: String) -> String? {
         var text = host
         if text.hasPrefix("[") && text.hasSuffix("]") {
             text = String(text.dropFirst().dropLast())

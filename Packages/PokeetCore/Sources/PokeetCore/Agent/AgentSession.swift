@@ -11,6 +11,8 @@ public actor AgentSession {
     private let summarizer: any ContextSummarizer
     private let instructions: ProjectInstructions
     private let scripting: ScriptRuntimes?
+    private let webSearch: (any WebSearchProviding)?
+    private let webSearchBudget = WebSearchBudget()
     private var baseSystemPrompt: String
     private var todos: [TaskItem] = []
     private var needsTaskReminder = false
@@ -28,6 +30,7 @@ public actor AgentSession {
         mode: AgentMode = .ask,
         networkPolicy: NetworkAccessPolicy = .init(),
         scripting: ScriptRuntimes? = nil,
+        webSearch: (any WebSearchProviding)? = nil,
         config: AgentConfiguration = AgentConfiguration(),
         summarizer: (any ContextSummarizer)? = nil
     ) {
@@ -51,6 +54,7 @@ public actor AgentSession {
         self.mode = mode
         self.networkPolicy = networkPolicy
         self.scripting = scripting
+        self.webSearch = webSearch
         self.messages = [.system(instructions.compose(with: systemPrompt + mode.promptGuidance))]
     }
 
@@ -113,6 +117,7 @@ public actor AgentSession {
     ) async throws {
         let activeMode = mode
         let activeRegistry = registry.filtered(for: mode)
+        webSearchBudget.reset()
         messages.append(ChatMessage(
             role: .user,
             content: text.isEmpty ? nil : text,
@@ -417,7 +422,9 @@ public actor AgentSession {
             workspace: workspace,
             git: git,
             networkPolicy: networkPolicy,
-            scripting: scripting
+            scripting: scripting,
+            webSearch: webSearch,
+            webSearchBudget: webSearchBudget
         )
         let timeout = config.toolTimeoutMilliseconds
         var actions = [ActionRequest?](repeating: nil, count: calls.count)
@@ -740,7 +747,7 @@ public actor AgentSession {
            !url.isEmpty {
             return "\(method.uppercased()) \(url)"
         }
-        for key in ["path", "pattern", "url", "title"] {
+        for key in ["path", "pattern", "query", "url", "title"] {
             if let value = object[key] as? String, !value.isEmpty {
                 return value
             }

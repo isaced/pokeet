@@ -28,17 +28,23 @@ public struct ToolContext: Sendable {
     public let git: (any GitInspecting)?
     public let networkPolicy: NetworkAccessPolicy
     public let scripting: ScriptRuntimes?
+    public let webSearch: (any WebSearchProviding)?
+    public let webSearchBudget: WebSearchBudget?
 
     public init(
         workspace: any Workspace,
         git: (any GitInspecting)? = nil,
         networkPolicy: NetworkAccessPolicy = .init(),
-        scripting: ScriptRuntimes? = nil
+        scripting: ScriptRuntimes? = nil,
+        webSearch: (any WebSearchProviding)? = nil,
+        webSearchBudget: WebSearchBudget? = nil
     ) {
         self.workspace = workspace
         self.git = git
         self.networkPolicy = networkPolicy
         self.scripting = scripting
+        self.webSearch = webSearch
+        self.webSearchBudget = webSearchBudget
     }
 }
 
@@ -91,6 +97,7 @@ public struct ToolRegistry: Sendable {
             GitLogTool(),
             GitShowTool(),
             HTTPRequestTool(),
+            WebSearchTool(),
             SubmitPlanTool()
         ])
     }

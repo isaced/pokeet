@@ -67,6 +67,26 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertTrue(reloaded.providers.isEmpty)
     }
 
+    func testWebSearchSettingsPersist() {
+        let secrets = MemorySecretStore()
+        let settings = AppSettings(defaults: defaults, secrets: secrets)
+
+        XCTAssertFalse(settings.webSearchEnabled)
+        XCTAssertFalse(settings.isWebSearchConfigured)
+        XCTAssertNil(settings.makeWebSearchProvider())
+
+        settings.webSearchEnabled = true
+        settings.braveSearchKey = "brave-key"
+
+        XCTAssertTrue(settings.isWebSearchConfigured)
+        XCTAssertNotNil(settings.makeWebSearchProvider())
+
+        let reloaded = AppSettings(defaults: defaults, secrets: secrets)
+        XCTAssertTrue(reloaded.webSearchEnabled)
+        XCTAssertEqual(reloaded.braveSearchKey, "brave-key")
+        XCTAssertEqual(reloaded.webSearchProviderID, "brave")
+    }
+
     func testAddingProviderPersistsAndActivatesIt() {
         let secrets = MemorySecretStore()
         let settings = AppSettings(defaults: defaults, secrets: secrets)

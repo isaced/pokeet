@@ -31,13 +31,14 @@ Pokeet puts the whole loop on your iPhone:
 | 🎛️ **Four modes** | Plan, Ask, Auto and Bypass — chosen per session, from read-only proposals to fully automatic edits. |
 | 🔍 **Review-first by default** | In Ask mode every edit arrives as a diff card — approve per hunk or per file, reject with a note. Auto and Bypass trade review for speed. |
 | 🧪 **Checks its own work** | A sandboxed JavaScript runtime runs quick verification scripts on-device: hard deadline, heap and stack limits, no network, and script writes still arrive as diff cards. |
+| 🔎 **Web search** | Bring a Brave Search key. The agent searches, then reads the pages it picked with the guarded fetch tool — snippets alone are never trusted. |
 | 🌐 **Guarded web access** | The agent can fetch HTTPS URLs, but private and local addresses are blocked and hosts can be allowlisted. Network writes are reviewed except in Bypass mode. |
 | 🖼️ **Image input** | Attach up to four photos. Images are downscaled and sent as native image parts to vision-capable models. |
 | 📌 **Project context** | Attach project files as `@` context chips, and the agent loads `AGENTS.md` or `CLAUDE.md` at session start. Long sessions compact automatically. |
 | 🧵 **A readable run** | Tool calls collapse into an expandable execution trace, reasoning gets its own bubble, and answers stream in as rendered markdown. |
 | 🖥️ **Two-pane on landscape** | Project and session sidebar beside the conversation when width allows. |
 | 🔑 **Your key, your model** | Bring your own API key. Add any number of providers — OpenAI, Anthropic, Gemini, or an OpenAI-compatible gateway/local server — each with its own key, base URL and model list. |
-| 🔒 **Local-first** | No Pokeet server. No account. Your code leaves your phone only through your own model requests and git push. |
+| 🔒 **Local-first** | No Pokeet server. No account. Your code leaves your phone only through your own model requests, the URLs you let the agent fetch, web searches and git push. |
 
 ## See it in action
 
@@ -110,6 +111,7 @@ The tool set is intentionally small:
 - **Git (read-only)** — `git_status`, `git_diff`, `git_log`, `git_show` (a file at any revision, or a commit)
 - **Images** — `read_image` (a repository screenshot or diagram, downscaled and attached for vision models)
 - **Web** — `http_request` (GET and HEAD always; writes are reviewed, except in Bypass mode)
+- **Search** — `web_search` (your Brave Search key; returns snippets, pages are read with `http_request`)
 - **Scripts** — `run_script` (sandboxed JavaScript via QuickJS; see [docs/scripts.md](docs/scripts.md))
 - **Planning** — `submit_plan`, `todo_write` (a running checklist for multi-step work)
 

@@ -159,7 +159,8 @@ final class ChatViewModel {
                 isEnabled: environment.settings.networkEnabled,
                 allowedHosts: Self.parseHosts(environment.settings.networkAllowedHosts)
             ),
-            scripting: environment.scripting
+            scripting: environment.scripting,
+            webSearch: environment.settings.makeWebSearchProvider()
         )
 
         coordinator.onPending = { [weak self] proposals in

@@ -31,7 +31,7 @@ struct ToolCapabilityTests {
                 .filter { $0.capabilities.contains(.network) }
                 .map(\.schema.name)
         )
-        #expect(networkTools == ["http_request"])
+        #expect(networkTools == ["http_request", "web_search"])
 
         let planningTools = Set(
             registry.tools
@@ -72,6 +72,7 @@ struct ToolCapabilityTests {
         #expect(names.contains("git_log"))
         #expect(names.contains("git_show"))
         #expect(names.contains("http_request"))
+        #expect(names.contains("web_search"))
         #expect(names.contains("submit_plan"))
         #expect(!names.contains("run_script"))
         #expect(names.contains("todo_write"))
