@@ -196,9 +196,12 @@ private struct SessionRow: View {
                     .foregroundStyle(.secondary)
 
                 if let mode = session.mode, mode != .ask {
-                    Label(mode.displayName, systemImage: mode.systemImage)
-                        .font(.caption2)
-                        .foregroundStyle(mode.tint)
+                    HStack(spacing: 3) {
+                        Image(systemName: mode.systemImage)
+                        Text(mode.displayName)
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(mode.tint)
                 }
             }
         }

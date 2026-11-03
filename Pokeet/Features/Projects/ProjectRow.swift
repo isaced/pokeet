@@ -9,14 +9,20 @@ struct ProjectRow: View {
                 .font(.headline)
             if project.isGitRepository {
                 if let host = project.remoteHost {
-                    Label(host, systemImage: "network")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            } else {
-                Label("Local project", systemImage: "folder")
+                    HStack(spacing: 4) {
+                        Image(systemName: "network")
+                        Text(host)
+                    }
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                }
+            } else {
+                HStack(spacing: 4) {
+                    Image(systemName: "folder")
+                    Text("Local project")
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
         }
         .padding(.vertical, 2)
