@@ -68,7 +68,7 @@ struct ReasoningBubble: View {
 
     private var compactHeader: some View {
         HStack(spacing: 8) {
-            Image(systemName: "brain.head.profile")
+            Image(systemName: "sparkles")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -109,7 +109,7 @@ struct ReasoningBubble: View {
                 ProgressView()
                     .controlSize(.mini)
             } else {
-                Image(systemName: "brain.head.profile")
+                Image(systemName: "sparkles")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
