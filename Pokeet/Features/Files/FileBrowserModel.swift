@@ -91,8 +91,12 @@ final class FileDetailModel {
     let path: String
 
     private(set) var text: String?
+    private(set) var lines: [String] = []
+    private(set) var highlightedLines: [AttributedString]?
     private(set) var isLoading = false
     private(set) var errorMessage: String?
+    private var highlightedIsDark: Bool?
+    private var highlightRevision = UUID()
 
     init(project: Project, path: String) {
         self.project = project
@@ -103,28 +107,68 @@ final class FileDetailModel {
         (path as NSString).lastPathComponent
     }
 
-    var lines: [String] {
-        guard let text else { return [] }
-        return text.components(separatedBy: "\n")
+    var displayLines: [AttributedString] {
+        if let highlightedLines, highlightedLines.count == lines.count {
+            return highlightedLines.map {
+                $0.characters.isEmpty ? AttributedString(" ") : $0
+            }
+        }
+        return lines.map { AttributedString($0.isEmpty ? " " : $0) }
     }
 
     func load() async {
         isLoading = true
         errorMessage = nil
+        highlightedLines = nil
+        highlightedIsDark = nil
+        highlightRevision = UUID()
         defer { isLoading = false }
 
         let root = project.directory
         let path = path
 
         do {
-            text = try await Task.detached(priority: .userInitiated) {
+            let text = try await Task.detached(priority: .userInitiated) {
                 let workspace = FileWorkspace(root: root)
                 return try workspace.read(path, maxBytes: 200_000)
             }.value
+            self.text = text
+            lines = text.components(separatedBy: "\n")
         } catch {
             text = nil
+            lines = []
             errorMessage = (error as? LocalizedError)?.errorDescription
                 ?? error.localizedDescription
         }
+    }
+
+    func highlight(isDark: Bool) async {
+        guard let text, !text.isEmpty,
+              let language = CodeLanguage.alias(for: path),
+              text.count <= CodeHighlighter.maximumCharacters
+        else {
+            highlightedLines = nil
+            highlightedIsDark = nil
+            return
+        }
+
+        if highlightedIsDark == isDark, highlightedLines != nil {
+            return
+        }
+
+        let revision = UUID()
+        highlightRevision = revision
+        highlightedLines = nil
+
+        let highlighted = await CodeHighlighter.highlight(
+            text: text,
+            language: language,
+            isDark: isDark,
+            expectedLineCount: lines.count
+        )
+
+        guard highlightRevision == revision else { return }
+        highlightedLines = highlighted
+        highlightedIsDark = highlighted == nil ? nil : isDark
     }
 }

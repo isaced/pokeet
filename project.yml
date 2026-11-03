@@ -18,6 +18,9 @@ packages:
   Textual:
     url: https://github.com/gonzalezreal/textual.git
     exactVersion: 0.5.0
+  HighlightSwift:
+    url: https://github.com/appstefan/HighlightSwift.git
+    exactVersion: 1.1.0
 
 settings:
   base:
@@ -38,6 +41,7 @@ targets:
       - package: SwiftGitX
       - package: libgit2
       - package: Textual
+      - package: HighlightSwift
     info:
       path: Pokeet/Info.plist
       properties:

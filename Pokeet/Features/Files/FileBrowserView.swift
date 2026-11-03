@@ -144,6 +144,7 @@ private struct FileDetailView: View {
     let project: Project
     let path: String
 
+    @Environment(\.colorScheme) private var colorScheme
     @State private var model: FileDetailModel
     @State private var showsPreview: Bool
 
@@ -215,6 +216,10 @@ private struct FileDetailView: View {
         }
         .task {
             await model.load()
+            await model.highlight(isDark: colorScheme == .dark)
+        }
+        .onChange(of: colorScheme) { _, newScheme in
+            Task { await model.highlight(isDark: newScheme == .dark) }
         }
     }
 
@@ -250,7 +255,7 @@ private struct FileDetailView: View {
     }
 
     private var content: some View {
-        let lines = model.lines
+        let lines = model.displayLines
 
         return VStack(spacing: 0) {
             header
@@ -266,7 +271,7 @@ private struct FileDetailView: View {
                                 .foregroundStyle(.tertiary)
                                 .frame(minWidth: 34, alignment: .trailing)
 
-                            Text(line.isEmpty ? " " : line)
+                            Text(line)
                                 .font(.system(size: 12.5, design: .monospaced))
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .fixedSize(horizontal: false, vertical: true)
