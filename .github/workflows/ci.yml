@@ -15,42 +15,36 @@ permissions:
   contents: read
 
 jobs:
-  # All three jobs need macOS: PokeetCore links ImageIO/CoreGraphics, so Linux
-  # runners are out. "latest" tracks the newest image (macOS 26 / Xcode 26 at the
-  # time of writing) instead of pinning an older macOS 15 image that queues
-  # longer and ships Xcode 16. Pin an explicit label here if a release needs a
-  # specific Xcode.
-  kernel:
-    name: Agent kernel
+  # Both jobs need macOS: PokeetCore links ImageIO/CoreGraphics, so Linux runners
+  # are out. "latest" tracks the newest image (macOS 26 / Xcode 26 at the time of
+  # writing) instead of pinning an older macOS 15 image that ships Xcode 16. Pin
+  # an explicit label if a release ever needs a specific Xcode.
+  # One job instead of two: GitHub-hosted macOS arm64 capacity is scarce, and
+  # every job needs its own runner slot. A job that never gets acquired fails
+  # after ~15 minutes, which is exactly what happened when the kernel and the
+  # runtime queued next to the app job.
+  tests:
+    name: Kernel & scripting
     runs-on: macos-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      # PokeetCore has no remote dependencies, so its build directory is safe to
-      # reuse: unchanged files are simply not recompiled.
-      - name: Cache the build directory
-        uses: actions/cache@v4
+      - uses: actions/checkout@v7
+
+      # Neither package has remote dependencies, so their build directories are
+      # safe to reuse: unchanged files are simply not recompiled.
+      - name: Cache build directories
+        uses: actions/cache@v6
         with:
-          path: Packages/PokeetCore/.build
-          key: ${{ runner.os }}-core-${{ hashFiles('Packages/PokeetCore/Package.swift', 'Packages/PokeetCore/Sources/**') }}
+          path: |
+            Packages/PokeetCore/.build
+            Packages/PokeetScripting/.build
+          key: ${{ runner.os }}-swift-${{ hashFiles('Packages/*/Package.swift', 'Packages/*/Sources/**') }}
           restore-keys: |
-            ${{ runner.os }}-core-
+            ${{ runner.os }}-swift-
+
       - name: swift test (PokeetCore)
         run: swift test --package-path Packages/PokeetCore
 
-  scripting:
-    name: Scripting runtime
-    runs-on: macos-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-      - name: Cache the build directory
-        uses: actions/cache@v4
-        with:
-          path: Packages/PokeetScripting/.build
-          key: ${{ runner.os }}-scripting-${{ hashFiles('Packages/PokeetScripting/Package.swift', 'Packages/PokeetScripting/Sources/**') }}
-          restore-keys: |
-            ${{ runner.os }}-scripting-
       - name: swift test (PokeetScripting)
         run: swift test --package-path Packages/PokeetScripting
 
@@ -59,7 +53,7 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # The Xcode project is generated and gitignored, so CI regenerates it.
       - name: Install XcodeGen
@@ -76,7 +70,7 @@ jobs:
         run: echo "version=$(xcodebuild -version | head -1 | tr -d ' ')" >> "$GITHUB_OUTPUT"
 
       - name: Cache packages and build products
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/Library/Caches/org.swift.swiftpm
@@ -110,7 +104,7 @@ jobs:
 
       - name: Upload the result bundle on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Pokeet-xcresult
           path: ${{ runner.temp }}/Pokeet.xcresult
