@@ -177,7 +177,6 @@ struct ChatView: View {
                 LazyVStack(alignment: .leading, spacing: 12) {
                     if model.bubbles.isEmpty {
                         emptyState
-                            .padding(.top, 64)
                     }
 
                     ForEach(rows) { row in
@@ -188,7 +187,7 @@ struct ChatView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
             }
-            .defaultScrollAnchor(.bottom)
+            .defaultScrollAnchor(model.bubbles.isEmpty ? .center : .bottom)
             .scrollDismissesKeyboard(.interactively)
             .onChange(of: rows.last?.id) { _, _ in
                 guard let last = rows.last?.id else { return }
