@@ -6,7 +6,7 @@
 
 **Poke it, it ships.**
 
-An agentic coding workshop in your pocket: a Claude Code-style agent that reads, searches, edits and explains your code — entirely on your iPhone. You review every change, then commit and push from the app. No computer needed.
+An agent that runs on your phone, not on a computer you connect to. It reads, searches, edits and explains your project — you approve every change, then commit and push.
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 ![iOS](https://img.shields.io/badge/iOS-18%2B-black)
@@ -20,21 +20,23 @@ An agentic coding workshop in your pocket: a Claude Code-style agent that reads,
 
 ## Why Pokeet?
 
-Coding agents live in terminals on computers. But most of what an agent does — reading, searching, editing, reviewing — doesn't need a computer at all.
+Agents live in terminals and editors on computers. The mobile versions are thin clients: a chat window that can discuss your code but not touch it, or a remote control for a laptop that has to stay awake.
 
-Pokeet puts the whole loop on your iPhone:
+Pokeet is neither. The agent itself runs on the phone — its tools, its workspace, its review loop — so it does what a coding agent does, with no computer on the other end.
+
+What that buys you:
 
 | | |
-|---|---|
-| 🤖 **A real agent** | ReAct loop over files, search, git, HTTP, web search and a sandboxed JavaScript runtime. It keeps working until the job is done. |
-| 🎛️ **Four modes, review first** | Plan and Ask investigate and propose diff cards you approve per hunk or per file; Auto and Bypass trade that review for speed. |
-| 🧵 **A readable run** | Reasoning gets its own bubble, tool calls collapse into an execution trace, answers stream in as markdown. |
-| 📁 **Projects and sessions** | Every project is a sandbox in the Files app, empty or cloned. Each keeps its own conversations and mode — two panes when width allows. |
-| 🌳 **Real git** | Clone, diff, commit and push on the phone: libgit2 over HTTPS with a personal access token. |
-| 🖼️ **Images and project context** | Attach up to four photos, or repo files as `@` chips. `AGENTS.md` loads at session start; long sessions compact themselves. |
-| 🔑 **Your key, your model** | Any number of OpenAI, Anthropic, Gemini or OpenAI-compatible providers, each with its own key, base URL and model list. |
-| 🔎 **Guarded web access** | HTTPS only, private hosts blocked, optional allowlist. Search with your own Brave, Tavily, DeepSeek or Exa key — snippets are never trusted, pages are read with the fetch tool. |
-| 🔒 **Local-first** | No Pokeet server, no account. Traffic goes only to the providers you configured, the URLs you allowed, your searches and your git remote. |
+| --- | --- |
+| 🤖 **A real agent** | Reads, searches, edits, verifies — and keeps going until the job is done. |
+| 🎛️ **Review first** | Four modes, from read-only plans to fully automatic. Default: every edit waits for you. |
+| 🧵 **A readable run** | Reasoning, tool calls and answers, each in its own shape. |
+| 📁 **Projects and sessions** | One sandbox per project, one conversation per session. Two panes in landscape. |
+| 🌳 **Real git** | Clone, diff, commit and push on the phone. |
+| 🖼️ **Photos and project context** | Four photos per message, or files attached as `@` chips. `AGENTS.md` loads itself. |
+| 🔑 **Your key, your model** | OpenAI, Anthropic, Gemini, or anything compatible — each with its own key. |
+| 🔎 **Guarded web access** | Private hosts blocked. Your own search key. Pages are read, not just skimmed. |
+| 🔒 **No server** | No account either. Your keys, your providers, your git remote — nothing else in the path. |
 
 ## See it in action
 
@@ -100,29 +102,29 @@ Four modes, chosen per session:
 | **Auto** | Edits apply immediately; deletes and moves still need review. |
 | **Bypass** | Every file change applies without review. |
 
-The tool set is intentionally small:
+The tool set is the one a coding agent uses — files, search, git, web, scripts — with nothing that needs a shell:
 
 - **Files** — `list_files`, `read_file`, `write_file`, `edit_file`, `delete_file`, `move_file`
-- **Search** — `grep`, `find` (both respect `.gitignore`), `file_info` (size, lines, text vs binary)
+- **Code search** — `grep`, `find` (both respect `.gitignore`), `file_info` (size, lines, text vs binary)
 - **Git (read-only)** — `git_status`, `git_diff`, `git_log`, `git_show` (a file at any revision, or a commit)
-- **Images** — `read_image` (a repository screenshot or diagram, downscaled and attached for vision models)
+- **Images** — `read_image` (a screenshot or diagram from the project, downscaled and attached for vision models)
 - **Web** — `http_request` (GET and HEAD always; writes are reviewed, except in Bypass mode)
-- **Search** — `web_search` (your own search provider key; returns snippets, pages are read with `http_request`; see [docs/web-search.md](docs/web-search.md))
+- **Web search** — `web_search` (your own search provider key; returns snippets, pages are read with `http_request`; see [docs/web-search.md](docs/web-search.md))
 - **Scripts** — `run_script` (sandboxed JavaScript via QuickJS; see [docs/scripts.md](docs/scripts.md))
 - **Planning** — `submit_plan`, `todo_write` (a running checklist for multi-step work)
 
-Guardrails: the agent cannot run shell commands and cannot commit or push — those are UI actions. Network egress is HTTPS-only with private and local addresses blocked. Repository instructions are loaded from `AGENTS.md` or `CLAUDE.md` when a session starts.
+Guardrails: the agent cannot run shell commands and cannot commit or push — those are UI actions. Network egress is HTTPS-only with private and local addresses blocked. Project instructions load from `AGENTS.md` or `CLAUDE.md` when a session starts.
 
 ### Sandboxed scripts
 
 `run_script` lets the agent check its own work: compute a value, test a regex, parse a file, or run a handful of assertions. It is not a shell and not a test runner.
 
-- **No escape hatch** — no shell, no network, no `npm`, no file access outside the repository.
+- **No escape hatch** — no shell, no network, no `npm`, no file access outside the project.
 - **Hard limits** — a wall-clock deadline, a heap cap and a stack cap are enforced by the engine itself, so a runaway loop stops instead of pinning a thread.
 - **Review still applies** — the sandbox has no direct write access. Script writes are buffered and surface as normal diff cards, so Ask mode reviews them like any other edit.
 - **On-device and small** — QuickJS is an interpreter, so no JIT entitlement is needed and no code is downloaded. It adds about 2.8 MB to the app binary.
 
-Toolchain is JavaScript today. Embedded CPython is a later step; a remote runner is the only path to real project test suites.
+Toolchain is JavaScript today. Embedded CPython is the next step; until then, a project's own test suite is the one thing that still needs a real machine.
 
 ## Get started
 
@@ -195,7 +197,7 @@ Session snapshots live in the app, so the kernel stays portable. QuickJS sits be
 
 - **v1** — Agent loop with four review modes, workspace, git (clone/diff/commit/push over HTTPS with a personal access token), diff review, guarded HTTP tool, web search, sandboxed `run_script`, context compaction, BYOK.
   The golden path: clone → fix → verify → review → commit & push, all on iPhone, no computer.
-- **v2** — Embedded CPython with an audit-hook sandbox so Python repositories can run their own tests; Mac mini one-tap test runs for everything the phone cannot execute.
+- **v2** — Embedded CPython with an audit-hook sandbox, so Python projects can run their own tests on the device. For the handful of things a phone genuinely cannot execute, an optional hand-off to a machine you already own — never a requirement.
 - **Later** — SSH remotes, more tools, skills learned from your repos, maybe Android.
 
 ## Contributing
