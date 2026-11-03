@@ -10,7 +10,6 @@ struct ProviderEditorView: View {
     @State private var draft: ProviderConfiguration
     @State private var apiKey = ""
     @State private var didLoadKey = false
-    @State private var isKeyVisible = false
     @State private var showsAdvanced = false
     @State private var validationError: String?
 
@@ -104,22 +103,7 @@ struct ProviderEditorView: View {
                 .autocorrectionDisabled()
                 .keyboardType(.URL)
 
-            HStack {
-                if isKeyVisible {
-                    TextField("API key", text: $apiKey)
-                } else {
-                    SecureField("API key", text: $apiKey)
-                }
-                Button {
-                    isKeyVisible.toggle()
-                } label: {
-                    Image(systemName: isKeyVisible ? "eye.slash" : "eye")
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(isKeyVisible ? "Hide API key" : "Show API key")
-            }
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
+            SecretField(title: "API key", text: $apiKey)
         } header: {
             Text("Connection")
         } footer: {

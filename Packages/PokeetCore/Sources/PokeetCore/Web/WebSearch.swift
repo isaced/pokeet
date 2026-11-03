@@ -25,11 +25,11 @@ public enum WebSearchError: Error, Sendable, Equatable, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .notConfigured:
-            "Web search is not configured. Add a Brave Search API key in Settings."
+            "Web search is not configured. Pick a provider and add its credentials in Settings."
         case .networkDisabled:
             "Network access is disabled in Settings."
         case .rejectedKey:
-            "The search provider rejected the API key. Check it in Settings."
+            "The search provider rejected the credentials. Check them in Settings."
         case .rateLimited(let retryAfter):
             if let retryAfter {
                 "The provider rate-limited this search. Retry in about \(retryAfter) seconds."

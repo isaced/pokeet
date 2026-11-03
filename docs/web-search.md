@@ -2,7 +2,7 @@
 
 The agent can fetch a URL it already knows. It cannot find one. `web_search` is the missing half: given a question, return a handful of candidate pages that `http_request` can then read.
 
-**Status: P1 implemented** (protocol, tool, Brave adapter, settings). Deferred: SearXNG, session cache, `recency`, Tavily. The decisions below are settled: BYO key only, Brave first, snippets only, search allowed in Plan mode.
+**Status: four adapters shipped** (Brave, Tavily, DeepSeek Search, Exa) behind the protocol, tool and a provider catalog in Settings. Deferred: SearXNG, session cache, `recency`. The decisions below are settled: BYO key only, snippets only, search allowed in Plan mode.
 
 ## Scope
 
@@ -126,22 +126,26 @@ Cache lives in memory per session and is **not persisted** — cached queries in
 
 ## Settings
 
-New "Web search" section under Settings → Tools, modelled on the provider editor:
+Settings → **Tools → Web Search** (a second-level screen; the root Settings form is an index and no longer carries the key field):
 
 - enable toggle;
-- provider picker: Brave / SearXNG / Tavily;
-- per provider: API key field (Keychain) or instance URL (SearXNG);
-- optional host allowlist inherited from the network settings;
-- **Test** button running a fixed query and showing the first result title or the mapped error.
+- provider list rendered from `WebSearchProviderKind.allCases` — Brave, Tavily, DeepSeek and Exa today, SearXNG next;
+- one credential field for the selected provider (Keychain), masked only when the provider marks it secret — an instance URL for SearXNG would use the same slot unnasked — with the same eye toggle as the model-provider key field (`SecretField`);
+- a **Test search** button that runs one fixed query and prints the first hit or the mapped error.
+
+### Adding a provider
+
+`Pokeet/Services/WebSearch/WebSearchProviderCatalog.swift` is the only place a backend is declared: add a case to `WebSearchProviderKind`, fill in its metadata (name, icon, summary, credential label/footer, dashboard link, whether the credential is secret) and return its adapter from `makeProvider`. Settings renders the picker, the field and the help text from that metadata, and `AppSettings` stores one credential per case under `secret.websearch.<id>.apiKey` — no settings screen or storage key changes. Unknown stored ids fall back to `WebSearchProviderKind.fallback` (Brave) instead of breaking the screen.
 
 ## Provider notes
 
 | Provider | Free tier | Returns | Notes |
 |---|---|---|---|
-| **Brave Search API** | ~2k queries/mo, 1 rps | title, url, description, age | Clean, stable JSON; best first adapter |
+| **Brave Search API** | ~2k queries/mo, 1 rps | title, url, description, age | Clean, stable JSON; the default adapter |
+| **Tavily** | ~1k credits/mo, 1 credit per `basic` search | title, url, cleaned content chunks, publish date | Built for agents: richer snippets mean fewer follow-up fetches. `include_answer` and `auto_parameters` stay off — the first is a wasted LLM call, the second can silently upgrade to a 2-credit search |
+| **DeepSeek Search** | billed per 1,000 successful searches (no charge for empty or failed ones) | title, url, `snippet` (100–200 chars), `summary` (600–800 chars), date, `rerank_score` | Same API key as the DeepSeek model provider. Uses `summary`, which is written for a model to read; `need_content` stays off so page bodies remain `http_request`'s job. Supports `site:`, `lang:`, `after:`/`before:` operators passed straight through |
 | **SearXNG** | self-hosted | title, url, content | Needs `format=json` enabled; quality varies by instance |
-| **Tavily** | ~1k credits/mo | title, url, extracted content | Snippets are already article text → fewer follow-up fetches; natural P3 |
-| **Exa** | paid | neural results + content | Same slot as Tavily; pick one |
+| **Exa** | pay per search, credits on the dashboard | title, url, `highlights` (excerpts sized to relevance), publish date | Natural-language neural search. `contents.highlights` instead of `text` keeps responses token-efficient and free; `type: auto` rather than `deep` (4–15 s) so a tool call does not stall the turn |
 
 ## Code surface
 
@@ -150,10 +154,15 @@ PokeetCore/Sources/PokeetCore/Web/
   WebSearch.swift            // protocol, result, error
   WebSearchTool.swift        // schema, limits, formatting, cache
 Pokeet/Services/WebSearch/
+  WebSearchProviderCatalog.swift  // provider metadata + factory (add a case here)
+  WebSearchHTTP.swift             // Retry-After, provider error text, date parsing
   BraveSearchProvider.swift
+  TavilySearchProvider.swift
+  DeepSeekSearchProvider.swift
+  ExaSearchProvider.swift
   SearXNGSearchProvider.swift
-  TavilySearchProvider.swift  // P3
 Pokeet/Features/Settings/
+  ModelsSettingsView.swift    // model + provider list, one level down
   WebSearchSettingsView.swift
 ```
 
@@ -169,9 +178,9 @@ Touched: `ToolRegistry.standard`, `ToolContext`, `AgentSession.init`, `AppEnviro
 
 ## Phasing
 
-1. **P1** — protocol + `WebSearchTool` + Brave + settings section + tool tests. Ships the feature.
-2. **P2** — SearXNG, session cache, per-run cap, rate limit, Test button.
-3. **P3** — Tavily (content-rich), optional `recency`, result dedupe across providers.
+1. **P1** — protocol + `WebSearchTool` + Brave + settings screen + tool tests. Ships the feature.
+2. **P2** — SearXNG, session cache, per-run cap, rate limit, Test button (the Test button and the per-run cap are in; the cache is not).
+3. **P3** — Tavily, DeepSeek Search and Exa (done), optional `recency`, result dedupe across providers.
 
 ## Decisions
 
@@ -184,5 +193,4 @@ Touched: `ToolRegistry.standard`, `ToolContext`, `AgentSession.init`, `AppEnviro
 
 - SearXNG adapter for self-hosters;
 - session cache (32 entries, 10 min) and the 1 s spacing between calls: the per-run budget of 6 is implemented, the cache is not;
-- `recency` (day/week/month/year) mapping to Brave `freshness`;
-- whether to add Tavily for content-rich snippets.
+- `recency` (day/week/month/year): Brave `freshness`, Tavily `time_range`, DeepSeek `after:`/`before:` in the query string.

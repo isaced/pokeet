@@ -15,7 +15,6 @@ final class AppSettings {
         static let networkAllowedHosts = "settings.network.allowedHosts.v1"
         static let webSearchEnabled = "settings.websearch.enabled.v1"
         static let webSearchProvider = "settings.websearch.provider.v1"
-        static let braveSearchKey = "secret.websearch.brave.apiKey"
         static let gitToken = "secret.git.token"
         static func apiKey(_ providerID: UUID) -> String {
             "secret.llm.\(providerID.uuidString).apiKey"
@@ -67,14 +66,15 @@ final class AppSettings {
         didSet { defaults.set(webSearchEnabled, forKey: Key.webSearchEnabled) }
     }
 
-    /// Provider identifier. Only `brave` ships today; the field keeps room for more.
-    var webSearchProviderID: String {
+    /// Raw `WebSearchProviderKind` id. Kept as a string so a removed provider
+    /// degrades to `WebSearchProviderKind.fallback` instead of crashing.
+    private(set) var webSearchProviderID: String {
         didSet { defaults.set(webSearchProviderID, forKey: Key.webSearchProvider) }
     }
 
-    var braveSearchKey: String {
-        didSet { storeSecret(braveSearchKey, for: Key.braveSearchKey) }
-    }
+    /// Which providers have a credential on file. Mirrored from the Keychain so
+    /// SwiftUI has something to observe; see `hasWebSearchCredential(for:)`.
+    private(set) var configuredWebSearchProviders: Set<WebSearchProviderKind> = []
 
     init(
         defaults: UserDefaults = .standard,
@@ -111,9 +111,17 @@ final class AppSettings {
         networkEnabled = defaults.object(forKey: Key.networkEnabled) as? Bool ?? true
         networkAllowedHosts = defaults.string(forKey: Key.networkAllowedHosts) ?? ""
         webSearchEnabled = defaults.object(forKey: Key.webSearchEnabled) as? Bool ?? false
-        webSearchProviderID = defaults.string(forKey: Key.webSearchProvider) ?? "brave"
-        braveSearchKey = secrets.string(for: Key.braveSearchKey) ?? ""
+        webSearchProviderID = WebSearchProviderKind
+            .resolve(defaults.string(forKey: Key.webSearchProvider))
+            .rawValue
         gitToken = secrets.string(for: Key.gitToken) ?? ""
+        configuredWebSearchProviders = Set(
+            WebSearchProviderKind.allCases.filter {
+                !(secrets.string(for: $0.credentialKeyName) ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .isEmpty
+            }
+        )
     }
 
     var activeProvider: ProviderConfiguration? {
@@ -141,19 +149,54 @@ final class AppSettings {
         providers.first { $0.id == id }
     }
 
-    var isWebSearchConfigured: Bool {
-        webSearchEnabled && !braveSearchKey.trimmingCharacters(in: .whitespaces).isEmpty
+    // MARK: Web search
+
+    var webSearchProviderKind: WebSearchProviderKind {
+        WebSearchProviderKind.resolve(webSearchProviderID)
     }
 
-    /// Built per session; the key itself is read per request, so editing it applies immediately.
+    func setWebSearchProvider(_ kind: WebSearchProviderKind) {
+        guard kind.rawValue != webSearchProviderID else { return }
+        webSearchProviderID = kind.rawValue
+    }
+
+    /// Credential (API key, instance URL…) of one provider. Empty when unset.
+    func webSearchCredential(for kind: WebSearchProviderKind) -> String {
+        secrets.string(for: kind.credentialKeyName) ?? ""
+    }
+
+    func setWebSearchCredential(_ value: String, for kind: WebSearchProviderKind) {
+        storeSecret(value, for: kind.credentialKeyName)
+        if value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            configuredWebSearchProviders.remove(kind)
+        } else {
+            configuredWebSearchProviders.insert(kind)
+        }
+    }
+
+    /// Reads the observable mirror, not the Keychain: `SecretStore` changes are
+    /// invisible to SwiftUI, and a status row built from a Keychain read would
+    /// keep saying "Needs key" after the user typed one.
+    func hasWebSearchCredential(for kind: WebSearchProviderKind) -> Bool {
+        configuredWebSearchProviders.contains(kind)
+    }
+
+    var isWebSearchConfigured: Bool {
+        guard webSearchEnabled else { return false }
+        return hasWebSearchCredential(for: webSearchProviderKind)
+    }
+
+    /// Built per session; the credential is read per request, so editing it
+    /// applies immediately. Returns nil while the feature is off.
     func makeWebSearchProvider() -> (any WebSearchProviding)? {
         guard webSearchEnabled else { return nil }
-        switch webSearchProviderID {
-        case "brave":
-            return BraveSearchProvider(secrets: secrets, keyName: Key.braveSearchKey)
-        default:
-            return nil
-        }
+        return makeWebSearchProvider(for: webSearchProviderKind)
+    }
+
+    /// Unconditional factory, used by the Settings test button before the
+    /// feature is switched on.
+    func makeWebSearchProvider(for kind: WebSearchProviderKind) -> any WebSearchProviding {
+        kind.makeProvider(secrets: secrets)
     }
 
     func apiKey(for providerID: UUID) -> String {

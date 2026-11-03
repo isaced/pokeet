@@ -74,17 +74,113 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertFalse(settings.webSearchEnabled)
         XCTAssertFalse(settings.isWebSearchConfigured)
         XCTAssertNil(settings.makeWebSearchProvider())
+        XCTAssertEqual(settings.webSearchProviderKind, .brave)
 
         settings.webSearchEnabled = true
-        settings.braveSearchKey = "brave-key"
+        settings.setWebSearchCredential("brave-key", for: .brave)
 
         XCTAssertTrue(settings.isWebSearchConfigured)
         XCTAssertNotNil(settings.makeWebSearchProvider())
 
         let reloaded = AppSettings(defaults: defaults, secrets: secrets)
         XCTAssertTrue(reloaded.webSearchEnabled)
-        XCTAssertEqual(reloaded.braveSearchKey, "brave-key")
+        XCTAssertEqual(reloaded.webSearchCredential(for: .brave), "brave-key")
         XCTAssertEqual(reloaded.webSearchProviderID, "brave")
+    }
+
+    func testUnknownWebSearchProviderFallsBackToDefault() {
+        defaults.set("some-retired-provider", forKey: "settings.websearch.provider.v1")
+        let settings = AppSettings(defaults: defaults, secrets: MemorySecretStore())
+
+        XCTAssertEqual(settings.webSearchProviderID, WebSearchProviderKind.fallback.rawValue)
+        XCTAssertEqual(settings.webSearchProviderKind, .brave)
+    }
+
+    func testWebSearchProviderSelectionPersists() {
+        let secrets = MemorySecretStore()
+        let settings = AppSettings(defaults: defaults, secrets: secrets)
+
+        settings.setWebSearchProvider(.deepseek)
+
+        let reloaded = AppSettings(defaults: defaults, secrets: secrets)
+        XCTAssertEqual(reloaded.webSearchProviderKind, .deepseek)
+        XCTAssertEqual(reloaded.webSearchProviderID, "deepseek")
+    }
+
+    func testSwitchingProviderKeepsEachCredential() {
+        let secrets = MemorySecretStore()
+        let settings = AppSettings(defaults: defaults, secrets: secrets)
+
+        for kind in WebSearchProviderKind.allCases {
+            settings.setWebSearchCredential("key-\(kind.rawValue)", for: kind)
+        }
+
+        settings.webSearchEnabled = true
+        settings.setWebSearchProvider(.tavily)
+        XCTAssertEqual(settings.webSearchCredential(for: .tavily), "key-tavily")
+        XCTAssertTrue(settings.isWebSearchConfigured)
+
+        settings.setWebSearchProvider(.deepseek)
+        XCTAssertEqual(settings.webSearchCredential(for: .deepseek), "key-deepseek")
+        XCTAssertEqual(settings.webSearchCredential(for: .tavily), "key-tavily")
+
+        settings.setWebSearchProvider(.brave)
+        XCTAssertEqual(settings.webSearchCredential(for: .brave), "key-brave")
+    }
+
+    func testCredentialMirrorIsObservableStateNotAKeychainRead() {
+        let secrets = MemorySecretStore()
+        let settings = AppSettings(defaults: defaults, secrets: secrets)
+
+        settings.webSearchEnabled = true
+        settings.setWebSearchProvider(.tavily)
+        XCTAssertFalse(settings.hasWebSearchCredential(for: .tavily))
+
+        settings.setWebSearchCredential("tvly-key", for: .tavily)
+        XCTAssertTrue(settings.hasWebSearchCredential(for: .tavily))
+        XCTAssertTrue(settings.isWebSearchConfigured)
+
+        // A key written behind the store's back does not flip the mirror. The
+        // mirror is what SwiftUI watches, so it only moves through the API...
+        secrets.set("nope", for: WebSearchProviderKind.brave.credentialKeyName)
+        XCTAssertFalse(settings.hasWebSearchCredential(for: .brave))
+
+        // ...and a fresh instance re-reads the Keychain, so a relaunch sees every
+        // key on file, including ones written out of band.
+        XCTAssertEqual(
+            AppSettings(defaults: defaults, secrets: secrets).configuredWebSearchProviders,
+            [.brave, .tavily]
+        )
+    }
+
+    func testUnconfiguredProviderIsNotReady() {
+        let settings = AppSettings(defaults: defaults, secrets: MemorySecretStore())
+        settings.webSearchEnabled = true
+        settings.setWebSearchProvider(.tavily)
+
+        XCTAssertFalse(settings.isWebSearchConfigured)
+        XCTAssertNotNil(
+            settings.makeWebSearchProvider(),
+            "the session still gets a provider; it reports .notConfigured per request"
+        )
+    }
+
+    func testWebSearchCredentialsAreStoredPerProvider() {
+        let secrets = MemorySecretStore()
+        let settings = AppSettings(defaults: defaults, secrets: secrets)
+        let keyName = WebSearchProviderKind.brave.credentialKeyName
+
+        settings.setWebSearchCredential("brave-key", for: .brave)
+
+        XCTAssertEqual(keyName, "secret.websearch.brave.apiKey")
+        XCTAssertEqual(settings.webSearchCredential(for: .brave), "brave-key")
+        XCTAssertEqual(secrets.string(for: keyName), "brave-key")
+        XCTAssertTrue(settings.hasWebSearchCredential(for: .brave))
+
+        settings.setWebSearchCredential("", for: .brave)
+
+        XCTAssertFalse(settings.hasWebSearchCredential(for: .brave))
+        XCTAssertNil(secrets.string(for: keyName))
     }
 
     func testAddingProviderPersistsAndActivatesIt() {

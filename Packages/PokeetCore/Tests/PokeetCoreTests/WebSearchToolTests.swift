@@ -69,7 +69,7 @@ struct WebSearchToolTests {
 
     @Test func mapsProviderErrors() async throws {
         for (error, expected) in [
-            (WebSearchError.rejectedKey, "rejected the API key"),
+            (WebSearchError.rejectedKey, "rejected the credentials"),
             (WebSearchError.rateLimited(retryAfter: 30), "30 seconds"),
             (WebSearchError.malformedResponse, "unexpected response")
         ] {

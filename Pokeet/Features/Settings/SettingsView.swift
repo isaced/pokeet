@@ -1,6 +1,9 @@
 import PokeetCore
 import SwiftUI
 
+/// The root Settings form is an index: one row per topic, details live one
+/// level down. Model configuration and web search used to be inline here and
+/// crowded out everything else.
 struct SettingsView: View {
     @Environment(AppEnvironment.self) private var environment
     @Environment(\.dismiss) private var dismiss
@@ -10,9 +13,19 @@ struct SettingsView: View {
 
         NavigationStack {
             Form {
-                activeModelSection(settings)
-
                 Section {
+                    NavigationLink {
+                        ModelsSettingsView()
+                    } label: {
+                        LabeledContent {
+                            Text(modelSummary(settings))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        } label: {
+                            Label("Model", systemImage: "brain.head.profile")
+                        }
+                    }
+
                     Picker("Default mode", selection: $settings.defaultAgentMode) {
                         ForEach(AgentMode.allCases) { mode in
                             Text(mode.displayName).tag(mode)
@@ -21,7 +34,24 @@ struct SettingsView: View {
                 } header: {
                     Text("Agent")
                 } footer: {
-                    Text("New sessions start in this mode. You can change the mode from any chat.")
+                    Text("The model that answers new chats, and the mode they start in. Both can be changed from any chat.")
+                }
+
+                Section {
+                    NavigationLink {
+                        WebSearchSettingsView()
+                    } label: {
+                        LabeledContent {
+                            Text(webSearchSummary(settings))
+                                .foregroundStyle(webSearchNeedsAttention(settings) ? .orange : .secondary)
+                        } label: {
+                            Label("Web Search", systemImage: "magnifyingglass")
+                        }
+                    }
+                } header: {
+                    Text("Tools")
+                } footer: {
+                    Text("A search backend the agent can query. Search results are snippets; pages are read with the guarded fetch tool.")
                 }
 
                 Section {
@@ -41,33 +71,7 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    Toggle("Enable web search", isOn: $settings.webSearchEnabled)
-                    if settings.webSearchEnabled {
-                        SecureField("Brave Search API key", text: $settings.braveSearchKey)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                    }
-                } header: {
-                    Text("Web search")
-                } footer: {
-                    Text("Your own Brave Search API key. Queries go straight to api.search.brave.com; the agent then reads pages with the network tool.")
-                }
-
-                Section {
-                    NavigationLink {
-                        ProvidersView()
-                    } label: {
-                        Label("Manage providers", systemImage: "server.rack")
-                            .badge("\(settings.providers.count)")
-                    }
-                } header: {
-                    Text("Providers")
-                } footer: {
-                    Text("API keys are stored per provider in the iOS Keychain.")
-                }
-
-                Section {
-                    SecureField("Personal access token", text: $settings.gitToken)
+                    SecretField(title: "Personal access token", text: $settings.gitToken)
                     TextField("Author name", text: $settings.authorName)
                     TextField("Author email", text: $settings.authorEmail)
                         .keyboardType(.emailAddress)
@@ -88,53 +92,19 @@ struct SettingsView: View {
         }
     }
 
-    @ViewBuilder
-    private func activeModelSection(_ settings: AppSettings) -> some View {
-        Section {
-            if let provider = settings.activeProvider {
-                Picker(
-                    "Provider",
-                    selection: Binding(
-                        get: { settings.activeProviderID ?? provider.id },
-                        set: { settings.setActiveProvider($0) }
-                    )
-                ) {
-                    ForEach(settings.enabledProviders) { item in
-                        Text(item.name).tag(item.id)
-                    }
-                }
+    private func modelSummary(_ settings: AppSettings) -> String {
+        guard let provider = settings.activeProvider else { return "Not configured" }
+        guard let model = provider.effectiveModelID else { return provider.name }
+        return "\(provider.name) · \(model)"
+    }
 
-                if provider.selectedModels.isEmpty {
-                    Label("No models selected for this provider.", systemImage: "exclamationmark.circle")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Picker(
-                        "Model",
-                        selection: Binding(
-                            get: { provider.effectiveModelID ?? "" },
-                            set: { settings.setDefaultModel($0, for: provider.id) }
-                        )
-                    ) {
-                        ForEach(provider.selectedModels) { model in
-                            Text(model.label).tag(model.id)
-                        }
-                    }
-                }
+    private func webSearchSummary(_ settings: AppSettings) -> String {
+        guard settings.webSearchEnabled else { return "Off" }
+        guard settings.isWebSearchConfigured else { return "Needs key" }
+        return "On · \(settings.webSearchProviderKind.displayName)"
+    }
 
-                LabeledContent("API format", value: provider.wireProtocol.displayName)
-
-                if !settings.isModelConfigured {
-                    Label("Add a valid base URL, model and API key.", systemImage: "key")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                }
-            } else {
-                Text("Add a provider to get started.")
-                    .foregroundStyle(.secondary)
-            }
-        } header: {
-            Text("Active model")
-        }
+    private func webSearchNeedsAttention(_ settings: AppSettings) -> Bool {
+        settings.webSearchEnabled && !settings.isWebSearchConfigured
     }
 }

@@ -67,7 +67,7 @@ struct BraveSearchProvider: WebSearchProviding {
         case 401, 403:
             throw WebSearchError.rejectedKey
         case 429:
-            throw WebSearchError.rateLimited(retryAfter: retryAfterSeconds(http))
+            throw WebSearchError.rateLimited(retryAfter: WebSearchHTTP.retryAfterSeconds(http))
         default:
             throw WebSearchError.failed("The search provider returned HTTP \(http.statusCode).")
         }
@@ -86,23 +86,10 @@ struct BraveSearchProvider: WebSearchProviding {
                 title: title,
                 url: rawURL,
                 snippet: item.description ?? "",
-                published: item.pageAge.flatMap(Self.parseDate)
+                published: item.pageAge.flatMap(WebSearchHTTP.parseDate)
             )
         }
         return Array(results.prefix(max(1, limit)))
-    }
-
-    private func retryAfterSeconds(_ response: HTTPURLResponse) -> Int? {
-        guard let raw = response.value(forHTTPHeaderField: "Retry-After") else { return nil }
-        return Int(raw.trimmingCharacters(in: .whitespaces))
-    }
-
-    private static func parseDate(_ raw: String) -> Date? {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = formatter.date(from: raw) { return date }
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter.date(from: raw)
     }
 }
 
