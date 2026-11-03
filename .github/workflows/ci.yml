@@ -26,6 +26,15 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      # PokeetCore has no remote dependencies, so its build directory is safe to
+      # reuse: unchanged files are simply not recompiled.
+      - name: Cache the build directory
+        uses: actions/cache@v4
+        with:
+          path: Packages/PokeetCore/.build
+          key: ${{ runner.os }}-core-${{ hashFiles('Packages/PokeetCore/Package.swift', 'Packages/PokeetCore/Sources/**') }}
+          restore-keys: |
+            ${{ runner.os }}-core-
       - name: swift test (PokeetCore)
         run: swift test --package-path Packages/PokeetCore
 
@@ -35,6 +44,13 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - name: Cache the build directory
+        uses: actions/cache@v4
+        with:
+          path: Packages/PokeetScripting/.build
+          key: ${{ runner.os }}-scripting-${{ hashFiles('Packages/PokeetScripting/Package.swift', 'Packages/PokeetScripting/Sources/**') }}
+          restore-keys: |
+            ${{ runner.os }}-scripting-
       - name: swift test (PokeetScripting)
         run: swift test --package-path Packages/PokeetScripting
 
@@ -51,17 +67,23 @@ jobs:
       - name: Generate Pokeet.xcodeproj
         run: xcodegen generate
 
-      # The app target resolves packages from GitHub; the kernel jobs have none.
-      # Cached in the default locations, so let Xcode use its default DerivedData.
-      - name: Cache Swift packages
+      # A clean build compiles ~390 Swift files and 215 C files, almost all of it
+      # third-party (Textual, SwiftGit2, libgit2, HighlightSwift) that never
+      # changes between commits. Caching DerivedData turns that into an
+      # incremental build of the files that actually changed.
+      - name: Record the toolchain version
+        id: toolchain
+        run: echo "version=$(xcodebuild -version | head -1 | tr -d ' ')" >> "$GITHUB_OUTPUT"
+
+      - name: Cache packages and build products
         uses: actions/cache@v4
         with:
           path: |
             ~/Library/Caches/org.swift.swiftpm
-            ~/Library/Developer/Xcode/DerivedData/Pokeet-*/SourcePackages
-          key: ${{ runner.os }}-spm-${{ hashFiles('project.yml', 'Packages/*/Package.swift') }}
+            ~/Library/Developer/Xcode/DerivedData/Pokeet-*
+          key: ${{ runner.os }}-${{ steps.toolchain.outputs.version }}-deps-${{ hashFiles('project.yml', 'Packages/*/Package.swift') }}
           restore-keys: |
-            ${{ runner.os }}-spm-
+            ${{ runner.os }}-${{ steps.toolchain.outputs.version }}-deps-
 
       # Simulator names follow Xcode releases; pick whatever iPhone this image
       # has instead of hardcoding "iPhone 16".
@@ -82,7 +104,9 @@ jobs:
             -project Pokeet.xcodeproj \
             -scheme Pokeet \
             -destination "id=${{ steps.simulator.outputs.udid }}" \
-            -resultBundlePath "$RUNNER_TEMP/Pokeet.xcresult"
+            -resultBundlePath "$RUNNER_TEMP/Pokeet.xcresult" \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            ONLY_ACTIVE_ARCH=YES
 
       - name: Upload the result bundle on failure
         if: failure()
