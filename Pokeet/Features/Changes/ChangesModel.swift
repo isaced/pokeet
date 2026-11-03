@@ -5,6 +5,20 @@ import PokeetCore
 struct ChangedFile: Identifiable, Hashable, Sendable {
     let path: String
     let state: String
+    let addedLines: Int?
+    let removedLines: Int?
+
+    init(
+        path: String,
+        state: String,
+        addedLines: Int? = nil,
+        removedLines: Int? = nil
+    ) {
+        self.path = path
+        self.state = state
+        self.addedLines = addedLines
+        self.removedLines = removedLines
+    }
 
     var id: String { path }
 
@@ -40,9 +54,28 @@ final class ChangesModel {
         }
 
         do {
-            files = try await git.workingTreeStatus(at: project.directory)
+            let statuses = try await git.workingTreeStatus(at: project.directory)
                 .map { ChangedFile(path: $0.path, state: $0.state) }
                 .sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+            files = statuses
+
+            do {
+                let statsByPath = try await git.diffStat(at: project.directory)
+                    .reduce(into: [String: GitFileDiffStat]()) { result, stat in
+                        result[stat.path] = stat
+                    }
+                files = statuses.map { file in
+                    guard let stat = statsByPath[file.path] else { return file }
+                    return ChangedFile(
+                        path: file.path,
+                        state: file.state,
+                        addedLines: stat.added,
+                        removedLines: stat.removed
+                    )
+                }
+            } catch {
+                // Keep the plain list when stats are unavailable.
+            }
         } catch {
             files = []
             errorMessage = (error as? LocalizedError)?.errorDescription

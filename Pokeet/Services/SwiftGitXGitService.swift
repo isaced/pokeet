@@ -33,6 +33,91 @@ actor SwiftGitXGitService: GitServicing, GitInspecting {
         }
     }
 
+    /// Line counts per path for everything that differs from `HEAD`.
+    ///
+    /// A single tree-to-worktree diff keeps a path that is staged and then
+    /// edited again from being counted twice; adding the staged and unstaged
+    /// diffs together would report those lines twice. Untracked files never
+    /// appear in a libgit2 diff, so they are counted from disk instead.
+    func diffStat(at root: URL) async throws -> [GitFileDiffStat] {
+        let repository = try open(root)
+        do {
+            // A failing diff should not wipe out the untracked counts below.
+            let pending = try? repository.diff(to: [.workingTree, .index])
+            var stats = pending.map { counts(in: $0.patches) } ?? [:]
+
+            for entry in try repository.status() {
+                guard let file = inspectFileStatus(from: entry),
+                      file.state == "new",
+                      stats[file.path] == nil,
+                      let added = untrackedLineCount(root: root, path: file.path)
+                else { continue }
+                stats[file.path] = (added, 0)
+            }
+
+            return stats
+                .map { GitFileDiffStat(
+                    path: $0.key,
+                    added: $0.value.added,
+                    removed: $0.value.removed
+                ) }
+                .sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+        } catch {
+            throw GitServiceError.openFailed(sanitizedMessage(error, token: nil))
+        }
+    }
+
+    private func counts(in patches: [Patch]) -> [String: (added: Int, removed: Int)] {
+        var stats: [String: (added: Int, removed: Int)] = [:]
+
+        for patch in patches {
+            let path = patch.delta.newFile.path.isEmpty
+                ? patch.delta.oldFile.path
+                : patch.delta.newFile.path
+            guard !path.isEmpty else { continue }
+
+            var added = 0
+            var removed = 0
+            for hunk in patch.hunks {
+                for line in hunk.lines {
+                    switch line.type {
+                    case .addition, .additionEOF:
+                        added += 1
+                    case .deletion, .deletionEOF:
+                        removed += 1
+                    default:
+                        break
+                    }
+                }
+            }
+
+            let current = stats[path] ?? (0, 0)
+            stats[path] = (current.added + added, current.removed + removed)
+        }
+
+        return stats
+    }
+
+    private func untrackedLineCount(root: URL, path: String) -> Int? {
+        let url = root.appendingPathComponent(path)
+        guard let values = try? url.resourceValues(forKeys: [.fileSizeKey]),
+              let size = values.fileSize,
+              size > 0,
+              size <= 1_000_000,
+              let data = try? Data(contentsOf: url),
+              !data.contains(0),
+              let text = String(data: data, encoding: .utf8)
+        else {
+            return nil
+        }
+
+        var lines = text.components(separatedBy: "\n").count
+        if text.hasSuffix("\n") {
+            lines -= 1
+        }
+        return max(0, lines)
+    }
+
     func log(at root: URL, limit: Int) async throws -> [GitCommitInfo] {
         let repository = try open(root)
         do {

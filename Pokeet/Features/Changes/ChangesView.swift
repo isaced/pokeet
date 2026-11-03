@@ -98,7 +98,12 @@ private struct ChangedFileRow: View {
             Text(file.path)
                 .font(.subheadline)
                 .lineLimit(1)
-                .truncationMode(.middle)
+                .truncationMode(.head)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            if let added = file.addedLines, let removed = file.removedLines {
+                DiffStatView(added: added, removed: removed)
+            }
         }
     }
 
@@ -120,6 +125,67 @@ private struct ChangedFileRow: View {
         case "conflicted": .purple
         default: .blue
         }
+    }
+}
+
+private struct DiffStatView: View {
+    let added: Int
+    let removed: Int
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if added + removed > 0 {
+                DiffStatBar(added: added, removed: removed)
+            }
+
+            HStack(spacing: 4) {
+                if added > 0 {
+                    Text("+\(added)")
+                        .foregroundStyle(.green)
+                }
+                if removed > 0 {
+                    Text("−\(removed)")
+                        .foregroundStyle(.red)
+                }
+                if added == 0 && removed == 0 {
+                    Text("—")
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .font(.caption.monospacedDigit().weight(.medium))
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(added) added, \(removed) removed")
+    }
+}
+
+private struct DiffStatBar: View {
+    let added: Int
+    let removed: Int
+
+    private let width: CGFloat = 34
+    private let height: CGFloat = 4
+
+    var body: some View {
+        let total = added + removed
+        let gap: CGFloat = added > 0 && removed > 0 ? 2 : 0
+        let available = width - gap
+        let addedWidth = total > 0 ? available * CGFloat(added) / CGFloat(total) : 0
+        let removedWidth = total > 0 ? available * CGFloat(removed) / CGFloat(total) : 0
+
+        HStack(spacing: gap) {
+            if addedWidth > 0 {
+                Capsule()
+                    .fill(Color.green.opacity(0.8))
+                    .frame(width: addedWidth, height: height)
+            }
+            if removedWidth > 0 {
+                Capsule()
+                    .fill(Color.red.opacity(0.8))
+                    .frame(width: removedWidth, height: height)
+            }
+        }
+        .frame(width: width, height: height, alignment: .leading)
     }
 }
 

@@ -2,11 +2,17 @@ import PokeetCore
 import XCTest
 @testable import Pokeet
 
+private struct StubError: LocalizedError {
+    var errorDescription: String? { "Stats unavailable" }
+}
+
 private struct StubGitInspector: GitInspecting {
     var isRepo = true
     var statuses: [GitFileStatus] = []
     var workingDiff = ""
     var stagedDiff = ""
+    var stats: [GitFileDiffStat] = []
+    var statsError: Error?
 
     func isRepository(at root: URL) -> Bool {
         isRepo
@@ -18,6 +24,13 @@ private struct StubGitInspector: GitInspecting {
 
     func diff(at root: URL, path: String?, staged: Bool) async throws -> String {
         staged ? stagedDiff : workingDiff
+    }
+
+    func diffStat(at root: URL) async throws -> [GitFileDiffStat] {
+        if let statsError {
+            throw statsError
+        }
+        return stats
     }
 
     func log(at root: URL, limit: Int) async throws -> [GitCommitInfo] {
@@ -35,6 +48,51 @@ final class ChangesModelTests: XCTestCase {
             Project(directory: directory, remoteHost: "example.com", isGitRepository: true),
             directory
         )
+    }
+
+    func testAttachesDiffStats() async throws {
+        let (project, directory) = try makeProject()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        var git = StubGitInspector()
+        git.statuses = [
+            GitFileStatus(path: "src/main.swift", state: "modified"),
+            GitFileStatus(path: "README.md", state: "new")
+        ]
+        git.stats = [
+            GitFileDiffStat(path: "src/main.swift", added: 5, removed: 2),
+            GitFileDiffStat(path: "README.md", added: 3, removed: 0)
+        ]
+
+        let model = ChangesModel(project: project, git: git)
+        await model.load()
+
+        let main = try XCTUnwrap(model.files.first { $0.path == "src/main.swift" })
+        XCTAssertEqual(main.addedLines, 5)
+        XCTAssertEqual(main.removedLines, 2)
+
+        let readme = try XCTUnwrap(model.files.first { $0.path == "README.md" })
+        XCTAssertEqual(readme.addedLines, 3)
+        XCTAssertEqual(readme.removedLines, 0)
+    }
+
+    func testKeepsFilesWhenDiffStatsFail() async throws {
+        let (project, directory) = try makeProject()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        var git = StubGitInspector()
+        git.statuses = [
+            GitFileStatus(path: "src/main.swift", state: "modified")
+        ]
+        git.statsError = StubError()
+
+        let model = ChangesModel(project: project, git: git)
+        await model.load()
+
+        XCTAssertNil(model.errorMessage)
+        XCTAssertEqual(model.files.map(\.path), ["src/main.swift"])
+        XCTAssertNil(model.files.first?.addedLines)
+        XCTAssertNil(model.files.first?.removedLines)
     }
 
     func testListsChangedFilesSorted() async throws {
