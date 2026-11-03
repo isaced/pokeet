@@ -6,6 +6,7 @@ import UIKit
 struct ChatView: View {
     let project: Project
 
+    @Environment(\.scenePhase) private var scenePhase
     @State private var model: ChatViewModel
     @State private var isShowingProjectInfo = false
     @State private var isShowingFiles = false
@@ -17,6 +18,7 @@ struct ChatView: View {
     @State private var isShowingPhotoPicker = false
     @State private var photoPickerItems: [PhotosPickerItem] = []
     @State private var pendingAnchorID: UUID?
+    @State private var isPinnedToBottom = true
     private let git: any GitInspecting
 
     @MainActor
@@ -154,6 +156,11 @@ struct ChatView: View {
         .onDisappear {
             model.cancelRun()
         }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active {
+                model.checkpointNow()
+            }
+        }
     }
 
     private var messageList: some View {
@@ -182,8 +189,8 @@ struct ChatView: View {
                     proxy.scrollTo(last.id, anchor: .bottom)
                 }
             }
-            .onChange(of: model.visibleBubbles.last?.text) { _, _ in
-                guard let last = model.visibleBubbles.last else { return }
+            .onChange(of: model.streamRevision) { _, _ in
+                guard isPinnedToBottom, let last = model.visibleBubbles.last else { return }
                 proxy.scrollTo(last.id, anchor: .bottom)
             }
             .onChange(of: model.visibleBubbles.first?.id) { _, _ in
@@ -194,6 +201,11 @@ struct ChatView: View {
             } action: { _, isAtTop in
                 guard isAtTop, model.hasOlderBubbles else { return }
                 pendingAnchorID = model.loadOlderBubbles()
+            }
+            .onScrollGeometryChange(for: Bool.self) { geometry in
+                geometry.visibleRect.maxY >= geometry.contentSize.height - 80
+            } action: { _, pinned in
+                isPinnedToBottom = pinned
             }
         }
     }

@@ -74,6 +74,34 @@ struct MockModelClient: ModelClient {
             finishReason: "tool_calls"
         )
     }
+
+    func stream(_ request: ChatRequest) -> AsyncThrowingStream<ModelStreamEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    let response = try await complete(request)
+                    if let text = response.message.content,
+                       response.message.toolCalls == nil,
+                       !text.isEmpty {
+                        let characters = Array(text)
+                        let step = max(1, characters.count / 8)
+                        var index = 0
+                        while index < characters.count {
+                            let end = min(index + step, characters.count)
+                            continuation.yield(.textDelta(String(characters[index..<end])))
+                            index = end
+                            try? await Task.sleep(for: .milliseconds(40))
+                        }
+                    }
+                    continuation.yield(.completed(response))
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
 }
 #endif
 

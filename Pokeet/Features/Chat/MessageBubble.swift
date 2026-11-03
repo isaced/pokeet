@@ -46,14 +46,20 @@ struct MessageBubble: View, Equatable {
             ReasoningBubble(text: bubble.text, isStreaming: bubble.isStreaming)
         case .assistant:
             HStack {
-                StructuredText(markdown: bubble.text)
-                    .textual.structuredTextStyle(.gitHub)
-                    .textual.textSelection(.enabled)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .foregroundStyle(.primary)
-                    .background(Color(.secondarySystemBackground).opacity(0.7))
-                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                Group {
+                    if bubble.isStreaming {
+                        Text(bubble.text)
+                    } else {
+                        StructuredText(markdown: bubble.text)
+                            .textual.structuredTextStyle(.gitHub)
+                            .textual.textSelection(.enabled)
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .foregroundStyle(.primary)
+                .background(Color(.secondarySystemBackground).opacity(0.7))
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                 Spacer(minLength: 32)
             }
         case .tool:

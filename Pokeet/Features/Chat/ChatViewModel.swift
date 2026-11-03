@@ -99,6 +99,11 @@ final class ChatViewModel {
     private var lastRequest = ""
     private var streamingBubbleID: UUID?
     private var reasoningBubbleID: UUID?
+    private var runningToolCount = 0
+    private var streamBuffer = StreamBuffer()
+    private var streamFlushTask: Task<Void, Never>?
+    private var checkpointTask: Task<Void, Never>?
+    private(set) var streamRevision = 0
     private var didLoadSession = false
     private var needsHistoryRestore = false
 
@@ -345,15 +350,20 @@ final class ChatViewModel {
     }
 
     func cancelRun() {
+        flushStreamNow()
         finalizeReasoningBubble()
+        finalizeStreamingAssistantBubble()
         streamingBubbleID = nil
+        cancelStreamFlush()
         pendingProposals = []
         isShowingReview = false
         pendingPlan = nil
         isShowingPlan = false
         planIsExecuting = false
+        runningToolCount = 0
         coordinator.cancelPending()
         runTask?.cancel()
+        scheduleCheckpoint(immediate: true)
     }
 
     func setMode(_ newMode: AgentMode) {
@@ -487,7 +497,13 @@ final class ChatViewModel {
         status = "Thinking…"
         lastAssistantText = ""
         pendingPlan = nil
+        runningToolCount = 0
+        cancelStreamFlush()
+        checkpointTask?.cancel()
+        checkpointTask = nil
         defer {
+            flushStreamNow()
+            finalizeStreamingAssistantBubble()
             finalizeReasoningBubble()
             isRunning = false
             status = nil
@@ -581,31 +597,40 @@ final class ChatViewModel {
             stats.record(usage)
             cacheStats = stats
         case .assistantReasoningDelta(let delta):
-            appendReasoningDelta(delta)
-            status = nil
+            streamBuffer.appendReasoning(delta)
+            scheduleStreamFlush()
         case .assistantTextDelta(let delta):
-            finalizeReasoningBubble()
             consumePlanProgress(from: delta)
-            appendAssistantDelta(PlanProgress.parse(delta).text)
-            status = nil
+            streamBuffer.appendAssistant(PlanProgress.parse(delta).text)
+            scheduleStreamFlush()
         case .assistantMessage(let text):
-            finalizeReasoningBubble()
+            flushReasoningBuffer()
+            streamFlushTask?.cancel()
+            streamFlushTask = nil
+            streamBuffer.clear()
             consumePlanProgress(from: text)
             let parsed = PlanProgress.parse(text)
             finalizeAssistantMessage(parsed.text)
             lastAssistantText = parsed.text
             status = "Thinking…"
+            scheduleCheckpoint()
         case .toolStarted(let name):
+            flushStreamNow()
             finalizeReasoningBubble()
+            runningToolCount += 1
             status = "Running \(name)…"
         case .toolFinished(let name, let summary):
-            status = "Thinking…"
+            runningToolCount = max(0, runningToolCount - 1)
+            if runningToolCount == 0 {
+                status = "Thinking…"
+            }
             if name == HTTPRequestTool.toolName, summary.hasPrefix("HTTP ") {
                 let line = summary
                     .split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: true)
                     .first.map(String.init) ?? summary
                 bubbles.append(Bubble(role: .tool, text: String(line.prefix(140))))
             }
+            scheduleCheckpoint()
         case .proposalsPending(let proposals):
             present(proposals)
         case .changesApplied(let changes):
@@ -617,13 +642,17 @@ final class ChatViewModel {
             for change in changes where change.didWrite {
                 bubbles.append(Bubble(role: .tool, text: change.message))
             }
+            scheduleCheckpoint(immediate: true)
         case .planSubmitted(let plan):
             pendingPlan = plan
             currentPlan = plan
             planIsExecuting = false
         case .finished:
+            flushStreamNow()
             finalizeReasoningBubble()
+            finalizeStreamingAssistantBubble()
             streamingBubbleID = nil
+            runningToolCount = 0
             status = nil
             if modeSnapshot == .plan, pendingPlan == nil {
                 let text = lastAssistantText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -635,11 +664,132 @@ final class ChatViewModel {
                 }
             }
         case .failed(let message):
+            flushStreamNow()
             finalizeReasoningBubble()
+            finalizeStreamingAssistantBubble()
             streamingBubbleID = nil
+            runningToolCount = 0
             errorMessage = message
             status = nil
         }
+    }
+
+    private func scheduleStreamFlush() {
+        guard streamFlushTask == nil else { return }
+        streamFlushTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: StreamBuffer.flushInterval)
+            guard !Task.isCancelled, let self else { return }
+            self.streamFlushTask = nil
+            self.flushStreamBuffer()
+            if !self.streamBuffer.isEmpty {
+                self.scheduleStreamFlush()
+            }
+        }
+    }
+
+    private func flushStreamBuffer() {
+        let reasoning = streamBuffer.drainReasoning()
+        let assistant = streamBuffer.drainAssistant()
+        guard !reasoning.isEmpty || !assistant.isEmpty else { return }
+
+        if !reasoning.isEmpty {
+            appendReasoningDelta(reasoning)
+        }
+        if !assistant.isEmpty {
+            finalizeReasoningBubble()
+            appendAssistantDelta(assistant)
+        }
+        if runningToolCount == 0 {
+            status = nil
+        }
+        streamRevision &+= 1
+    }
+
+    private func flushReasoningBuffer() {
+        let reasoning = streamBuffer.drainReasoning()
+        if !reasoning.isEmpty {
+            appendReasoningDelta(reasoning)
+        }
+    }
+
+    private func flushStreamNow() {
+        streamFlushTask?.cancel()
+        streamFlushTask = nil
+        flushStreamBuffer()
+    }
+
+    private func cancelStreamFlush() {
+        streamFlushTask?.cancel()
+        streamFlushTask = nil
+        streamBuffer.clear()
+    }
+
+    func checkpointNow() {
+        scheduleCheckpoint(immediate: true)
+    }
+
+    private func scheduleCheckpoint(immediate: Bool = false) {
+        guard !bubbles.isEmpty else { return }
+        checkpointTask?.cancel()
+
+        if immediate {
+            checkpointTask = nil
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.flushStreamNow()
+                await self.saveCheckpoint()
+            }
+            return
+        }
+
+        checkpointTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled, let self else { return }
+            self.checkpointTask = nil
+            self.flushStreamNow()
+            await self.saveCheckpoint()
+        }
+    }
+
+    private func saveCheckpoint() async {
+        guard !bubbles.isEmpty else { return }
+        await environment.sessions.saveCheckpoint(
+            makeSessionSnapshot(),
+            projectName: project.name,
+            sessionID: sessionID
+        )
+    }
+
+    private func makeSessionSnapshot() -> SessionSnapshot {
+        let sessionBubbles = bubbles.map {
+            SessionBubble(
+                id: $0.id,
+                role: $0.role.rawValue,
+                text: $0.text,
+                images: $0.images,
+                filePaths: $0.filePaths
+            )
+        }
+        return SessionSnapshot(
+            bubbles: sessionBubbles,
+            cacheStats: cacheStats,
+            plan: currentPlan ?? pendingPlan,
+            planIsExecuting: planIsExecuting,
+            appliedChanges: appliedChanges.isEmpty ? nil : appliedChanges
+        )
+    }
+
+    private func finalizeStreamingAssistantBubble() {
+        guard let id = streamingBubbleID, let index = bubbleIndex(of: id) else { return }
+        bubbles[index].isStreaming = false
+        streamingBubbleID = nil
+    }
+
+    private func bubbleIndex(of id: UUID) -> Int? {
+        if bubbles.last?.id == id {
+            return bubbles.index(before: bubbles.endIndex)
+        }
+        return bubbles.firstIndex(where: { $0.id == id })
     }
 
     private func consumePlanProgress(from text: String) {
@@ -660,6 +810,7 @@ final class ChatViewModel {
     }
 
     private func discardPartialResponse() {
+        cancelStreamFlush()
         finalizeReasoningBubble()
         while let last = bubbles.last, last.role == .assistant || last.role == .reasoning {
             bubbles.removeLast()
@@ -673,11 +824,8 @@ final class ChatViewModel {
     private func appendReasoningDelta(_ delta: String) {
         guard !delta.isEmpty else { return }
 
-        if let id = reasoningBubbleID,
-           let index = bubbles.firstIndex(where: { $0.id == id }) {
-            var bubble = bubbles[index]
-            bubble.text += delta
-            bubbles[index] = bubble
+        if let id = reasoningBubbleID, let index = bubbleIndex(of: id) {
+            bubbles[index].text += delta
             return
         }
 
@@ -688,30 +836,27 @@ final class ChatViewModel {
     }
 
     private func finalizeReasoningBubble() {
+        flushReasoningBuffer()
         guard let id = reasoningBubbleID else { return }
         reasoningBubbleID = nil
 
-        guard let index = bubbles.firstIndex(where: { $0.id == id }) else {
+        guard let index = bubbleIndex(of: id) else {
             return
         }
 
-        var bubble = bubbles[index]
-        bubble.isStreaming = false
-        bubbles[index] = bubble
+        bubbles[index].isStreaming = false
     }
 
     private func appendAssistantDelta(_ delta: String) {
         guard !delta.isEmpty else { return }
 
-        if let id = streamingBubbleID,
-           let index = bubbles.firstIndex(where: { $0.id == id }) {
-            var bubble = bubbles[index]
-            bubble.text += delta
-            bubbles[index] = bubble
+        if let id = streamingBubbleID, let index = bubbleIndex(of: id) {
+            bubbles[index].text += delta
+            bubbles[index].isStreaming = true
             return
         }
 
-        let bubble = Bubble(role: .assistant, text: delta)
+        let bubble = Bubble(role: .assistant, text: delta, isStreaming: true)
         bubbles.append(bubble)
         streamingBubbleID = bubble.id
     }
@@ -725,7 +870,7 @@ final class ChatViewModel {
         }
 
         streamingBubbleID = nil
-        guard let index = bubbles.firstIndex(where: { $0.id == id }) else {
+        guard let index = bubbleIndex(of: id) else {
             return
         }
 
@@ -733,9 +878,8 @@ final class ChatViewModel {
             bubbles.remove(at: index)
             pager.clamp(total: bubbles.count)
         } else {
-            var bubble = bubbles[index]
-            bubble.text = text
-            bubbles[index] = bubble
+            bubbles[index].text = text
+            bubbles[index].isStreaming = false
         }
     }
 
@@ -788,25 +932,13 @@ final class ChatViewModel {
     }
 
     private func saveSession() async {
+        flushStreamNow()
+        checkpointTask?.cancel()
+        checkpointTask = nil
         let history = await session.history
-        let sessionBubbles = bubbles.map {
-            SessionBubble(
-                id: $0.id,
-                role: $0.role.rawValue,
-                text: $0.text,
-                images: $0.images,
-                filePaths: $0.filePaths
-            )
-        }
 
         await environment.sessions.save(
-            SessionSnapshot(
-                bubbles: sessionBubbles,
-                cacheStats: cacheStats,
-                plan: currentPlan ?? pendingPlan,
-                planIsExecuting: planIsExecuting,
-                appliedChanges: appliedChanges.isEmpty ? nil : appliedChanges
-            ),
+            makeSessionSnapshot(),
             messages: history,
             projectName: project.name,
             sessionID: sessionID,
