@@ -17,12 +17,12 @@ permissions:
 jobs:
   # Both jobs need macOS: PokeetCore links ImageIO/CoreGraphics, so Linux runners
   # are out. "latest" tracks the newest image (macOS 26 / Xcode 26 at the time of
-  # writing) instead of pinning an older macOS 15 image that ships Xcode 16. Pin
-  # an explicit label if a release ever needs a specific Xcode.
-  # One job instead of two: GitHub-hosted macOS arm64 capacity is scarce, and
-  # every job needs its own runner slot. A job that never gets acquired fails
-  # after ~15 minutes, which is exactly what happened when the kernel and the
-  # runtime queued next to the app job.
+  # writing) rather than pinning a macOS 15 image that ships Xcode 16. Pin an
+  # explicit label if a release ever needs a specific Xcode.
+  #
+  # Two jobs, not three: GitHub-hosted macOS arm64 capacity is scarce and every
+  # job wants its own slot. Three parallel jobs meant one of them sat in the
+  # queue for 15 minutes and then failed with "not acquired by Runner".
   tests:
     name: Kernel & scripting
     runs-on: macos-latest
@@ -79,9 +79,12 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ steps.toolchain.outputs.version }}-deps-
 
-      # Simulator names follow Xcode releases; pick whatever iPhone this image
-      # has instead of hardcoding "iPhone 16".
-      - name: Pick an iPhone simulator
+      # Simulator names follow Xcode releases, so pick whatever iPhone this image
+      # has instead of hardcoding "iPhone 16". Booting it here, before the build,
+      # hides most of the ~3 minutes CoreSimulator otherwise spends after
+      # compilation: simctl boot returns immediately and the boot runs while the
+      # package graph resolves and the app compiles.
+      - name: Pick an iPhone simulator and start booting it
         id: simulator
         run: |
           udid=$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ {print $2; exit}')
@@ -90,7 +93,8 @@ jobs:
             exit 1
           fi
           echo "udid=$udid" >> "$GITHUB_OUTPUT"
-          echo "Using simulator $udid"
+          echo "Booting $udid while the build runs"
+          xcrun simctl boot "$udid" 2>/dev/null || true
 
       - name: xcodebuild test
         run: |
@@ -100,7 +104,8 @@ jobs:
             -destination "id=${{ steps.simulator.outputs.udid }}" \
             -resultBundlePath "$RUNNER_TEMP/Pokeet.xcresult" \
             COMPILER_INDEX_STORE_ENABLE=NO \
-            ONLY_ACTIVE_ARCH=YES
+            ONLY_ACTIVE_ARCH=YES \
+            ENABLE_DEBUG_DYLIB=NO
 
       - name: Upload the result bundle on failure
         if: failure()
