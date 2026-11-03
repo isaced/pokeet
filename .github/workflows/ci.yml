@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same branch makes the older run irrelevant.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  kernel:
+    name: Agent kernel
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: swift test (PokeetCore)
+        run: swift test --package-path Packages/PokeetCore
+
+  scripting:
+    name: Scripting runtime
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: swift test (PokeetScripting)
+        run: swift test --package-path Packages/PokeetScripting
+
+  app:
+    name: App build & tests
+    # Bump the image when the project needs a newer SDK; the kernel jobs only need
+    # the Swift toolchain that ships with any current macOS runner.
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      # The Xcode project is generated and gitignored, so CI regenerates it.
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate Pokeet.xcodeproj
+        run: xcodegen generate
+
+      # The app target resolves packages from GitHub; the kernel jobs have none.
+      # Cached in the default locations, so let Xcode use its default DerivedData.
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/org.swift.swiftpm
+            ~/Library/Developer/Xcode/DerivedData/Pokeet-*/SourcePackages
+          key: ${{ runner.os }}-spm-${{ hashFiles('project.yml', 'Packages/*/Package.swift') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-
+
+      # Simulator names follow Xcode releases; pick whatever iPhone this image
+      # has instead of hardcoding "iPhone 16".
+      - name: Pick an iPhone simulator
+        id: simulator
+        run: |
+          udid=$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ {print $2; exit}')
+          if [ -z "$udid" ]; then
+            echo "No iPhone simulator available on this runner." >&2
+            exit 1
+          fi
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+          echo "Using simulator $udid"
+
+      - name: xcodebuild test
+        run: |
+          xcodebuild test \
+            -project Pokeet.xcodeproj \
+            -scheme Pokeet \
+            -destination "id=${{ steps.simulator.outputs.udid }}" \
+            -resultBundlePath "$RUNNER_TEMP/Pokeet.xcresult"
+
+      - name: Upload the result bundle on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pokeet-xcresult
+          path: ${{ runner.temp }}/Pokeet.xcresult
+          retention-days: 7
