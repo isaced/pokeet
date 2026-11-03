@@ -3,7 +3,17 @@ name: CI
 on:
   push:
     branches: [main]
+    # Docs and licence changes cannot break the build; skipping them keeps
+    # scarce macOS runners free.
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE'
   pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE'
   workflow_dispatch:
 
 # A newer push to the same branch makes the older run irrelevant.
@@ -15,24 +25,39 @@ permissions:
   contents: read
 
 jobs:
-  # Both jobs need macOS: PokeetCore links ImageIO/CoreGraphics, so Linux runners
-  # are out. "latest" tracks the newest image (macOS 26 / Xcode 26 at the time of
-  # writing) rather than pinning a macOS 15 image that ships Xcode 16. Pin an
-  # explicit label if a release ever needs a specific Xcode.
+  # One macOS job, not three. GitHub-hosted macOS arm64 capacity is scarce and
+  # every job needs its own runner slot, so extra jobs mostly bought queue time:
+  # a job that never gets acquired is cancelled after ~15 minutes. Two earlier
+  # runs lost a job exactly that way while the other one ran.
   #
-  # Two jobs, not three: GitHub-hosted macOS arm64 capacity is scarce and every
-  # job wants its own slot. Three parallel jobs meant one of them sat in the
-  # queue for 15 minutes and then failed with "not acquired by Runner".
-  tests:
-    name: Kernel & scripting
+  # Everything needs macOS: PokeetCore links ImageIO/CoreGraphics, so Linux
+  # runners are out. "latest" tracks the newest image (macOS 26 / Xcode 26 at the
+  # time of writing) rather than pinning a macOS 15 image that ships Xcode 16.
+  test:
+    name: Build & test
     runs-on: macos-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
 
+      # Booting a simulator takes a minute or two on these runners, so start it
+      # first and let it come up while the Swift tests build. simctl boot returns
+      # immediately; the boot carries on in the background.
+      - name: Pick an iPhone simulator and start booting it
+        id: simulator
+        run: |
+          udid=$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ {print $2; exit}')
+          if [ -z "$udid" ]; then
+            echo "No iPhone simulator available on this runner." >&2
+            exit 1
+          fi
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+          echo "Booting $udid while the build runs"
+          xcrun simctl boot "$udid" 2>/dev/null || true
+
       # Neither package has remote dependencies, so their build directories are
       # safe to reuse: unchanged files are simply not recompiled.
-      - name: Cache build directories
+      - name: Cache Swift package builds
         uses: actions/cache@v6
         with:
           path: |
@@ -48,23 +73,16 @@ jobs:
       - name: swift test (PokeetScripting)
         run: swift test --package-path Packages/PokeetScripting
 
-  app:
-    name: App build & tests
-    runs-on: macos-latest
-    timeout-minutes: 40
-    steps:
-      - uses: actions/checkout@v7
-
       # The Xcode project is generated and gitignored, so CI regenerates it.
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Generate Pokeet.xcodeproj
         run: xcodegen generate
 
-      # A clean build compiles ~390 Swift files and 215 C files, almost all of it
-      # third-party (Textual, SwiftGit2, libgit2, HighlightSwift) that never
-      # changes between commits. Caching DerivedData turns that into an
-      # incremental build of the files that actually changed.
+      # A clean build compiles 579 Swift files and 210 C files, almost all of it
+      # third-party (Textual alone is 204, libgit2 210) and none of it changing
+      # between commits. Restoring DerivedData turns that into an incremental
+      # build — 162 Swift files and 5 C files on a warm run.
       - name: Record the toolchain version
         id: toolchain
         run: echo "version=$(xcodebuild -version | head -1 | tr -d ' ')" >> "$GITHUB_OUTPUT"
@@ -78,23 +96,6 @@ jobs:
           key: ${{ runner.os }}-${{ steps.toolchain.outputs.version }}-deps-${{ hashFiles('project.yml', 'Packages/*/Package.swift') }}
           restore-keys: |
             ${{ runner.os }}-${{ steps.toolchain.outputs.version }}-deps-
-
-      # Simulator names follow Xcode releases, so pick whatever iPhone this image
-      # has instead of hardcoding "iPhone 16". Booting it here, before the build,
-      # hides most of the ~3 minutes CoreSimulator otherwise spends after
-      # compilation: simctl boot returns immediately and the boot runs while the
-      # package graph resolves and the app compiles.
-      - name: Pick an iPhone simulator and start booting it
-        id: simulator
-        run: |
-          udid=$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ {print $2; exit}')
-          if [ -z "$udid" ]; then
-            echo "No iPhone simulator available on this runner." >&2
-            exit 1
-          fi
-          echo "udid=$udid" >> "$GITHUB_OUTPUT"
-          echo "Booting $udid while the build runs"
-          xcrun simctl boot "$udid" 2>/dev/null || true
 
       - name: xcodebuild test
         run: |
