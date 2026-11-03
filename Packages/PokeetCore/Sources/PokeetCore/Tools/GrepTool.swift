@@ -12,7 +12,7 @@ public struct GrepTool: AgentTool {
     public var schema: ToolSchema {
         ToolSchema(
             name: "grep",
-            description: "Search file contents with a regular expression or literal string. Recursively scans text files and skips .git and common build directories.",
+            description: "Search file contents with a regular expression or literal string. Recursively scans text files, respecting .gitignore and skipping .git.",
             parameters: .object([
                 "type": .string("object"),
                 "properties": .object([

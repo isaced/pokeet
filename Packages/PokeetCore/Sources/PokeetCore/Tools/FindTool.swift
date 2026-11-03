@@ -8,7 +8,7 @@ public struct FindTool: AgentTool {
     public var schema: ToolSchema {
         ToolSchema(
             name: "find",
-            description: "Find files and directories by glob pattern. Recursively scans the project and skips .git and common build directories.",
+            description: "Find files and directories by glob pattern. Recursively scans the project, respecting .gitignore and skipping .git.",
             parameters: .object([
                 "type": .string("object"),
                 "properties": .object([

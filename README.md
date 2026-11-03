@@ -106,7 +106,7 @@ Four modes, chosen per session:
 The tool set is intentionally small:
 
 - **Files** — `list_files`, `read_file`, `write_file`, `edit_file`, `delete_file`, `move_file`
-- **Search** — `grep`, `find`
+- **Search** — `grep`, `find` (both respect `.gitignore`)
 - **Git (read-only)** — `git_status`, `git_diff`, `git_log`
 - **Web** — `http_request` (GET and HEAD always; writes are reviewed, except in Bypass mode)
 - **Scripts** — `run_script` (sandboxed JavaScript via QuickJS; see [docs/scripts.md](docs/scripts.md))

@@ -78,7 +78,7 @@ fs.write(path, content)            // content: string or JSON-serialisable value
 fs.append(path, content)
 fs.exists(path)
 fs.info(path)                      // { exists, isDirectory, sizeBytes, lineCount, isText }
-fs.list(path) / fs.listRecursive(path)
+fs.list(path) / fs.listRecursive(path)   // respects .gitignore
 fs.readdir(path)                   // alias for fs.list
 
 path.join / dirname / basename / extname / normalize / resolve / sep

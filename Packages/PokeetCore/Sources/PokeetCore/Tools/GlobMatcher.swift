@@ -15,9 +15,11 @@ public struct GlobMatcher: @unchecked Sendable {
     private let regex: NSRegularExpression
     private let matchBasename: Bool
 
-    public init(pattern: String) throws {
+    /// - Parameter anchored: match the whole path instead of only its last component,
+    ///   even for a pattern without a slash (used by `.gitignore` rules like `/build`).
+    public init(pattern: String, anchored: Bool = false) throws {
         let normalized = pattern.replacingOccurrences(of: "\\", with: "/")
-        matchBasename = !normalized.contains("/")
+        matchBasename = !anchored && !normalized.contains("/")
 
         do {
             regex = try NSRegularExpression(

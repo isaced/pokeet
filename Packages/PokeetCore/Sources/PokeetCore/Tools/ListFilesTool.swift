@@ -10,7 +10,7 @@ public struct ListFilesTool: AgentTool {
     public var schema: ToolSchema {
         ToolSchema(
             name: "list_files",
-            description: "List files and directories in the repository. Paths are relative to the repository root.",
+            description: "List files and directories in the repository, respecting .gitignore. Paths are relative to the repository root.",
             parameters: .object([
                 "type": .string("object"),
                 "properties": .object([

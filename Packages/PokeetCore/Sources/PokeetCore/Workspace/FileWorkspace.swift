@@ -78,6 +78,7 @@ public struct FileWorkspace: Workspace {
 
         guard maxEntries > 0 else { return [] }
         var entries: [WorkspaceEntry] = []
+        let ignores = IgnoreRules(root: root)
 
         if recursive {
             guard let enumerator = fileManager.enumerator(
@@ -102,6 +103,10 @@ public struct FileWorkspace: Workspace {
                     enumerator.skipDescendants()
                     continue
                 }
+                if ignores.isIgnored(workspaceRelativePath(of: url), isDirectory: isDirectoryEntry) {
+                    if isDirectoryEntry { enumerator.skipDescendants() }
+                    continue
+                }
 
                 entries.append(WorkspaceEntry(path: workspaceRelativePath(of: url), isDirectory: isDirectoryEntry))
             }
@@ -123,6 +128,9 @@ public struct FileWorkspace: Workspace {
                 let name = url.lastPathComponent.lowercased()
                 let isDirectoryEntry = values?.isDirectory == true
                 if isDirectoryEntry && Self.skippedDirectoryNames.contains(name) {
+                    continue
+                }
+                if ignores.isIgnored(workspaceRelativePath(of: url), isDirectory: isDirectoryEntry) {
                     continue
                 }
 
