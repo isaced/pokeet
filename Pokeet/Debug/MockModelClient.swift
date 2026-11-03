@@ -15,9 +15,33 @@ struct MockModelClient: ModelClient {
                     finishReason: "stop"
                 )
             }
+            let isPlanExecution = request.messages.contains {
+                $0.role == .user && ($0.content?.contains("Execute this plan") == true)
+            }
             return ChatResponse(
-                message: .assistant("The demo change is in place. Review it, then commit and push when ready."),
+                message: .assistant(
+                    isPlanExecution
+                        ? "The demo change is in place. [DONE:1]"
+                        : "The demo change is in place. Review it, then commit and push when ready."
+                ),
                 finishReason: "stop"
+            )
+        }
+
+        if request.tools.contains(where: { $0.name == "submit_plan" }) {
+            let arguments = #"{"title":"Demo plan","summary":"Create the demo file, then review it.","steps":[{"title":"Create POKEET_DEMO.md","files":["POKEET_DEMO.md"]},{"title":"Review the demo content"}]}"#
+            return ChatResponse(
+                message: .assistant(
+                    nil,
+                    toolCalls: [
+                        ToolCall(
+                            id: "mock-plan-\(UUID().uuidString)",
+                            name: "submit_plan",
+                            arguments: arguments
+                        )
+                    ]
+                ),
+                finishReason: "tool_calls"
             )
         }
 

@@ -81,6 +81,46 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertEqual(listed.first?.title, "First task")
     }
 
+    func testPlanAndAuditRoundtrip() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = SessionStore(directory: directory)
+        let session = await store.create(projectName: "demo", title: "Plan")
+        let plan = AgentPlan(
+            title: "Ship it",
+            summary: "Small change",
+            steps: [AgentPlan.Step(title: "Edit README", files: ["README.md"])]
+        )
+        let change = AppliedChange(
+            path: "README.md",
+            kind: "update",
+            didWrite: true,
+            addedLines: 2,
+            removedLines: 1,
+            message: "Applied change to README.md"
+        )
+        let snapshot = SessionSnapshot(
+            bubbles: [SessionBubble(id: UUID(), role: "assistant", text: "Plan")],
+            plan: plan,
+            planIsExecuting: true,
+            appliedChanges: [change]
+        )
+
+        await store.save(
+            snapshot,
+            messages: [],
+            projectName: "demo",
+            sessionID: session.id,
+            title: "Plan"
+        )
+
+        let loaded = await store.load(projectName: "demo", sessionID: session.id)
+        XCTAssertEqual(loaded?.plan, plan)
+        XCTAssertEqual(loaded?.planIsExecuting, true)
+        XCTAssertEqual(loaded?.appliedChanges, [change])
+    }
+
     func testImagesAreExternalizedAndDeduplicated() async throws {
         let directory = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

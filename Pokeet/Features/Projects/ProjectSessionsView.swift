@@ -190,9 +190,17 @@ private struct SessionRow: View {
                 .font(.headline)
                 .lineLimit(1)
 
-            Text(session.updatedAt, format: .relative(presentation: .named))
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                Text(session.updatedAt, format: .relative(presentation: .named))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if let mode = session.mode, mode != .ask {
+                    Label(mode.displayName, systemImage: mode.systemImage)
+                        .font(.caption2)
+                        .foregroundStyle(mode.tint)
+                }
+            }
         }
         .padding(.vertical, 4)
     }

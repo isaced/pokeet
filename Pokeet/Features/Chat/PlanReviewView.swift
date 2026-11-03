@@ -1,8 +1,9 @@
+import PokeetCore
 import SwiftUI
 import Textual
 
 struct PlanReviewView: View {
-    let plan: String
+    let plan: AgentPlan
     let onExecute: () -> Void
     let onStay: () -> Void
     let onRefine: (String) -> Void
@@ -14,36 +15,30 @@ struct PlanReviewView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                StructuredText(markdown: plan)
-                    .textual.structuredTextStyle(.gitHub)
-                    .textual.textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(20)
+                VStack(alignment: .leading, spacing: 16) {
+                    Text(plan.title)
+                        .font(.title3.weight(.semibold))
+
+                    if let summary = plan.summary, !summary.isEmpty {
+                        StructuredText(markdown: summary)
+                            .textual.structuredTextStyle(.gitHub)
+                            .textual.textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
+                    if !plan.steps.isEmpty {
+                        VStack(alignment: .leading, spacing: 12) {
+                            ForEach(Array(plan.steps.enumerated()), id: \.element.id) { index, step in
+                                stepRow(index: index, step: step)
+                            }
+                        }
+                    }
+                }
+                .padding(20)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .safeAreaInset(edge: .bottom) {
-                HStack(spacing: 10) {
-                    Button("Stay") {
-                        onStay()
-                        dismiss()
-                    }
-                    .buttonStyle(.bordered)
-
-                    Button("Refine") {
-                        isRefining = true
-                    }
-                    .buttonStyle(.bordered)
-
-                    Spacer(minLength: 8)
-
-                    Button("Execute") {
-                        onExecute()
-                        dismiss()
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                .background(.bar)
+                actionBar
             }
             .navigationTitle("Plan")
             .navigationBarTitleDisplayMode(.inline)
@@ -61,6 +56,57 @@ struct PlanReviewView: View {
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+    }
+
+    private var actionBar: some View {
+        HStack(spacing: 10) {
+            Button("Stay") {
+                onStay()
+                dismiss()
+            }
+            .buttonStyle(.bordered)
+
+            Button("Refine") {
+                isRefining = true
+            }
+            .buttonStyle(.bordered)
+
+            Spacer(minLength: 8)
+
+            Button("Execute") {
+                onExecute()
+                dismiss()
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(.bar)
+    }
+
+    private func stepRow(index: Int, step: AgentPlan.Step) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: step.status == .done ? "checkmark.circle.fill" : "\(index + 1).circle")
+                .foregroundStyle(step.status == .done ? Color.green : Color.secondary)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(step.title)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.primary)
+
+                if let detail = step.detail, !detail.isEmpty {
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                if !step.files.isEmpty {
+                    Text(step.files.joined(separator: ", "))
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
     }
 
     private var refineSheet: some View {

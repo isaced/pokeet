@@ -78,9 +78,16 @@ final class ChatViewModel {
     var banner: String?
     private(set) var mode: AgentMode
     private var modeSnapshot: AgentMode
-    private(set) var pendingPlan: String?
+    private(set) var pendingPlan: AgentPlan?
+    private(set) var currentPlan: AgentPlan?
+    private(set) var planIsExecuting = false
+    private(set) var appliedChanges: [AppliedChange] = []
     var isShowingPlan = false
     private var lastAssistantText = ""
+
+    var planForReview: AgentPlan? {
+        pendingPlan ?? currentPlan
+    }
 
     private let environment: AppEnvironment
     private let session: AgentSession
@@ -344,6 +351,7 @@ final class ChatViewModel {
         isShowingReview = false
         pendingPlan = nil
         isShowingPlan = false
+        planIsExecuting = false
         coordinator.cancelPending()
         runTask?.cancel()
     }
@@ -364,11 +372,13 @@ final class ChatViewModel {
     }
 
     func executePlan() {
-        guard pendingPlan != nil, !isRunning else { return }
+        guard let plan = pendingPlan ?? currentPlan, !isRunning else { return }
         isShowingPlan = false
         pendingPlan = nil
+        currentPlan = plan
+        planIsExecuting = true
         setMode(.auto)
-        input = "Execute the plan."
+        input = Self.executionPrompt(for: plan)
         send()
     }
 
@@ -386,6 +396,33 @@ final class ChatViewModel {
             ? "Refine the plan."
             : "Refine the plan with this feedback:\n\n\(trimmed)"
         send()
+    }
+
+    func showPlan() {
+        guard planForReview != nil else { return }
+        isShowingPlan = true
+    }
+
+    private static func executionPrompt(for plan: AgentPlan) -> String {
+        guard !plan.steps.isEmpty else {
+            return "Execute the plan from the previous message."
+        }
+
+        var lines = ["Execute this plan.", "", "Plan: \(plan.title)"]
+        if let summary = plan.summary, !summary.isEmpty {
+            lines.append(summary)
+            lines.append("")
+        }
+        for (index, step) in plan.steps.enumerated() {
+            var line = "\(index + 1). \(step.title)"
+            if !step.files.isEmpty {
+                line += " (files: \(step.files.joined(separator: ", ")))"
+            }
+            lines.append(line)
+        }
+        lines.append("")
+        lines.append("After completing step n, output [DONE:n] on its own line.")
+        return lines.joined(separator: "\n")
     }
 
     func resolve(_ decisions: [ProposalDecision]) {
@@ -504,6 +541,10 @@ final class ChatViewModel {
             }
         }
 
+        if modeSnapshot == .auto, currentPlan != nil {
+            planIsExecuting = false
+        }
+
         await saveSession()
         await refreshStatus()
 
@@ -544,12 +585,15 @@ final class ChatViewModel {
             status = nil
         case .assistantTextDelta(let delta):
             finalizeReasoningBubble()
-            appendAssistantDelta(delta)
+            consumePlanProgress(from: delta)
+            appendAssistantDelta(PlanProgress.parse(delta).text)
             status = nil
         case .assistantMessage(let text):
             finalizeReasoningBubble()
-            finalizeAssistantMessage(text)
-            lastAssistantText = text
+            consumePlanProgress(from: text)
+            let parsed = PlanProgress.parse(text)
+            finalizeAssistantMessage(parsed.text)
+            lastAssistantText = parsed.text
             status = "Thinking…"
         case .toolStarted(let name):
             finalizeReasoningBubble()
@@ -565,18 +609,29 @@ final class ChatViewModel {
         case .proposalsPending(let proposals):
             present(proposals)
         case .changesApplied(let changes):
+            appliedChanges.append(contentsOf: changes)
+            if appliedChanges.count > 200 {
+                appliedChanges.removeFirst(appliedChanges.count - 200)
+            }
             guard modeSnapshot == .auto || modeSnapshot == .bypass else { break }
             for change in changes where change.didWrite {
                 bubbles.append(Bubble(role: .tool, text: change.message))
             }
+        case .planSubmitted(let plan):
+            pendingPlan = plan
+            currentPlan = plan
+            planIsExecuting = false
         case .finished:
             finalizeReasoningBubble()
             streamingBubbleID = nil
             status = nil
-            if modeSnapshot == .plan {
-                let plan = lastAssistantText.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !plan.isEmpty {
+            if modeSnapshot == .plan, pendingPlan == nil {
+                let text = lastAssistantText.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !text.isEmpty {
+                    let plan = AgentPlan.fallback(from: text)
                     pendingPlan = plan
+                    currentPlan = plan
+                    planIsExecuting = false
                 }
             }
         case .failed(let message):
@@ -584,6 +639,23 @@ final class ChatViewModel {
             streamingBubbleID = nil
             errorMessage = message
             status = nil
+        }
+    }
+
+    private func consumePlanProgress(from text: String) {
+        guard planIsExecuting, var plan = currentPlan else { return }
+        let parsed = PlanProgress.parse(text)
+        guard !parsed.completedSteps.isEmpty else { return }
+
+        var changed = false
+        for stepNumber in parsed.completedSteps where plan.steps.indices.contains(stepNumber - 1) {
+            if plan.steps[stepNumber - 1].status != .done {
+                plan.steps[stepNumber - 1].status = .done
+                changed = true
+            }
+        }
+        if changed {
+            currentPlan = plan
         }
     }
 
@@ -708,6 +780,10 @@ final class ChatViewModel {
         pager.reset(total: bubbles.count)
         cacheStats = snapshot.cacheStats ?? CacheStats()
         lastRequest = bubbles.last(where: { $0.role == .user })?.text ?? ""
+        currentPlan = snapshot.plan
+        planIsExecuting = snapshot.planIsExecuting ?? false
+        appliedChanges = snapshot.appliedChanges ?? []
+        pendingPlan = nil
         needsHistoryRestore = true
     }
 
@@ -724,7 +800,13 @@ final class ChatViewModel {
         }
 
         await environment.sessions.save(
-            SessionSnapshot(bubbles: sessionBubbles, cacheStats: cacheStats),
+            SessionSnapshot(
+                bubbles: sessionBubbles,
+                cacheStats: cacheStats,
+                plan: currentPlan ?? pendingPlan,
+                planIsExecuting: planIsExecuting,
+                appliedChanges: appliedChanges.isEmpty ? nil : appliedChanges
+            ),
             messages: history,
             projectName: project.name,
             sessionID: sessionID,

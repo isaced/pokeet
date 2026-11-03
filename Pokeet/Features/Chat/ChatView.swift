@@ -13,6 +13,7 @@ struct ChatView: View {
     @State private var isShowingFilePicker = false
     @State private var isShowingModelPicker = false
     @State private var isShowingModePicker = false
+    @State private var isShowingAppliedChanges = false
     @State private var isShowingPhotoPicker = false
     @State private var photoPickerItems: [PhotosPickerItem] = []
     @State private var pendingAnchorID: UUID?
@@ -52,6 +53,13 @@ struct ChatView: View {
             }
             statusArea
             pendingAttachments
+            if let plan = model.currentPlan {
+                PlanProgressView(plan: plan, isExecuting: model.planIsExecuting) {
+                    model.showPlan()
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 4)
+            }
             composer(bindable: $model)
         }
         .background(Color(.systemBackground))
@@ -119,11 +127,14 @@ struct ChatView: View {
         }
         .sheet(isPresented: $model.isShowingPlan) {
             PlanReviewView(
-                plan: model.pendingPlan ?? "",
+                plan: model.planForReview ?? AgentPlan(title: "Plan", steps: []),
                 onExecute: model.executePlan,
                 onStay: model.stayInPlan,
                 onRefine: model.refinePlan
             )
+        }
+        .sheet(isPresented: $isShowingAppliedChanges) {
+            AppliedChangesView(changes: model.appliedChanges)
         }
         .photosPicker(
             isPresented: $isShowingPhotoPicker,
@@ -485,6 +496,12 @@ struct ChatView: View {
             isShowingFiles = true
         } label: {
             Label("Files", systemImage: "folder")
+        }
+
+        Button {
+            isShowingAppliedChanges = true
+        } label: {
+            Label("Applied changes", systemImage: "clock.arrow.circlepath")
         }
 
         Button {

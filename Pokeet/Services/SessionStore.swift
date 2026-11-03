@@ -82,10 +82,22 @@ struct SessionBubble: Sendable, Equatable {
 struct SessionSnapshot: Sendable, Equatable {
     let bubbles: [SessionBubble]
     let cacheStats: CacheStats?
+    let plan: AgentPlan?
+    let planIsExecuting: Bool?
+    let appliedChanges: [AppliedChange]?
 
-    init(bubbles: [SessionBubble], cacheStats: CacheStats? = nil) {
+    init(
+        bubbles: [SessionBubble],
+        cacheStats: CacheStats? = nil,
+        plan: AgentPlan? = nil,
+        planIsExecuting: Bool? = nil,
+        appliedChanges: [AppliedChange]? = nil
+    ) {
         self.bubbles = bubbles
         self.cacheStats = cacheStats
+        self.plan = plan
+        self.planIsExecuting = planIsExecuting
+        self.appliedChanges = appliedChanges
     }
 }
 
@@ -95,17 +107,26 @@ struct SessionHeader: Codable, Sendable, Equatable {
     let version: Int
     let bubbles: [StoredBubble]
     let cacheStats: CacheStats?
+    let plan: AgentPlan?
+    let planIsExecuting: Bool?
+    let appliedChanges: [AppliedChange]?
     let updatedAt: Date?
 
     init(
         version: Int = SessionHeader.currentVersion,
         bubbles: [StoredBubble],
         cacheStats: CacheStats?,
+        plan: AgentPlan? = nil,
+        planIsExecuting: Bool? = nil,
+        appliedChanges: [AppliedChange]? = nil,
         updatedAt: Date?
     ) {
         self.version = version
         self.bubbles = bubbles
         self.cacheStats = cacheStats
+        self.plan = plan
+        self.planIsExecuting = planIsExecuting
+        self.appliedChanges = appliedChanges
         self.updatedAt = updatedAt
     }
 }
@@ -241,7 +262,13 @@ actor SessionStore {
                 filePaths: stored.filePaths ?? []
             )
         }
-        return SessionSnapshot(bubbles: bubbles, cacheStats: header.cacheStats)
+        return SessionSnapshot(
+            bubbles: bubbles,
+            cacheStats: header.cacheStats,
+            plan: header.plan,
+            planIsExecuting: header.planIsExecuting,
+            appliedChanges: header.appliedChanges
+        )
     }
 
     func loadMessages(projectName: String, sessionID: UUID) -> [ChatMessage]? {
@@ -414,6 +441,9 @@ actor SessionStore {
         return SessionHeader(
             bubbles: bubbles,
             cacheStats: snapshot.cacheStats,
+            plan: snapshot.plan,
+            planIsExecuting: snapshot.planIsExecuting,
+            appliedChanges: snapshot.appliedChanges,
             updatedAt: now
         )
     }
