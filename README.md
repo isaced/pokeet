@@ -24,21 +24,15 @@ Pokeet puts the whole loop on your iPhone:
 
 | | |
 |---|---|
-| 🤖 **A real agent, not a chatbot** | ReAct loop with a file, search, git, HTTP and script tool set. It works until the job is done. |
-| 📁 **A real workspace** | Each project lives in its own sandbox, visible in the Files app. Start empty or from a Git repository. |
-| 🗂️ **Multiple sessions** | Every project keeps a list of conversations. Create, rename, switch and delete them independently — each with its own agent mode. |
-| 🌳 **Real git** | Clone, diff, commit, push — libgit2 on the phone, over HTTPS with a personal access token. You review applied changes, then tap Commit & Push. |
-| 🎛️ **Four modes** | Plan, Ask, Auto and Bypass — chosen per session, from read-only proposals to fully automatic edits. |
-| 🔍 **Review-first by default** | In Ask mode every edit arrives as a diff card — approve per hunk or per file, reject with a note. Auto and Bypass trade review for speed. |
-| 🧪 **Checks its own work** | A sandboxed JavaScript runtime runs quick verification scripts on-device: hard deadline, heap and stack limits, no network, and script writes still arrive as diff cards. |
-| 🔎 **Web search** | Bring your own search key — Brave, Tavily, DeepSeek Search or Exa. The agent searches, then reads the pages it picked with the guarded fetch tool — snippets alone are never trusted. See [docs/web-search.md](docs/web-search.md). |
-| 🌐 **Guarded web access** | The agent can fetch HTTPS URLs, but private and local addresses are blocked and hosts can be allowlisted. Network writes are reviewed except in Bypass mode. |
-| 🖼️ **Image input** | Attach up to four photos. Images are downscaled and sent as native image parts to vision-capable models. |
-| 📌 **Project context** | Attach project files as `@` context chips, and the agent loads `AGENTS.md` or `CLAUDE.md` at session start. Long sessions compact automatically. |
-| 🧵 **A readable run** | Tool calls collapse into an expandable execution trace, reasoning gets its own bubble, and answers stream in as rendered markdown. |
-| 🖥️ **Two-pane on landscape** | Project and session sidebar beside the conversation when width allows. |
-| 🔑 **Your key, your model** | Bring your own API key. Add any number of providers — OpenAI, Anthropic, Gemini, or an OpenAI-compatible gateway/local server — each with its own key, base URL and model list. |
-| 🔒 **Local-first** | No Pokeet server. No account. Your code leaves your phone only through your own model requests, the URLs you let the agent fetch, web searches and git push. |
+| 🤖 **A real agent** | ReAct loop over files, search, git, HTTP, web search and a sandboxed JavaScript runtime. It keeps working until the job is done. |
+| 🎛️ **Four modes, review first** | Plan and Ask investigate and propose diff cards you approve per hunk or per file; Auto and Bypass trade that review for speed. |
+| 🧵 **A readable run** | Reasoning gets its own bubble, tool calls collapse into an execution trace, answers stream in as markdown. |
+| 📁 **Projects and sessions** | Every project is a sandbox in the Files app, empty or cloned. Each keeps its own conversations and mode — two panes when width allows. |
+| 🌳 **Real git** | Clone, diff, commit and push on the phone: libgit2 over HTTPS with a personal access token. |
+| 🖼️ **Images and project context** | Attach up to four photos, or repo files as `@` chips. `AGENTS.md` loads at session start; long sessions compact themselves. |
+| 🔑 **Your key, your model** | Any number of OpenAI, Anthropic, Gemini or OpenAI-compatible providers, each with its own key, base URL and model list. |
+| 🔎 **Guarded web access** | HTTPS only, private hosts blocked, optional allowlist. Search with your own Brave, Tavily, DeepSeek or Exa key — snippets are never trusted, pages are read with the fetch tool. |
+| 🔒 **Local-first** | No Pokeet server, no account. Traffic goes only to the providers you configured, the URLs you allowed, your searches and your git remote. |
 
 ## See it in action
 
@@ -111,7 +105,7 @@ The tool set is intentionally small:
 - **Git (read-only)** — `git_status`, `git_diff`, `git_log`, `git_show` (a file at any revision, or a commit)
 - **Images** — `read_image` (a repository screenshot or diagram, downscaled and attached for vision models)
 - **Web** — `http_request` (GET and HEAD always; writes are reviewed, except in Bypass mode)
-- **Search** — `web_search` (your own search provider key; returns snippets, pages are read with `http_request`)
+- **Search** — `web_search` (your own search provider key; returns snippets, pages are read with `http_request`; see [docs/web-search.md](docs/web-search.md))
 - **Scripts** — `run_script` (sandboxed JavaScript via QuickJS; see [docs/scripts.md](docs/scripts.md))
 - **Planning** — `submit_plan`, `todo_write` (a running checklist for multi-step work)
 
