@@ -93,6 +93,7 @@ final class ChatViewModel {
     private var streamingBubbleID: UUID?
     private var reasoningBubbleID: UUID?
     private var didLoadSession = false
+    private var needsHistoryRestore = false
 
     init(project: Project, environment: AppEnvironment, session: SessionMetadata) {
         let initialMode = session.mode ?? environment.settings.defaultAgentMode
@@ -464,6 +465,18 @@ final class ChatViewModel {
             mode: modeSnapshot
         )
 
+        if needsHistoryRestore {
+            guard let history = await environment.sessions.loadMessages(
+                projectName: project.name,
+                sessionID: sessionID
+            ) else {
+                errorMessage = "Could not load this session's history."
+                return
+            }
+            await session.restore(history)
+            needsHistoryRestore = false
+        }
+
         do {
             await session.setMode(modeSnapshot)
             try await session.send(
@@ -673,6 +686,12 @@ final class ChatViewModel {
             projectName: project.name,
             sessionID: sessionID
         ) else {
+            if await environment.sessions.hasLegacySnapshot(
+                projectName: project.name,
+                sessionID: sessionID
+            ) {
+                errorMessage = "This session uses an older storage format and can't be opened."
+            }
             return
         }
 
@@ -682,34 +701,31 @@ final class ChatViewModel {
                 id: stored.id,
                 role: role,
                 text: stored.text,
-                images: stored.images ?? [],
-                filePaths: stored.filePaths ?? []
+                images: stored.images,
+                filePaths: stored.filePaths
             )
         }
         pager.reset(total: bubbles.count)
         cacheStats = snapshot.cacheStats ?? CacheStats()
         lastRequest = bubbles.last(where: { $0.role == .user })?.text ?? ""
-        await session.restore(snapshot.restoredMessages)
+        needsHistoryRestore = true
     }
 
     private func saveSession() async {
         let history = await session.history
-        let storedBubbles = bubbles.map {
-            StoredBubble(
+        let sessionBubbles = bubbles.map {
+            SessionBubble(
                 id: $0.id,
                 role: $0.role.rawValue,
                 text: $0.text,
-                images: $0.images.isEmpty ? nil : $0.images,
-                filePaths: $0.filePaths.isEmpty ? nil : $0.filePaths
+                images: $0.images,
+                filePaths: $0.filePaths
             )
         }
 
         await environment.sessions.save(
-            SessionSnapshot(
-                messages: history,
-                bubbles: storedBubbles,
-                cacheStats: cacheStats
-            ),
+            SessionSnapshot(bubbles: sessionBubbles, cacheStats: cacheStats),
+            messages: history,
             projectName: project.name,
             sessionID: sessionID,
             title: title,

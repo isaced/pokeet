@@ -13,6 +13,16 @@ final class SessionStoreTests: XCTestCase {
         return directory
     }
 
+    private func sessionDirectory(
+        root: URL,
+        project: String,
+        sessionID: UUID
+    ) -> URL {
+        root
+            .appendingPathComponent(project, isDirectory: true)
+            .appendingPathComponent(sessionID.uuidString, isDirectory: true)
+    }
+
     func testRoundtripForOneSession() async throws {
         let directory = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -32,16 +42,16 @@ final class SessionStoreTests: XCTestCase {
             .assistant("done")
         ]
         let bubbles = [
-            StoredBubble(id: UUID(), role: "user", text: "hi"),
-            StoredBubble(
+            SessionBubble(id: UUID(), role: "user", text: "hi"),
+            SessionBubble(
                 id: UUID(),
                 role: "user",
                 text: "look",
                 images: [image],
                 filePaths: ["Sources/main.swift"]
             ),
-            StoredBubble(id: UUID(), role: "reasoning", text: "thinking"),
-            StoredBubble(id: UUID(), role: "assistant", text: "done")
+            SessionBubble(id: UUID(), role: "reasoning", text: "thinking"),
+            SessionBubble(id: UUID(), role: "assistant", text: "done")
         ]
         var cacheStats = CacheStats()
         cacheStats.record(ModelUsage(
@@ -49,14 +59,11 @@ final class SessionStoreTests: XCTestCase {
             outputTokens: 10,
             cachedInputTokens: 60
         ))
-        let snapshot = SessionSnapshot(
-            messages: messages,
-            bubbles: bubbles,
-            cacheStats: cacheStats
-        )
+        let snapshot = SessionSnapshot(bubbles: bubbles, cacheStats: cacheStats)
 
         await store.save(
             snapshot,
+            messages: messages,
             projectName: "demo",
             sessionID: session.id,
             title: "First task"
@@ -64,12 +71,95 @@ final class SessionStoreTests: XCTestCase {
 
         let loaded = await store.load(projectName: "demo", sessionID: session.id)
         XCTAssertEqual(loaded, snapshot)
-        XCTAssertEqual(loaded?.restoredMessages, messages)
+
+        let loadedMessages = await store.loadMessages(projectName: "demo", sessionID: session.id)
+        XCTAssertEqual(loadedMessages, messages)
 
         let listed = await store.list(projectName: "demo")
         XCTAssertEqual(listed.count, 1)
         XCTAssertEqual(listed.first?.id, session.id)
         XCTAssertEqual(listed.first?.title, "First task")
+    }
+
+    func testImagesAreExternalizedAndDeduplicated() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = SessionStore(directory: directory)
+        let session = await store.create(projectName: "demo", title: "Images")
+        let image = ChatImage(mimeType: "image/jpeg", data: Data("same-image".utf8))
+
+        let snapshot = SessionSnapshot(bubbles: [
+            SessionBubble(id: UUID(), role: "user", text: "one", images: [image]),
+            SessionBubble(id: UUID(), role: "user", text: "two", images: [image])
+        ])
+        await store.save(
+            snapshot,
+            messages: [],
+            projectName: "demo",
+            sessionID: session.id,
+            title: "Images"
+        )
+
+        let sessionDirectory = sessionDirectory(
+            root: directory,
+            project: "demo",
+            sessionID: session.id
+        )
+        let imagesDirectory = sessionDirectory.appendingPathComponent("images")
+        let files = try FileManager.default.contentsOfDirectory(
+            at: imagesDirectory,
+            includingPropertiesForKeys: nil
+        )
+        XCTAssertEqual(files.filter { $0.pathExtension == "img" }.count, 1)
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: sessionDirectory.appendingPathComponent("header.json.z").path
+            )
+        )
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: sessionDirectory.appendingPathComponent("messages.json.z").path
+            )
+        )
+
+        let loaded = await store.load(projectName: "demo", sessionID: session.id)
+        XCTAssertEqual(loaded?.bubbles.last?.images, [image])
+    }
+
+    func testCheckpointKeepsMessages() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = SessionStore(directory: directory)
+        let session = await store.create(projectName: "demo", title: "Checkpoint")
+        let messages: [ChatMessage] = [.user("hi"), .assistant("hello")]
+
+        let first = SessionSnapshot(bubbles: [
+            SessionBubble(id: UUID(), role: "user", text: "hi")
+        ])
+        await store.save(
+            first,
+            messages: messages,
+            projectName: "demo",
+            sessionID: session.id,
+            title: "Checkpoint"
+        )
+
+        let checkpoint = SessionSnapshot(bubbles: [
+            SessionBubble(id: UUID(), role: "user", text: "hi"),
+            SessionBubble(id: UUID(), role: "assistant", text: "hello")
+        ])
+        await store.saveCheckpoint(
+            checkpoint,
+            projectName: "demo",
+            sessionID: session.id
+        )
+
+        let loaded = await store.load(projectName: "demo", sessionID: session.id)
+        XCTAssertEqual(loaded, checkpoint)
+        let loadedMessages = await store.loadMessages(projectName: "demo", sessionID: session.id)
+        XCTAssertEqual(loadedMessages, messages)
     }
 
     func testEnsureSessionCreatesOnlyOnce() async throws {
@@ -130,6 +220,31 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertNil(loaded)
     }
 
+    func testDeleteRemovesSessionDirectory() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = SessionStore(directory: directory)
+        let session = await store.create(projectName: "demo", title: "Delete")
+        await store.save(
+            SessionSnapshot(bubbles: [SessionBubble(id: UUID(), role: "user", text: "hi")]),
+            messages: [],
+            projectName: "demo",
+            sessionID: session.id,
+            title: "Delete"
+        )
+
+        let sessionDirectory = sessionDirectory(
+            root: directory,
+            project: "demo",
+            sessionID: session.id
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sessionDirectory.path))
+
+        await store.delete(projectName: "demo", sessionID: session.id)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: sessionDirectory.path))
+    }
+
     func testSessionsAreScopedToProject() async throws {
         let directory = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -168,13 +283,40 @@ final class SessionStoreTests: XCTestCase {
 
         let store = SessionStore(directory: directory)
         let session = await store.create(projectName: "future")
-        let projectDirectory = directory.appendingPathComponent("future", isDirectory: true)
-        try Data(#"{"version":2,"messages":[],"bubbles":[]}"#.utf8).write(
-            to: projectDirectory.appendingPathComponent("\(session.id.uuidString).json")
+        let sessionDirectory = sessionDirectory(
+            root: directory,
+            project: "future",
+            sessionID: session.id
         )
+        try FileManager.default.createDirectory(
+            at: sessionDirectory,
+            withIntermediateDirectories: true
+        )
+
+        let header = SessionHeader(version: 3, bubbles: [], cacheStats: nil, updatedAt: nil)
+        let data = try JSONEncoder().encode(header)
+        let compressed = try SessionCompression.compress(data)
+        try compressed.write(to: sessionDirectory.appendingPathComponent("header.json.z"))
 
         let loaded = await store.load(projectName: "future", sessionID: session.id)
         XCTAssertNil(loaded)
+    }
+
+    func testLegacySnapshotIsNotLoaded() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = SessionStore(directory: directory)
+        let session = await store.create(projectName: "legacy", title: "Old")
+        let projectDirectory = directory.appendingPathComponent("legacy", isDirectory: true)
+        try Data(#"{"version":1,"messages":[],"bubbles":[]}"#.utf8).write(
+            to: projectDirectory.appendingPathComponent("\(session.id.uuidString).json")
+        )
+
+        let loaded = await store.load(projectName: "legacy", sessionID: session.id)
+        let hasLegacy = await store.hasLegacySnapshot(projectName: "legacy", sessionID: session.id)
+        XCTAssertNil(loaded)
+        XCTAssertTrue(hasLegacy)
     }
 
     func testSessionModeRoundtripAndSetMode() async throws {
@@ -200,7 +342,8 @@ final class SessionStoreTests: XCTestCase {
         let session = await store.create(projectName: "modes", title: "Mode", mode: .ask)
 
         await store.save(
-            SessionSnapshot(messages: [], bubbles: []),
+            SessionSnapshot(bubbles: []),
+            messages: [],
             projectName: "modes",
             sessionID: session.id,
             title: "Mode",
