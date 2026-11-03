@@ -69,6 +69,12 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-swift-
 
+      # The cache key covers the sources, so a hit means identical inputs. Touching
+      # the restored products makes them newer than the fresh checkout, which is
+      # what llbuild needs to skip rebuilding everything.
+      - name: Freshen the restored build products
+        run: find Packages/*/.build -exec touch {} + 2>/dev/null || true
+
       - name: swift test (PokeetCore)
         run: swift test --package-path Packages/PokeetCore
 
@@ -81,10 +87,10 @@ jobs:
       - name: Generate Pokeet.xcodeproj
         run: xcodegen generate
 
-      # A clean build compiles 579 Swift files and 210 C files, almost all of it
-      # third-party (Textual alone is 204, libgit2 210) and none of it changing
-      # between commits. Restoring DerivedData turns that into an incremental
-      # build — 162 Swift files and 5 C files on a warm run.
+      # Only the package checkouts are cached here. Restoring build products was
+      # measured and dropped: Xcode rebuilt everything anyway because the restored
+      # objects are older than the checkout, and touching them would hide a
+      # changed source file that the key does not know about.
       - name: Record the toolchain version
         id: toolchain
         run: echo "version=$(xcodebuild -version | head -1 | tr -d ' ')" >> "$GITHUB_OUTPUT"
@@ -94,7 +100,7 @@ jobs:
         with:
           path: |
             ~/Library/Caches/org.swift.swiftpm
-            ~/Library/Developer/Xcode/DerivedData/Pokeet-*
+            ~/Library/Developer/Xcode/DerivedData/Pokeet-*/SourcePackages
           key: ${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.version }}-deps-${{ hashFiles('project.yml', 'Packages/*/Package.swift') }}
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.version }}-deps-
