@@ -56,6 +56,25 @@ struct MockModelClient: ModelClient {
 
         if lastMessage?.role == .user,
            let text = lastMessage?.content?.lowercased(),
+           text.contains("edit test") {
+            let arguments = #"{"path":"Pokeet/App/RootView.swift","edits":[{"old_text":"    private var usesSplitLayout: Bool {","new_text":"    /// Chooses the split layout on wide or short screens.\n    private var usesSplitLayout: Bool {"}]}"#
+            return ChatResponse(
+                message: .assistant(
+                    nil,
+                    toolCalls: [
+                        ToolCall(
+                            id: "mock-edit-\(UUID().uuidString)",
+                            name: "edit_file",
+                            arguments: arguments
+                        )
+                    ]
+                ),
+                finishReason: "tool_calls"
+            )
+        }
+
+        if lastMessage?.role == .user,
+           let text = lastMessage?.content?.lowercased(),
            text.contains("git test") {
             return ChatResponse(
                 message: .assistant(
