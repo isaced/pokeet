@@ -24,12 +24,13 @@ Pokeet puts the whole loop on your iPhone:
 
 | | |
 |---|---|
-| 🤖 **A real agent, not a chatbot** | ReAct loop with a file, search, git and HTTP tool set. It works until the job is done. |
+| 🤖 **A real agent, not a chatbot** | ReAct loop with a file, search, git, HTTP and script tool set. It works until the job is done. |
 | 📁 **A real workspace** | Each project lives in its own sandbox, visible in the Files app. Start empty or from a Git repository. |
 | 🗂️ **Multiple sessions** | Every project keeps a list of conversations. Create, rename, switch and delete them independently — each with its own agent mode. |
 | 🌳 **Real git** | Clone, diff, commit, push — libgit2 on the phone, over HTTPS with a personal access token. You review applied changes, then tap Commit & Push. |
 | 🎛️ **Four modes** | Plan, Ask, Auto and Bypass — chosen per session, from read-only proposals to fully automatic edits. |
 | 🔍 **Review-first by default** | In Ask mode every edit arrives as a diff card — approve per hunk or per file, reject with a note. Auto and Bypass trade review for speed. |
+| 🧪 **Checks its own work** | A sandboxed JavaScript runtime runs quick verification scripts on-device: hard deadline, heap and stack limits, no network, and script writes still arrive as diff cards. |
 | 🌐 **Guarded web access** | The agent can fetch HTTPS URLs, but private and local addresses are blocked and hosts can be allowlisted. Network writes are reviewed except in Bypass mode. |
 | 🖼️ **Image input** | Attach up to four photos. Images are downscaled and sent as native image parts to vision-capable models. |
 | 📌 **Project context** | Attach project files as `@` context chips, and the agent loads `AGENTS.md` or `CLAUDE.md` at session start. Long sessions compact automatically. |
@@ -108,9 +109,21 @@ The tool set is intentionally small:
 - **Search** — `grep`, `find`
 - **Git (read-only)** — `git_status`, `git_diff`, `git_log`
 - **Web** — `http_request` (GET and HEAD always; writes are reviewed, except in Bypass mode)
+- **Scripts** — `run_script` (sandboxed JavaScript via QuickJS; see [docs/scripts.md](docs/scripts.md))
 - **Planning** — `submit_plan`
 
 Guardrails: the agent cannot run shell commands and cannot commit or push — those are UI actions. Network egress is HTTPS-only with private and local addresses blocked. Repository instructions are loaded from `AGENTS.md` or `CLAUDE.md` when a session starts.
+
+### Sandboxed scripts
+
+`run_script` lets the agent check its own work: compute a value, test a regex, parse a file, or run a handful of assertions. It is not a shell and not a test runner.
+
+- **No escape hatch** — no shell, no network, no `npm`, no file access outside the repository.
+- **Hard limits** — a wall-clock deadline, a heap cap and a stack cap are enforced by the engine itself, so a runaway loop stops instead of pinning a thread.
+- **Review still applies** — the sandbox has no direct write access. Script writes are buffered and surface as normal diff cards, so Ask mode reviews them like any other edit.
+- **On-device and small** — QuickJS is an interpreter, so no JIT entitlement is needed and no code is downloaded. It adds about 2.8 MB to the app binary.
+
+Toolchain is JavaScript today. Embedded CPython is a later step; a remote runner is the only path to real project test suites.
 
 ## Get started
 
@@ -142,6 +155,7 @@ Run the agent-kernel tests:
 
 ```sh
 swift test --package-path Packages/PokeetCore
+swift test --package-path Packages/PokeetScripting
 ```
 
 App tests (15 XCTest files) run from the generated `Pokeet` scheme in Xcode.
@@ -171,9 +185,9 @@ Session snapshots live in the app, so the kernel stays portable.
 
 ## Roadmap
 
-- **v1** — Agent loop with four review modes, workspace, git (clone/diff/commit/push over HTTPS with a personal access token), diff review, guarded HTTP tool, context compaction, BYOK.
-  The golden path: clone → fix → review → commit & push, all on iPhone, no computer.
-- **v2** — `run_script`: JavaScript via JavaScriptCore, embedded CPython; Mac mini one-tap test runs.
+- **v1** — Agent loop with four review modes, workspace, git (clone/diff/commit/push over HTTPS with a personal access token), diff review, guarded HTTP tool, sandboxed `run_script`, context compaction, BYOK.
+  The golden path: clone → fix → verify → review → commit & push, all on iPhone, no computer.
+- **v2** — Embedded CPython with an audit-hook sandbox so Python repositories can run their own tests; Mac mini one-tap test runs for everything the phone cannot execute.
 - **Later** — SSH remotes, more tools, skills learned from your repos, maybe Android.
 
 ## Contributing

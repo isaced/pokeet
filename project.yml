@@ -9,6 +9,8 @@ options:
 packages:
   PokeetCore:
     path: Packages/PokeetCore
+  PokeetScripting:
+    path: Packages/PokeetScripting
   SwiftGitX:
     url: https://github.com/ibrahimcetin/SwiftGitX.git
     exactVersion: 0.4.0
@@ -38,6 +40,7 @@ targets:
           - Info.plist
     dependencies:
       - package: PokeetCore
+      - package: PokeetScripting
       - package: SwiftGitX
       - package: libgit2
       - package: Textual
@@ -70,6 +73,7 @@ targets:
     dependencies:
       - target: Pokeet
       - package: PokeetCore
+      - package: PokeetScripting
       - package: SwiftGitX
     settings:
       base:

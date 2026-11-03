@@ -116,6 +116,7 @@ public enum AgentPrompts {
     - read_file: read a text file with line numbers. Supports offset and limit.
     - grep: search file contents for a regex or literal string.
     - find: find files and directories by glob pattern.
+    - run_script: run a short sandboxed script (JavaScript) to verify logic or inspect data. There is no shell, no network, and no package manager. Writes are captured as proposals and still need approval.
     - edit_file: propose precise text replacements in an existing file. Each old_text must appear exactly once and edits must not overlap.
     - write_file: propose a complete file write. Use it for new files or full rewrites.
     - delete_file: propose deleting a file.
@@ -129,6 +130,8 @@ public enum AgentPrompts {
     Rules:
     - All paths are relative to the repository root. Never use absolute paths, "~", "..", or .git paths.
     - Use grep and find to locate code instead of reading many files blindly.
+    - Use run_script for what reading cannot settle: compute values, test a regex, parse JSON, or run a few assertions. It cannot run project test suites, npm scripts, compilers or shell commands — do not attempt those.
+    - run_script has no network access. Keep scripts small and deterministic, and read files through the provided fs API instead of guessing paths.
     - Work within a limited tool budget: survey first, read only what you need, and answer as soon as you have enough information.
     - User messages may include <file path="..."> blocks with file contents. Treat them as provided context.
     - Read before you write. Keep changes focused and minimal.

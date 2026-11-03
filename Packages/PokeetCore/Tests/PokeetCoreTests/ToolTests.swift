@@ -179,6 +179,7 @@ struct ToolTests {
             "move_file",
             "grep",
             "find",
+            "run_script",
             "git_status",
             "git_diff",
             "git_log",

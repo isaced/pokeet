@@ -39,6 +39,13 @@ struct ToolCapabilityTests {
                 .map(\.schema.name)
         )
         #expect(planningTools == ["submit_plan"])
+
+        let scriptTools = Set(
+            registry.tools
+                .filter { $0.capabilities.contains(.runScript) }
+                .map(\.schema.name)
+        )
+        #expect(scriptTools == ["run_script"])
     }
 
     @Test func planModeFiltersWriteTools() {
@@ -57,6 +64,7 @@ struct ToolCapabilityTests {
         #expect(names.contains("git_log"))
         #expect(names.contains("http_request"))
         #expect(names.contains("submit_plan"))
+        #expect(!names.contains("run_script"))
     }
 
     @Test func nonPlanModesExcludePlanningTools() {

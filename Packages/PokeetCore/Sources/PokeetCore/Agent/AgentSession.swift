@@ -10,6 +10,7 @@ public actor AgentSession {
     private let compactor: ContextCompactor
     private let summarizer: any ContextSummarizer
     private let instructions: ProjectInstructions
+    private let scripting: ScriptRuntimes?
     private var baseSystemPrompt: String
     private var mode: AgentMode
     private var networkPolicy: NetworkAccessPolicy
@@ -24,6 +25,7 @@ public actor AgentSession {
         systemPrompt: String = AgentPrompts.system,
         mode: AgentMode = .ask,
         networkPolicy: NetworkAccessPolicy = .init(),
+        scripting: ScriptRuntimes? = nil,
         config: AgentConfiguration = AgentConfiguration(),
         summarizer: (any ContextSummarizer)? = nil
     ) {
@@ -46,6 +48,7 @@ public actor AgentSession {
         self.baseSystemPrompt = systemPrompt
         self.mode = mode
         self.networkPolicy = networkPolicy
+        self.scripting = scripting
         self.messages = [.system(instructions.compose(with: systemPrompt + mode.promptGuidance))]
     }
 
@@ -376,7 +379,8 @@ public actor AgentSession {
         let context = ToolContext(
             workspace: workspace,
             git: git,
-            networkPolicy: networkPolicy
+            networkPolicy: networkPolicy,
+            scripting: scripting
         )
         let timeout = config.toolTimeoutMilliseconds
         var actions = [ActionRequest?](repeating: nil, count: calls.count)
@@ -661,6 +665,16 @@ public actor AgentSession {
 
         if let detail = gitDetail(for: call.name, arguments: object) {
             return detail
+        }
+
+        if call.name == RunScriptTool.toolName {
+            if let path = nonEmpty(object["path"]) {
+                return path
+            }
+            if let script = object["script"] as? String {
+                let runtime = nonEmpty(object["runtime"]) ?? "javascript"
+                return "\(runtime) · \(script.split(separator: "\n").count) lines"
+            }
         }
 
         if let from = object["from"] as? String,

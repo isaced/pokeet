@@ -16,15 +16,18 @@ public struct ToolContext: Sendable {
     public let workspace: any Workspace
     public let git: (any GitInspecting)?
     public let networkPolicy: NetworkAccessPolicy
+    public let scripting: ScriptRuntimes?
 
     public init(
         workspace: any Workspace,
         git: (any GitInspecting)? = nil,
-        networkPolicy: NetworkAccessPolicy = .init()
+        networkPolicy: NetworkAccessPolicy = .init(),
+        scripting: ScriptRuntimes? = nil
     ) {
         self.workspace = workspace
         self.git = git
         self.networkPolicy = networkPolicy
+        self.scripting = scripting
     }
 }
 
@@ -34,6 +37,7 @@ public enum ToolCapability: String, Sendable, Hashable, CaseIterable {
     case gitRead
     case network
     case planning
+    case runScript
 }
 
 public protocol AgentTool: Sendable {
@@ -66,6 +70,7 @@ public struct ToolRegistry: Sendable {
             MoveFileTool(),
             GrepTool(),
             FindTool(),
+            RunScriptTool(),
             GitStatusTool(),
             GitDiffTool(),
             GitLogTool(),

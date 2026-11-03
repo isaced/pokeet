@@ -144,7 +144,8 @@ final class ChatViewModel {
             networkPolicy: NetworkAccessPolicy(
                 isEnabled: environment.settings.networkEnabled,
                 allowedHosts: Self.parseHosts(environment.settings.networkAllowedHosts)
-            )
+            ),
+            scripting: environment.scripting
         )
 
         coordinator.onPending = { [weak self] proposals in

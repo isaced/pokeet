@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import PokeetCore
+import PokeetScripting
 
 @MainActor
 @Observable
@@ -9,6 +10,7 @@ final class AppEnvironment {
     let projects: ProjectStore
     let sessions: SessionStore
     let git: any GitServicing & GitInspecting
+    let scripting: ScriptRuntimes
 
     init() {
         settings = AppSettings()
@@ -23,5 +25,7 @@ final class AppEnvironment {
         )
 
         git = SwiftGitXGitService()
+        // QuickJS runs on-device with interrupt and memory limits; see RunScriptTool.
+        scripting = ScriptRuntimes([QuickJSRuntime()])
     }
 }

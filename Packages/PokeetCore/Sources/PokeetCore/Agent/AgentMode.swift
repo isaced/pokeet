@@ -62,7 +62,7 @@ public enum AgentMode: String, Codable, Sendable, CaseIterable, Identifiable, Ha
 
             Current mode: Plan (read-only).
             You can inspect the repository and fetch public HTTPS URLs, but you cannot change files.
-            write_file, edit_file, delete_file, and move_file are disabled in this mode.
+            write_file, edit_file, delete_file, move_file and run_script are disabled in this mode.
             http_request is limited to GET and HEAD in this mode.
             Use the read-only tools to investigate. When your investigation is complete, call
             submit_plan with a title, summary, and concrete steps (title/detail/files).

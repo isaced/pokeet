@@ -188,6 +188,7 @@ struct TraceStepRow: View {
         case "git_diff": "Git diff"
         case "git_log": "Git log"
         case "http_request": "Requested"
+        case "run_script": "Ran"
         case "submit_plan": "Planned"
         default: name
         }
@@ -204,6 +205,7 @@ struct TraceStepRow: View {
         case "move_file": "arrow.turn.down.right"
         case "git_status", "git_diff", "git_log": "arrow.triangle.branch"
         case "http_request": "network"
+        case "run_script": "chevron.left.forwardslash.chevron.right"
         case "submit_plan": "list.bullet.rectangle"
         default: "wrench.and.screwdriver"
         }
