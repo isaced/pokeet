@@ -264,9 +264,7 @@ private struct DiffText: View {
     let path: String
 
     @Environment(\.colorScheme) private var colorScheme
-    @State private var oldHighlighted: [AttributedString]?
-    @State private var newHighlighted: [AttributedString]?
-    @State private var highlightRevision = UUID()
+    @State private var highlight = DiffHighlight.none
 
     private var document: DiffDocument {
         DiffDocument(text)
@@ -292,11 +290,28 @@ private struct DiffText: View {
             }
         }
         .task(id: colorScheme) {
-            await highlight()
+            await loadHighlight()
         }
         .onChange(of: text) { _, _ in
-            Task { await highlight() }
+            Task { await loadHighlight() }
         }
+    }
+
+    private func loadHighlight() async {
+        let document = DiffDocument(text)
+        guard !document.oldText.isEmpty || !document.newText.isEmpty else {
+            highlight = .none
+            return
+        }
+
+        let loaded = await DiffHighlight.load(
+            path: path,
+            oldText: document.oldText,
+            newText: document.newText,
+            isDark: colorScheme == .dark
+        )
+        guard !Task.isCancelled else { return }
+        highlight = loaded
     }
 
     private func attributedLine(_ line: DiffDocument.Line) -> AttributedString {
@@ -307,67 +322,20 @@ private struct DiffText: View {
         var result = AttributedString(prefix)
         result.foregroundColor = prefixColor(for: line.kind)
 
-        let highlighted: AttributedString?
+        let contents: AttributedString?
         switch line.kind {
         case .added:
-            highlighted = highlightedLine(line.newIndex, in: newHighlighted)
+            contents = highlight.line(oldIndex: nil, newIndex: line.newIndex)
         case .removed:
-            highlighted = highlightedLine(line.oldIndex, in: oldHighlighted)
+            contents = highlight.line(oldIndex: line.oldIndex, newIndex: nil)
         case .context:
-            highlighted = highlightedLine(line.newIndex, in: newHighlighted)
-                ?? highlightedLine(line.oldIndex, in: oldHighlighted)
+            contents = highlight.line(oldIndex: line.oldIndex, newIndex: line.newIndex)
         default:
-            highlighted = nil
+            contents = nil
         }
 
-        result.append(highlighted ?? AttributedString(line.content))
+        result.append(contents ?? AttributedString(line.content))
         return result
-    }
-
-    private func highlightedLine(
-        _ index: Int?,
-        in lines: [AttributedString]?
-    ) -> AttributedString? {
-        guard let index, let lines, lines.indices.contains(index) else {
-            return nil
-        }
-        return lines[index]
-    }
-
-    private func highlight() async {
-        guard let language = CodeLanguage.alias(for: path) else {
-            oldHighlighted = nil
-            newHighlighted = nil
-            return
-        }
-
-        let document = DiffDocument(text)
-        guard !document.oldText.isEmpty || !document.newText.isEmpty else {
-            oldHighlighted = nil
-            newHighlighted = nil
-            return
-        }
-
-        let revision = UUID()
-        highlightRevision = revision
-        let isDark = colorScheme == .dark
-
-        let old = document.oldText.isEmpty ? nil : await CodeHighlighter.highlight(
-            text: document.oldText,
-            language: language,
-            isDark: isDark,
-            expectedLineCount: document.oldLineCount
-        )
-        let new = document.newText.isEmpty ? nil : await CodeHighlighter.highlight(
-            text: document.newText,
-            language: language,
-            isDark: isDark,
-            expectedLineCount: document.newLineCount
-        )
-
-        guard !Task.isCancelled, highlightRevision == revision else { return }
-        oldHighlighted = old
-        newHighlighted = new
     }
 
     private func foreground(for kind: DiffLineKind) -> Color {

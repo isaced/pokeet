@@ -8,6 +8,9 @@ struct ProposalCard: View {
     let onToggleFile: () -> Void
     let onEditNote: () -> Void
 
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var highlight = DiffHighlight.none
+
     private let maxLinesPerHunk = 300
 
     private var allHunkIDs: Set<DiffHunk.ID> {
@@ -39,6 +42,39 @@ struct ProposalCard: View {
         .padding()
         .background(Color(.secondarySystemBackground))
         .clipShape(RoundedRectangle(cornerRadius: 14))
+        .task(id: colorScheme) {
+            await loadHighlight()
+        }
+    }
+
+    private func loadHighlight() async {
+        guard proposal.kind != .move, !proposal.diff.hunks.isEmpty else {
+            highlight = .none
+            return
+        }
+
+        let loaded = await DiffHighlight.load(
+            path: proposal.path,
+            oldText: proposal.baseContent ?? "",
+            newText: proposal.newContent,
+            isDark: colorScheme == .dark
+        )
+        guard !Task.isCancelled else { return }
+        highlight = loaded
+    }
+
+    private func highlightedContent(for line: DiffLine) -> AttributedString? {
+        switch line.kind {
+        case .added:
+            highlight.line(oldIndex: nil, newIndex: line.newNumber.map { $0 - 1 })
+        case .removed:
+            highlight.line(oldIndex: line.oldNumber.map { $0 - 1 }, newIndex: nil)
+        case .context:
+            highlight.line(
+                oldIndex: line.oldNumber.map { $0 - 1 },
+                newIndex: line.newNumber.map { $0 - 1 }
+            )
+        }
     }
 
     private var header: some View {
@@ -156,7 +192,10 @@ struct ProposalCard: View {
                                     Array(hunk.lines.prefix(maxLinesPerHunk).enumerated()),
                                     id: \.offset
                                 ) { _, line in
-                                    DiffRow(line: line)
+                                    DiffRow(
+                                        line: line,
+                                        highlighted: highlightedContent(for: line)
+                                    )
                                 }
 
                                 if hunk.lines.count > maxLinesPerHunk {
@@ -238,6 +277,7 @@ struct ProposalCard: View {
 
 private struct DiffRow: View {
     let line: DiffLine
+    let highlighted: AttributedString?
 
     var body: some View {
         HStack(spacing: 6) {
@@ -246,13 +286,20 @@ private struct DiffRow: View {
                 .foregroundStyle(.secondary)
             Text(prefix)
                 .frame(width: 10)
-            Text(line.text.isEmpty ? " " : line.text)
+            Text(content)
         }
         .font(.system(.caption, design: .monospaced))
         .padding(.horizontal, 6)
         .padding(.vertical, 1)
         .background(background)
         .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var content: AttributedString {
+        if let highlighted, !highlighted.characters.isEmpty {
+            return highlighted
+        }
+        return AttributedString(line.text.isEmpty ? " " : line.text)
     }
 
     private var lineNumber: String {
