@@ -15,6 +15,7 @@ struct MessageBubble: View, Equatable {
             && a.isStreaming == b.isStreaming
             && a.filePaths == b.filePaths
             && a.images.count == b.images.count
+            && a.reasoningDuration == b.reasoningDuration
     }
 
     var body: some View {
@@ -43,7 +44,11 @@ struct MessageBubble: View, Equatable {
                 }
             }
         case .reasoning:
-            ReasoningBubble(text: bubble.text, isStreaming: bubble.isStreaming)
+            ReasoningBubble(
+                text: bubble.text,
+                isStreaming: bubble.isStreaming,
+                duration: bubble.reasoningDuration
+            )
         case .assistant:
             HStack {
                 Group {

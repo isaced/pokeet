@@ -41,19 +41,22 @@ struct StoredBubble: Codable, Sendable, Equatable {
     let text: String
     let images: [StoredImageRef]?
     let filePaths: [String]?
+    let reasoningDuration: TimeInterval?
 
     init(
         id: UUID,
         role: String,
         text: String,
         images: [StoredImageRef]? = nil,
-        filePaths: [String]? = nil
+        filePaths: [String]? = nil,
+        reasoningDuration: TimeInterval? = nil
     ) {
         self.id = id
         self.role = role
         self.text = text
         self.images = images
         self.filePaths = filePaths
+        self.reasoningDuration = reasoningDuration
     }
 }
 
@@ -63,19 +66,22 @@ struct SessionBubble: Sendable, Equatable {
     let text: String
     let images: [ChatImage]
     let filePaths: [String]
+    let reasoningDuration: TimeInterval?
 
     init(
         id: UUID,
         role: String,
         text: String,
         images: [ChatImage] = [],
-        filePaths: [String] = []
+        filePaths: [String] = [],
+        reasoningDuration: TimeInterval? = nil
     ) {
         self.id = id
         self.role = role
         self.text = text
         self.images = images
         self.filePaths = filePaths
+        self.reasoningDuration = reasoningDuration
     }
 }
 
@@ -259,7 +265,8 @@ actor SessionStore {
                 images: (stored.images ?? []).compactMap {
                     SnapshotImageStore.image(for: $0, in: urls.imagesDirectory)
                 },
-                filePaths: stored.filePaths ?? []
+                filePaths: stored.filePaths ?? [],
+                reasoningDuration: stored.reasoningDuration
             )
         }
         return SessionSnapshot(
@@ -435,7 +442,8 @@ actor SessionStore {
                 role: bubble.role,
                 text: bubble.text,
                 images: refs.isEmpty ? nil : refs,
-                filePaths: bubble.filePaths.isEmpty ? nil : bubble.filePaths
+                filePaths: bubble.filePaths.isEmpty ? nil : bubble.filePaths,
+                reasoningDuration: bubble.reasoningDuration
             )
         }
         return SessionHeader(

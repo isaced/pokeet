@@ -50,7 +50,12 @@ final class SessionStoreTests: XCTestCase {
                 images: [image],
                 filePaths: ["Sources/main.swift"]
             ),
-            SessionBubble(id: UUID(), role: "reasoning", text: "thinking"),
+            SessionBubble(
+                id: UUID(),
+                role: "reasoning",
+                text: "thinking",
+                reasoningDuration: 3.2
+            ),
             SessionBubble(id: UUID(), role: "assistant", text: "done")
         ]
         var cacheStats = CacheStats()
@@ -71,6 +76,10 @@ final class SessionStoreTests: XCTestCase {
 
         let loaded = await store.load(projectName: "demo", sessionID: session.id)
         XCTAssertEqual(loaded, snapshot)
+        XCTAssertEqual(
+            loaded?.bubbles.first(where: { $0.role == "reasoning" })?.reasoningDuration,
+            3.2
+        )
 
         let loadedMessages = await store.loadMessages(projectName: "demo", sessionID: session.id)
         XCTAssertEqual(loadedMessages, messages)

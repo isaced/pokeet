@@ -1,12 +1,13 @@
+import Foundation
 import SwiftUI
 
 struct ReasoningBubble: View {
     let text: String
     let isStreaming: Bool
+    let duration: TimeInterval?
 
     @State private var isExpanded = false
     @State private var startedAt: Date?
-    @State private var finishedDuration: TimeInterval?
 
     private let previewHeight: CGFloat = 54
     private let expandedHeight: CGFloat = 150
@@ -17,9 +18,10 @@ struct ReasoningBubble: View {
     private let expandedTextID = "reasoning-expanded-text"
     private let expandedBottomID = "reasoning-expanded-bottom"
 
-    init(text: String, isStreaming: Bool) {
+    init(text: String, isStreaming: Bool, duration: TimeInterval? = nil) {
         self.text = text
         self.isStreaming = isStreaming
+        self.duration = duration
         _startedAt = State(initialValue: isStreaming ? Date() : nil)
     }
 
@@ -44,11 +46,6 @@ struct ReasoningBubble: View {
                 .stroke(Color.primary.opacity(0.06), lineWidth: 1)
         )
         .animation(.easeInOut(duration: 0.2), value: isCompact)
-        .onChange(of: isStreaming) { _, streaming in
-            if !streaming, let startedAt {
-                finishedDuration = Date().timeIntervalSince(startedAt)
-            }
-        }
     }
 
     private var isCompact: Bool {
@@ -78,6 +75,8 @@ struct ReasoningBubble: View {
             Text(compactTitle)
                 .font(.caption.weight(.medium))
                 .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
 
             Spacer(minLength: 8)
 
@@ -89,10 +88,19 @@ struct ReasoningBubble: View {
     }
 
     private var compactTitle: String {
-        if let finishedDuration {
-            return "Thought for \(durationLabel(finishedDuration))"
+        if let duration {
+            return "Thought for \(durationLabel(duration))"
         }
-        return "Thought process"
+        return reasoningSnippet
+    }
+
+    private var reasoningSnippet: String {
+        let firstLine = text.components(separatedBy: .newlines).first ?? text
+        let trimmed = firstLine.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return "Thought process"
+        }
+        return trimmed.count > 52 ? String(trimmed.prefix(52)) + "…" : trimmed
     }
 
     private var regularHeader: some View {
@@ -131,8 +139,8 @@ struct ReasoningBubble: View {
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 Text(thinkingTitle(at: context.date))
             }
-        } else if let finishedDuration {
-            Text("Thought for \(durationLabel(finishedDuration))")
+        } else if let duration {
+            Text("Thought for \(durationLabel(duration))")
         } else {
             Text("Thought process")
         }

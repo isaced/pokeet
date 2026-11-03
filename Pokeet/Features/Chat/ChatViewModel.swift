@@ -25,6 +25,7 @@ final class ChatViewModel {
         var isStreaming: Bool
         var images: [ChatImage]
         var filePaths: [String]
+        var reasoningDuration: TimeInterval?
 
         init(
             id: UUID = UUID(),
@@ -32,7 +33,8 @@ final class ChatViewModel {
             text: String,
             isStreaming: Bool = false,
             images: [ChatImage] = [],
-            filePaths: [String] = []
+            filePaths: [String] = [],
+            reasoningDuration: TimeInterval? = nil
         ) {
             self.id = id
             self.role = role
@@ -40,6 +42,7 @@ final class ChatViewModel {
             self.isStreaming = isStreaming
             self.images = images
             self.filePaths = filePaths
+            self.reasoningDuration = reasoningDuration
         }
     }
 
@@ -102,6 +105,7 @@ final class ChatViewModel {
     private var lastRequest = ""
     private var streamingBubbleID: UUID?
     private var reasoningBubbleID: UUID?
+    private var reasoningStartedAt: Date?
     private var runningToolCount = 0
     private var streamBuffer = StreamBuffer()
     private var streamFlushTask: Task<Void, Never>?
@@ -532,6 +536,7 @@ final class ChatViewModel {
         coordinator.reset()
         actionCoordinator.reset()
         reasoningBubbleID = nil
+        reasoningStartedAt = nil
         isRunning = true
         errorMessage = nil
         status = "Thinking…"
@@ -641,6 +646,9 @@ final class ChatViewModel {
             stats.record(usage)
             cacheStats = stats
         case .assistantReasoningDelta(let delta):
+            if reasoningStartedAt == nil {
+                reasoningStartedAt = Date()
+            }
             streamBuffer.appendReasoning(delta)
             scheduleStreamFlush()
         case .assistantTextDelta(let delta):
@@ -813,7 +821,8 @@ final class ChatViewModel {
                 role: $0.role.rawValue,
                 text: $0.text,
                 images: $0.images,
-                filePaths: $0.filePaths
+                filePaths: $0.filePaths,
+                reasoningDuration: $0.reasoningDuration
             )
         }
         return SessionSnapshot(
@@ -870,6 +879,10 @@ final class ChatViewModel {
     private func appendReasoningDelta(_ delta: String) {
         guard !delta.isEmpty else { return }
 
+        if reasoningStartedAt == nil {
+            reasoningStartedAt = Date()
+        }
+
         if let id = reasoningBubbleID, let index = bubbleIndex(of: id) {
             bubbles[index].text += delta
             return
@@ -883,6 +896,8 @@ final class ChatViewModel {
 
     private func finalizeReasoningBubble() {
         flushReasoningBuffer()
+        let duration = reasoningStartedAt.map { Date().timeIntervalSince($0) }
+        reasoningStartedAt = nil
         guard let id = reasoningBubbleID else { return }
         reasoningBubbleID = nil
 
@@ -890,6 +905,9 @@ final class ChatViewModel {
             return
         }
 
+        if let duration {
+            bubbles[index].reasoningDuration = duration
+        }
         bubbles[index].isStreaming = false
     }
 
@@ -964,7 +982,8 @@ final class ChatViewModel {
                 role: role,
                 text: stored.text,
                 images: stored.images,
-                filePaths: stored.filePaths
+                filePaths: stored.filePaths,
+                reasoningDuration: stored.reasoningDuration
             )
         }
         pager.reset(total: bubbles.count)
