@@ -63,7 +63,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.isaced.pokeet
         GENERATE_INFOPLIST_FILE: NO
-        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+        ASSETCATALOG_COMPILER_APPICON_NAME: "AppIcon"
 
   PokeetTests:
     type: bundle.unit-test

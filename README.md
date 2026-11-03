@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/images/app-icon.png" width="128" height="128" alt="Pokeet app icon">
+
 # Pokeet
 
 **Poke it, it ships.**
