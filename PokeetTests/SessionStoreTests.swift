@@ -56,7 +56,12 @@ final class SessionStoreTests: XCTestCase {
                 text: "thinking",
                 reasoningDuration: 3.2
             ),
-            SessionBubble(id: UUID(), role: "assistant", text: "done")
+            SessionBubble(
+                id: UUID(),
+                role: "assistant",
+                text: "done",
+                runDuration: 12.5
+            )
         ]
         var cacheStats = CacheStats()
         cacheStats.record(ModelUsage(
@@ -79,6 +84,10 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertEqual(
             loaded?.bubbles.first(where: { $0.role == "reasoning" })?.reasoningDuration,
             3.2
+        )
+        XCTAssertEqual(
+            loaded?.bubbles.first(where: { $0.role == "assistant" })?.runDuration,
+            12.5
         )
 
         let loadedMessages = await store.loadMessages(projectName: "demo", sessionID: session.id)

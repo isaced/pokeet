@@ -60,12 +60,8 @@ struct MessageBubble: View, Equatable {
                             .textual.textSelection(.enabled)
                     }
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
                 .foregroundStyle(.primary)
-                .background(Color(.secondarySystemBackground).opacity(0.7))
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                Spacer(minLength: 32)
+                Spacer(minLength: 0)
             }
         case .tool:
             HStack(alignment: .center, spacing: 6) {
@@ -81,6 +77,15 @@ struct MessageBubble: View, Equatable {
                     .font(.caption.monospaced())
                     .lineLimit(2)
                     .truncationMode(.middle)
+            }
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        case .notice:
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Image(systemName: "info.circle")
+                    .font(.caption2)
+                Text(bubble.text)
+                    .font(.caption)
             }
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)

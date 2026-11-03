@@ -16,6 +16,7 @@ final class ChatViewModel {
             case assistant
             case reasoning
             case tool
+            case notice
             case error
         }
 
@@ -26,6 +27,7 @@ final class ChatViewModel {
         var images: [ChatImage]
         var filePaths: [String]
         var reasoningDuration: TimeInterval?
+        var runDuration: TimeInterval?
 
         init(
             id: UUID = UUID(),
@@ -34,7 +36,8 @@ final class ChatViewModel {
             isStreaming: Bool = false,
             images: [ChatImage] = [],
             filePaths: [String] = [],
-            reasoningDuration: TimeInterval? = nil
+            reasoningDuration: TimeInterval? = nil,
+            runDuration: TimeInterval? = nil
         ) {
             self.id = id
             self.role = role
@@ -43,6 +46,7 @@ final class ChatViewModel {
             self.images = images
             self.filePaths = filePaths
             self.reasoningDuration = reasoningDuration
+            self.runDuration = runDuration
         }
     }
 
@@ -106,6 +110,7 @@ final class ChatViewModel {
     private var streamingBubbleID: UUID?
     private var reasoningBubbleID: UUID?
     private var reasoningStartedAt: Date?
+    private var runStartedAt: Date?
     private var runningToolCount = 0
     private var toolBubbleIDs: [String: UUID] = [:]
     private var streamBuffer = StreamBuffer()
@@ -515,7 +520,7 @@ final class ChatViewModel {
                 message: commitMessage.isEmpty ? "Pokeet changes" : commitMessage,
                 author: environment.settings.gitAuthor
             )
-            bubbles.append(Bubble(role: .tool, text: "Committed \(hash.prefix(8))."))
+            bubbles.append(Bubble(role: .notice, text: "Committed \(hash.prefix(8))."))
 
             do {
                 try await environment.git.push(
@@ -539,6 +544,7 @@ final class ChatViewModel {
         actionCoordinator.reset()
         reasoningBubbleID = nil
         reasoningStartedAt = nil
+        runStartedAt = Date()
         isRunning = true
         errorMessage = nil
         status = "Thinking…"
@@ -614,6 +620,7 @@ final class ChatViewModel {
             planIsExecuting = false
         }
 
+        recordRunDuration()
         await saveSession()
         await refreshStatus()
 
@@ -632,7 +639,7 @@ final class ChatViewModel {
             cacheStats = stats
             status = "Thinking…"
             bubbles.append(Bubble(
-                role: .tool,
+                role: .notice,
                 text: success
                     ? "Context summarized to fit the model window."
                     : "Context summary failed; using truncation."
@@ -640,7 +647,7 @@ final class ChatViewModel {
         case .retryScheduled(let attempt, let maxAttempts, let delayMilliseconds, let reason):
             status = "Retrying \(attempt)/\(maxAttempts) in \(delayMilliseconds)ms…"
             bubbles.append(Bubble(
-                role: .tool,
+                role: .notice,
                 text: "Retry \(attempt)/\(maxAttempts): \(reason)"
             ))
         case .assistantResponseRestarted:
@@ -709,7 +716,7 @@ final class ChatViewModel {
             }
             guard modeSnapshot == .auto || modeSnapshot == .bypass else { break }
             for change in changes where change.didWrite {
-                bubbles.append(Bubble(role: .tool, text: change.message))
+                bubbles.append(Bubble(role: .notice, text: change.message))
             }
             scheduleCheckpoint(immediate: true)
         case .planSubmitted(let plan):
@@ -839,7 +846,8 @@ final class ChatViewModel {
                 text: $0.text,
                 images: $0.images,
                 filePaths: $0.filePaths,
-                reasoningDuration: $0.reasoningDuration
+                reasoningDuration: $0.reasoningDuration,
+                runDuration: $0.runDuration
             )
         }
         return SessionSnapshot(
@@ -862,6 +870,15 @@ final class ChatViewModel {
             bubbles[index].isStreaming = false
         }
         toolBubbleIDs.removeAll()
+    }
+
+    private func recordRunDuration() {
+        guard let start = runStartedAt else { return }
+        runStartedAt = nil
+        guard let lastUser = bubbles.lastIndex(where: { $0.role == .user }),
+              lastUser + 1 < bubbles.endIndex
+        else { return }
+        bubbles[bubbles.endIndex - 1].runDuration = Date().timeIntervalSince(start)
     }
 
     private func bubbleIndex(of id: UUID) -> Int? {
@@ -1008,7 +1025,8 @@ final class ChatViewModel {
                 text: stored.text,
                 images: stored.images,
                 filePaths: stored.filePaths,
-                reasoningDuration: stored.reasoningDuration
+                reasoningDuration: stored.reasoningDuration,
+                runDuration: stored.runDuration
             )
         }
         pager.reset(total: bubbles.count)

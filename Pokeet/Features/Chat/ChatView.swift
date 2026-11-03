@@ -17,7 +17,8 @@ struct ChatView: View {
     @State private var isShowingAppliedChanges = false
     @State private var isShowingPhotoPicker = false
     @State private var photoPickerItems: [PhotosPickerItem] = []
-    @State private var pendingAnchorID: UUID?
+    @State private var pendingAnchorID: String?
+    @State private var traceOverrides: [UUID: Bool] = [:]
     @State private var isPinnedToBottom = true
     private let git: any GitInspecting
 
@@ -173,16 +174,15 @@ struct ChatView: View {
     private var messageList: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 14) {
+                LazyVStack(alignment: .leading, spacing: 12) {
                     if model.bubbles.isEmpty {
                         emptyState
                             .padding(.top, 64)
                     }
 
-                    ForEach(model.visibleBubbles) { bubble in
-                        MessageBubble(bubble: bubble)
-                            .equatable()
-                            .id(bubble.id)
+                    ForEach(rows) { row in
+                        rowView(row)
+                            .id(row.id)
                     }
                 }
                 .padding(.horizontal, 16)
@@ -190,29 +190,76 @@ struct ChatView: View {
             }
             .defaultScrollAnchor(.bottom)
             .scrollDismissesKeyboard(.interactively)
-            .onChange(of: model.visibleBubbles.last?.id) { _, _ in
-                guard let last = model.visibleBubbles.last else { return }
+            .onChange(of: rows.last?.id) { _, _ in
+                guard let last = rows.last?.id else { return }
                 withAnimation {
-                    proxy.scrollTo(last.id, anchor: .bottom)
+                    proxy.scrollTo(last, anchor: .bottom)
                 }
             }
             .onChange(of: model.streamRevision) { _, _ in
-                guard isPinnedToBottom, let last = model.visibleBubbles.last else { return }
-                proxy.scrollTo(last.id, anchor: .bottom)
+                guard isPinnedToBottom, let last = rows.last?.id else { return }
+                proxy.scrollTo(last, anchor: .bottom)
             }
-            .onChange(of: model.visibleBubbles.first?.id) { _, _ in
+            .onChange(of: rows.first?.id) { _, _ in
                 restorePendingAnchor(using: proxy)
+            }
+            .onChange(of: model.isRunning) { _, running in
+                guard !running, isPinnedToBottom, let last = rows.last?.id else { return }
+                withAnimation {
+                    proxy.scrollTo(last, anchor: .bottom)
+                }
             }
             .onScrollGeometryChange(for: Bool.self) { geometry in
                 geometry.contentOffset.y + geometry.contentInsets.top < 2
             } action: { _, isAtTop in
                 guard isAtTop, model.hasOlderBubbles else { return }
-                pendingAnchorID = model.loadOlderBubbles()
+                pendingAnchorID = rows.first?.id
+                model.loadOlderBubbles()
             }
             .onScrollGeometryChange(for: Bool.self) { geometry in
                 geometry.visibleRect.maxY >= geometry.contentSize.height - 80
             } action: { _, pinned in
                 isPinnedToBottom = pinned
+            }
+        }
+    }
+
+    private var rows: [ChatRow] {
+        ChatTranscriptBuilder.rows(
+            from: model.visibleBubbles,
+            isRunning: model.isRunning,
+            overrides: traceOverrides
+        )
+    }
+
+    @ViewBuilder
+    private func rowView(_ row: ChatRow) -> some View {
+        switch row {
+        case .turnHeader(let header):
+            TurnHeaderRow(header: header) {
+                withAnimation(.snappy(duration: 0.22)) {
+                    traceOverrides[header.id] = !header.isExpanded
+                }
+            }
+        case .bubble(let bubble, let presentation):
+            switch presentation {
+            case .normal:
+                MessageBubble(bubble: bubble)
+                    .equatable()
+            case .trace:
+                if bubble.role == .reasoning {
+                    ReasoningBubble(
+                        text: bubble.text,
+                        isStreaming: bubble.isStreaming,
+                        duration: bubble.reasoningDuration
+                    )
+                } else {
+                    TraceStepRow(bubble: bubble, isNotice: false)
+                }
+            case .traceText:
+                TraceAssistantText(bubble: bubble)
+            case .notice:
+                TraceStepRow(bubble: bubble, isNotice: true)
             }
         }
     }

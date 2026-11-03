@@ -42,6 +42,7 @@ struct StoredBubble: Codable, Sendable, Equatable {
     let images: [StoredImageRef]?
     let filePaths: [String]?
     let reasoningDuration: TimeInterval?
+    let runDuration: TimeInterval?
 
     init(
         id: UUID,
@@ -49,7 +50,8 @@ struct StoredBubble: Codable, Sendable, Equatable {
         text: String,
         images: [StoredImageRef]? = nil,
         filePaths: [String]? = nil,
-        reasoningDuration: TimeInterval? = nil
+        reasoningDuration: TimeInterval? = nil,
+        runDuration: TimeInterval? = nil
     ) {
         self.id = id
         self.role = role
@@ -57,6 +59,7 @@ struct StoredBubble: Codable, Sendable, Equatable {
         self.images = images
         self.filePaths = filePaths
         self.reasoningDuration = reasoningDuration
+        self.runDuration = runDuration
     }
 }
 
@@ -67,6 +70,7 @@ struct SessionBubble: Sendable, Equatable {
     let images: [ChatImage]
     let filePaths: [String]
     let reasoningDuration: TimeInterval?
+    let runDuration: TimeInterval?
 
     init(
         id: UUID,
@@ -74,7 +78,8 @@ struct SessionBubble: Sendable, Equatable {
         text: String,
         images: [ChatImage] = [],
         filePaths: [String] = [],
-        reasoningDuration: TimeInterval? = nil
+        reasoningDuration: TimeInterval? = nil,
+        runDuration: TimeInterval? = nil
     ) {
         self.id = id
         self.role = role
@@ -82,6 +87,7 @@ struct SessionBubble: Sendable, Equatable {
         self.images = images
         self.filePaths = filePaths
         self.reasoningDuration = reasoningDuration
+        self.runDuration = runDuration
     }
 }
 
@@ -266,7 +272,8 @@ actor SessionStore {
                     SnapshotImageStore.image(for: $0, in: urls.imagesDirectory)
                 },
                 filePaths: stored.filePaths ?? [],
-                reasoningDuration: stored.reasoningDuration
+                reasoningDuration: stored.reasoningDuration,
+                runDuration: stored.runDuration
             )
         }
         return SessionSnapshot(
@@ -443,7 +450,8 @@ actor SessionStore {
                 text: bubble.text,
                 images: refs.isEmpty ? nil : refs,
                 filePaths: bubble.filePaths.isEmpty ? nil : bubble.filePaths,
-                reasoningDuration: bubble.reasoningDuration
+                reasoningDuration: bubble.reasoningDuration,
+                runDuration: bubble.runDuration
             )
         }
         return SessionHeader(
