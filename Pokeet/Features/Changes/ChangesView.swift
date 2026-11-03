@@ -155,7 +155,7 @@ private struct GitDiffDetailView: View {
                 VStack(spacing: 0) {
                     header
                     Divider()
-                    DiffText(text: text)
+                    DiffText(text: text, path: file.path)
                 }
             } else {
                 ProgressView("Loading diff…")
@@ -195,67 +195,137 @@ private struct GitDiffDetailView: View {
 
 private struct DiffText: View {
     let text: String
+    let path: String
 
-    private var lines: [String] {
-        text.components(separatedBy: "\n")
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var oldHighlighted: [AttributedString]?
+    @State private var newHighlighted: [AttributedString]?
+    @State private var highlightRevision = UUID()
+
+    private var document: DiffDocument {
+        DiffDocument(text)
     }
 
     var body: some View {
         GeometryReader { proxy in
             ScrollView([.horizontal, .vertical]) {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-                        Text(line.isEmpty ? " " : line)
+                    ForEach(document.lines) { line in
+                        Text(attributedLine(line))
                             .font(.system(size: 12, design: .monospaced))
-                            .foregroundStyle(foreground(for: line))
+                            .foregroundStyle(foreground(for: line.kind))
                             .fixedSize(horizontal: true, vertical: false)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 1)
                             .frame(minWidth: proxy.size.width, alignment: .leading)
-                            .background(background(for: line))
+                            .background(background(for: line.kind))
                     }
                 }
                 .padding(.vertical, 6)
                 .textSelection(.enabled)
             }
         }
-    }
-
-    private func kind(of line: String) -> Kind {
-        if line.hasPrefix("@@") { return .hunk }
-        if line.hasPrefix("+++") || line.hasPrefix("---") { return .fileHeader }
-        if line.hasPrefix("diff --git") || line.hasPrefix("index ") { return .metadata }
-        if line.hasPrefix("+") { return .added }
-        if line.hasPrefix("-") { return .removed }
-        if line.hasPrefix("New file:") { return .metadata }
-        return .context
-    }
-
-    private func foreground(for line: String) -> Color {
-        switch kind(of: line) {
-        case .hunk: .blue
-        case .fileHeader, .metadata: .secondary
-        case .added: .primary
-        case .removed: .primary
-        case .context: .primary
+        .task(id: colorScheme) {
+            await highlight()
+        }
+        .onChange(of: text) { _, _ in
+            Task { await highlight() }
         }
     }
 
-    private func background(for line: String) -> Color {
-        switch kind(of: line) {
+    private func attributedLine(_ line: DiffDocument.Line) -> AttributedString {
+        guard let prefix = line.prefix else {
+            return AttributedString(line.raw)
+        }
+
+        var result = AttributedString(prefix)
+        result.foregroundColor = prefixColor(for: line.kind)
+
+        let highlighted: AttributedString?
+        switch line.kind {
+        case .added:
+            highlighted = highlightedLine(line.newIndex, in: newHighlighted)
+        case .removed:
+            highlighted = highlightedLine(line.oldIndex, in: oldHighlighted)
+        case .context:
+            highlighted = highlightedLine(line.newIndex, in: newHighlighted)
+                ?? highlightedLine(line.oldIndex, in: oldHighlighted)
+        default:
+            highlighted = nil
+        }
+
+        result.append(highlighted ?? AttributedString(line.content))
+        return result
+    }
+
+    private func highlightedLine(
+        _ index: Int?,
+        in lines: [AttributedString]?
+    ) -> AttributedString? {
+        guard let index, let lines, lines.indices.contains(index) else {
+            return nil
+        }
+        return lines[index]
+    }
+
+    private func highlight() async {
+        guard let language = CodeLanguage.alias(for: path) else {
+            oldHighlighted = nil
+            newHighlighted = nil
+            return
+        }
+
+        let document = DiffDocument(text)
+        guard !document.oldText.isEmpty || !document.newText.isEmpty else {
+            oldHighlighted = nil
+            newHighlighted = nil
+            return
+        }
+
+        let revision = UUID()
+        highlightRevision = revision
+        let isDark = colorScheme == .dark
+
+        let old = document.oldText.isEmpty ? nil : await CodeHighlighter.highlight(
+            text: document.oldText,
+            language: language,
+            isDark: isDark,
+            expectedLineCount: document.oldLineCount
+        )
+        let new = document.newText.isEmpty ? nil : await CodeHighlighter.highlight(
+            text: document.newText,
+            language: language,
+            isDark: isDark,
+            expectedLineCount: document.newLineCount
+        )
+
+        guard !Task.isCancelled, highlightRevision == revision else { return }
+        oldHighlighted = old
+        newHighlighted = new
+    }
+
+    private func foreground(for kind: DiffLineKind) -> Color {
+        switch kind {
+        case .hunk: .blue
+        case .fileHeader, .metadata: .secondary
+        case .added, .removed, .context: .primary
+        }
+    }
+
+    private func prefixColor(for kind: DiffLineKind) -> Color {
+        switch kind {
+        case .added: .green
+        case .removed: .red
+        default: .secondary
+        }
+    }
+
+    private func background(for kind: DiffLineKind) -> Color {
+        switch kind {
         case .hunk: Color.blue.opacity(0.08)
         case .added: Color.green.opacity(0.14)
         case .removed: Color.red.opacity(0.14)
         default: .clear
         }
-    }
-
-    private enum Kind {
-        case added
-        case removed
-        case hunk
-        case fileHeader
-        case metadata
-        case context
     }
 }
