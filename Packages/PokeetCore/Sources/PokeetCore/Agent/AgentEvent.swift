@@ -75,6 +75,8 @@ public struct AgentConfiguration: Sendable {
     public var maxRetries: Int
     public var retryBaseDelayMilliseconds: Int
     public var maxOverflowRecoveries: Int
+    public var maxConcurrentReadTools: Int
+    public var toolTimeoutMilliseconds: Int
 
     public init(
         maxIterations: Int = 20,
@@ -84,7 +86,9 @@ public struct AgentConfiguration: Sendable {
         compactedToolOutputCharacters: Int = 8_000,
         maxRetries: Int = 3,
         retryBaseDelayMilliseconds: Int = 500,
-        maxOverflowRecoveries: Int = 1
+        maxOverflowRecoveries: Int = 1,
+        maxConcurrentReadTools: Int = 4,
+        toolTimeoutMilliseconds: Int = 60_000
     ) {
         self.maxIterations = maxIterations
         self.maxToolOutputBytes = maxToolOutputBytes
@@ -94,6 +98,8 @@ public struct AgentConfiguration: Sendable {
         self.maxRetries = max(0, maxRetries)
         self.retryBaseDelayMilliseconds = max(0, retryBaseDelayMilliseconds)
         self.maxOverflowRecoveries = max(0, maxOverflowRecoveries)
+        self.maxConcurrentReadTools = max(1, maxConcurrentReadTools)
+        self.toolTimeoutMilliseconds = max(1_000, toolTimeoutMilliseconds)
     }
 }
 

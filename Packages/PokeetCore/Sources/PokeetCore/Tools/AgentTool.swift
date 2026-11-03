@@ -79,6 +79,7 @@ public enum ToolError: Error, Sendable, Equatable, LocalizedError {
     case invalidInput(String)
     case workspace(String)
     case network(String)
+    case timedOut(String)
 
     public var errorDescription: String? {
         switch self {
@@ -90,6 +91,8 @@ public enum ToolError: Error, Sendable, Equatable, LocalizedError {
             message
         case .network(let message):
             message
+        case .timedOut(let name):
+            "Tool '\(name)' timed out."
         }
     }
 }

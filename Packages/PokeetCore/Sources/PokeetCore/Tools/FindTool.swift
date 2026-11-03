@@ -32,6 +32,7 @@ public struct FindTool: AgentTool {
     }
 
     public func execute(arguments: Data, context: ToolContext) async throws -> ToolOutput {
+        try Task.checkCancellation()
         struct Arguments: Decodable {
             let pattern: String
             let path: String?

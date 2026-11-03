@@ -29,6 +29,7 @@ public struct ListFilesTool: AgentTool {
     }
 
     public func execute(arguments: Data, context: ToolContext) async throws -> ToolOutput {
+        try Task.checkCancellation()
         struct Arguments: Decodable {
             var path: String?
             var recursive: Bool?

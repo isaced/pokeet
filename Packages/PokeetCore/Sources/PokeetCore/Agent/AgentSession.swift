@@ -211,50 +211,13 @@ public actor AgentSession {
                 return
             }
 
-            var executions: [ToolExecution] = []
-            var submittedPlan: AgentPlan?
-            for call in toolCalls {
-                if Task.isCancelled {
-                    throw AgentError.cancelled
-                }
-
-                await onEvent(.toolStarted(call.name))
-
-                guard let tool = registry.tool(named: call.name) else {
-                    let message = "Unknown tool '\(call.name)'."
-                    executions.append(ToolExecution(call: call, content: "Error: \(message)"))
-                    await onEvent(.toolFinished(name: call.name, summary: message))
-                    continue
-                }
-
-                guard activeMode.allows(tool.capabilities) else {
-                    let message = "Error: '\(call.name)' is disabled in \(activeMode.displayName) mode. "
-                        + "Investigate with read-only tools and present a plan; switch modes to apply changes."
-                    executions.append(ToolExecution(call: call, content: message))
-                    await onEvent(.toolFinished(name: call.name, summary: message))
-                    continue
-                }
-
-                do {
-                    let output = try await tool.execute(
-                        arguments: Data(call.arguments.utf8),
-                        context: ToolContext(workspace: workspace, git: git)
-                    )
-                    executions.append(ToolExecution(call: call, output: output))
-                    if let plan = output.plan {
-                        submittedPlan = plan
-                    }
-                    await onEvent(.toolFinished(
-                        name: call.name,
-                        summary: String(output.content.prefix(200))
-                    ))
-                } catch {
-                    let message = (error as? LocalizedError)?.errorDescription
-                        ?? error.localizedDescription
-                    executions.append(ToolExecution(call: call, content: "Error: \(message)"))
-                    await onEvent(.toolFinished(name: call.name, summary: message))
-                }
-            }
+            let toolRun = try await runTools(
+                toolCalls,
+                activeMode: activeMode,
+                onEvent: onEvent
+            )
+            let executions = toolRun.executions
+            let submittedPlan = toolRun.plan
 
             var proposalsByPath: [String: FileProposal] = [:]
             var proposalOwner: [String: String] = [:]
@@ -366,6 +329,210 @@ public actor AgentSession {
                 return
             }
         }
+    }
+
+    private static let readOnlyCapabilities: Set<ToolCapability> = [
+        .readFiles, .gitRead, .network
+    ]
+
+    private struct ToolRunResult: Sendable {
+        let executions: [ToolExecution]
+        let plan: AgentPlan?
+    }
+
+    private struct ToolOutcome: Sendable {
+        let index: Int
+        let execution: ToolExecution
+        let plan: AgentPlan?
+    }
+
+    private func runTools(
+        _ calls: [ToolCall],
+        activeMode: AgentMode,
+        onEvent: @escaping EventHandler
+    ) async throws -> ToolRunResult {
+        var slots = [ToolExecution?](repeating: nil, count: calls.count)
+        var submittedPlan: AgentPlan?
+        let context = ToolContext(workspace: workspace, git: git)
+        let timeout = config.toolTimeoutMilliseconds
+        var index = 0
+
+        while index < calls.count {
+            if Task.isCancelled {
+                throw AgentError.cancelled
+            }
+            let call = calls[index]
+
+            guard let tool = registry.tool(named: call.name) else {
+                await onEvent(.toolStarted(call.name))
+                let message = "Unknown tool '\(call.name)'."
+                slots[index] = ToolExecution(call: call, content: "Error: \(message)")
+                await onEvent(.toolFinished(name: call.name, summary: message))
+                index += 1
+                continue
+            }
+
+            guard activeMode.allows(tool.capabilities) else {
+                await onEvent(.toolStarted(call.name))
+                let message = "Error: '\(call.name)' is disabled in \(activeMode.displayName) mode. "
+                    + "Investigate with read-only tools and present a plan; switch modes to apply changes."
+                slots[index] = ToolExecution(call: call, content: message)
+                await onEvent(.toolFinished(name: call.name, summary: message))
+                index += 1
+                continue
+            }
+
+            let isReadOnly = !tool.capabilities.isEmpty
+                && tool.capabilities.isSubset(of: Self.readOnlyCapabilities)
+
+            if isReadOnly {
+                var end = index
+                while end < calls.count {
+                    guard let next = registry.tool(named: calls[end].name),
+                          activeMode.allows(next.capabilities),
+                          !next.capabilities.isEmpty,
+                          next.capabilities.isSubset(of: Self.readOnlyCapabilities)
+                    else {
+                        break
+                    }
+                    end += 1
+                }
+
+                let runCalls = Array(calls[index..<end])
+                for runCall in runCalls {
+                    await onEvent(.toolStarted(runCall.name))
+                }
+
+                let chunkSize = max(1, config.maxConcurrentReadTools)
+                var offset = 0
+                while offset < runCalls.count {
+                    if Task.isCancelled {
+                        throw AgentError.cancelled
+                    }
+                    let chunkEnd = min(offset + chunkSize, runCalls.count)
+                    let chunk = Array(runCalls[offset..<chunkEnd])
+                    let baseIndex = index + offset
+
+                    let results = await withTaskGroup(of: ToolOutcome.self) { group in
+                        for (chunkOffset, chunkCall) in chunk.enumerated() {
+                            guard let chunkTool = registry.tool(named: chunkCall.name) else {
+                                continue
+                            }
+                            let slotIndex = baseIndex + chunkOffset
+                            group.addTask { [timeout] in
+                                let execution = await Self.executeTool(
+                                    chunkTool,
+                                    call: chunkCall,
+                                    context: context,
+                                    timeoutMilliseconds: timeout
+                                )
+                                return ToolOutcome(
+                                    index: slotIndex,
+                                    execution: execution,
+                                    plan: execution.output?.plan
+                                )
+                            }
+                        }
+
+                        var collected: [ToolOutcome] = []
+                        for await outcome in group {
+                            collected.append(outcome)
+                        }
+                        return collected
+                    }
+
+                    for outcome in results.sorted(by: { $0.index < $1.index }) {
+                        slots[outcome.index] = outcome.execution
+                        if let plan = outcome.plan {
+                            submittedPlan = plan
+                        }
+                        await onEvent(.toolFinished(
+                            name: outcome.execution.call.name,
+                            summary: Self.summary(of: outcome.execution)
+                        ))
+                    }
+                    offset = chunkEnd
+                }
+
+                index = end
+            } else {
+                await onEvent(.toolStarted(call.name))
+                let execution = await Self.executeTool(
+                    tool,
+                    call: call,
+                    context: context,
+                    timeoutMilliseconds: timeout
+                )
+                slots[index] = execution
+                if let plan = execution.output?.plan {
+                    submittedPlan = plan
+                }
+                await onEvent(.toolFinished(
+                    name: call.name,
+                    summary: Self.summary(of: execution)
+                ))
+                index += 1
+            }
+        }
+
+        if Task.isCancelled {
+            throw AgentError.cancelled
+        }
+        return ToolRunResult(executions: slots.compactMap { $0 }, plan: submittedPlan)
+    }
+
+    private enum ToolAttempt: Sendable {
+        case success(ToolOutput)
+        case timedOut
+        case failure(String)
+    }
+
+    private nonisolated static func executeTool(
+        _ tool: any AgentTool,
+        call: ToolCall,
+        context: ToolContext,
+        timeoutMilliseconds: Int
+    ) async -> ToolExecution {
+        await withTaskGroup(of: ToolAttempt.self) { group in
+            group.addTask {
+                do {
+                    return .success(try await tool.execute(
+                        arguments: Data(call.arguments.utf8),
+                        context: context
+                    ))
+                } catch {
+                    let message = (error as? LocalizedError)?.errorDescription
+                        ?? error.localizedDescription
+                    return .failure(message)
+                }
+            }
+            group.addTask {
+                try? await Task.sleep(for: .milliseconds(timeoutMilliseconds))
+                return .timedOut
+            }
+
+            let result = await group.next() ?? .timedOut
+            group.cancelAll()
+
+            switch result {
+            case .success(let output):
+                return ToolExecution(call: call, output: output)
+            case .timedOut:
+                return ToolExecution(
+                    call: call,
+                    content: "Error: Tool '\(call.name)' timed out after \(timeoutMilliseconds) ms."
+                )
+            case .failure(let message):
+                return ToolExecution(call: call, content: "Error: \(message)")
+            }
+        }
+    }
+
+    private static func summary(of execution: ToolExecution) -> String {
+        if let output = execution.output {
+            return String(output.content.prefix(200))
+        }
+        return execution.content ?? ""
     }
 
     private func consume(
@@ -592,7 +759,7 @@ private struct StreamResult {
     var usage: ModelUsage?
 }
 
-private struct ToolExecution {
+private struct ToolExecution: Sendable {
     let call: ToolCall
     var output: ToolOutput?
     var content: String?

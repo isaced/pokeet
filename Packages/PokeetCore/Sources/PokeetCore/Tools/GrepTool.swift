@@ -139,6 +139,7 @@ public struct GrepTool: AgentTool {
         var limitReached = false
 
         for file in files {
+            try Task.checkCancellation()
             if limitReached {
                 break
             }
@@ -154,6 +155,9 @@ public struct GrepTool: AgentTool {
             var matchIndices: [Int] = []
 
             for (index, line) in lines.enumerated() {
+                if index.isMultiple(of: 200) {
+                    try Task.checkCancellation()
+                }
                 let range = NSRange(line.startIndex..<line.endIndex, in: line)
                 if regex.firstMatch(in: line, range: range) != nil {
                     matchIndices.append(index)

@@ -908,3 +908,170 @@ struct AgentPlanLoopTests {
         #expect(history.last?.content == "Plan submitted.")
     }
 }
+
+private struct SleepyReadTool: AgentTool {
+    let name: String
+    let delayMilliseconds: Int
+
+    var capabilities: Set<ToolCapability> { [.readFiles] }
+
+    var schema: ToolSchema {
+        ToolSchema(
+            name: name,
+            description: name,
+            parameters: .object(["type": .string("object")])
+        )
+    }
+
+    func execute(arguments: Data, context: ToolContext) async throws -> ToolOutput {
+        try await Task.sleep(for: .milliseconds(delayMilliseconds))
+        return ToolOutput(content: name)
+    }
+}
+
+private struct SleepyWriteTool: AgentTool {
+    let name: String
+    let delayMilliseconds: Int
+
+    var capabilities: Set<ToolCapability> { [.writeFiles] }
+
+    var schema: ToolSchema {
+        ToolSchema(
+            name: name,
+            description: name,
+            parameters: .object(["type": .string("object")])
+        )
+    }
+
+    func execute(arguments: Data, context: ToolContext) async throws -> ToolOutput {
+        try await Task.sleep(for: .milliseconds(delayMilliseconds))
+        return ToolOutput(content: name)
+    }
+}
+
+struct ToolConcurrencyTests {
+    private func multiToolCall(_ calls: [ToolCall]) -> ChatResponse {
+        ChatResponse(
+            message: .assistant(nil, toolCalls: calls),
+            finishReason: "tool_calls"
+        )
+    }
+
+    @Test func readOnlyToolsRunConcurrentlyAndKeepCallOrder() async throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+
+        let client = ScriptedModelClient([
+            multiToolCall([
+                ToolCall(id: "1", name: "slow_a", arguments: "{}"),
+                ToolCall(id: "2", name: "slow_b", arguments: "{}")
+            ]),
+            ChatResponse(message: .assistant("done"), finishReason: "stop")
+        ])
+        let session = AgentSession(
+            client: client,
+            workspace: FileWorkspace(root: directory.url),
+            tools: ToolRegistry([
+                SleepyReadTool(name: "slow_a", delayMilliseconds: 300),
+                SleepyReadTool(name: "slow_b", delayMilliseconds: 300)
+            ]),
+            config: AgentConfiguration(
+                maxConcurrentReadTools: 2,
+                toolTimeoutMilliseconds: 5_000
+            )
+        )
+        let recorder = EventRecorder()
+
+        let start = Date()
+        try await session.send(
+            "run",
+            approval: { _ in [] },
+            onEvent: { await recorder.record($0) }
+        )
+        let elapsed = Date().timeIntervalSince(start)
+
+        #expect(elapsed < 0.55)
+
+        let requests = await client.recordedRequests()
+        let toolMessages = requests[1].messages
+            .filter { $0.role == .tool }
+            .compactMap(\.content)
+        #expect(toolMessages == ["slow_a", "slow_b"])
+
+        let events = await recorder.snapshot()
+        let started = events.compactMap { event -> String? in
+            if case .toolStarted(let name) = event { return name }
+            return nil
+        }
+        #expect(started == ["slow_a", "slow_b"])
+    }
+
+    @Test func writeToolsRemainSequential() async throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+
+        let client = ScriptedModelClient([
+            multiToolCall([
+                ToolCall(id: "1", name: "slow_write_a", arguments: "{}"),
+                ToolCall(id: "2", name: "slow_write_b", arguments: "{}")
+            ]),
+            ChatResponse(message: .assistant("done"), finishReason: "stop")
+        ])
+        let session = AgentSession(
+            client: client,
+            workspace: FileWorkspace(root: directory.url),
+            tools: ToolRegistry([
+                SleepyWriteTool(name: "slow_write_a", delayMilliseconds: 150),
+                SleepyWriteTool(name: "slow_write_b", delayMilliseconds: 150)
+            ]),
+            config: AgentConfiguration(
+                maxConcurrentReadTools: 4,
+                toolTimeoutMilliseconds: 5_000
+            )
+        )
+
+        let start = Date()
+        try await session.send(
+            "run",
+            approval: { _ in [] },
+            onEvent: { _ in }
+        )
+        let elapsed = Date().timeIntervalSince(start)
+
+        #expect(elapsed >= 0.25)
+    }
+
+    @Test func toolTimeoutReturnsAnErrorAndRunContinues() async throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+
+        let client = ScriptedModelClient([
+            multiToolCall([ToolCall(id: "1", name: "too_slow", arguments: "{}")]),
+            ChatResponse(message: .assistant("done"), finishReason: "stop")
+        ])
+        let session = AgentSession(
+            client: client,
+            workspace: FileWorkspace(root: directory.url),
+            tools: ToolRegistry([
+                SleepyReadTool(name: "too_slow", delayMilliseconds: 5_000)
+            ]),
+            config: AgentConfiguration(
+                maxConcurrentReadTools: 1,
+                toolTimeoutMilliseconds: 1_000
+            )
+        )
+
+        let start = Date()
+        try await session.send(
+            "run",
+            approval: { _ in [] },
+            onEvent: { _ in }
+        )
+        let elapsed = Date().timeIntervalSince(start)
+
+        #expect(elapsed < 2.5)
+        let requests = await client.recordedRequests()
+        let toolMessage = requests[1].messages.last { $0.role == .tool }
+        #expect(toolMessage?.content?.contains("timed out") == true)
+    }
+}
