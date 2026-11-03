@@ -43,6 +43,7 @@ public enum AgentEvent: Sendable, Equatable {
     case toolStarted(String)
     case toolFinished(name: String, summary: String)
     case proposalsPending([FileProposal])
+    case actionPending(ActionRequest)
     case changesApplied([AppliedChange])
     case planSubmitted(AgentPlan)
     case finished
@@ -122,7 +123,7 @@ public enum AgentPrompts {
     - git_status: show uncommitted changes.
     - git_diff: show a unified diff of uncommitted changes.
     - git_log: show recent commits.
-    - http_request: fetch a public HTTPS URL with GET or HEAD and return the status, headers, and a text body preview.
+    - http_request: make an HTTPS request. GET/HEAD are read-only; POST/PUT/PATCH/DELETE require user approval unless Bypass mode is active.
     - submit_plan: submit a structured implementation plan (Plan mode only).
 
     Rules:

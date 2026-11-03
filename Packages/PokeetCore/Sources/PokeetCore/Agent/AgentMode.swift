@@ -63,6 +63,7 @@ public enum AgentMode: String, Codable, Sendable, CaseIterable, Identifiable, Ha
             Current mode: Plan (read-only).
             You can inspect the repository and fetch public HTTPS URLs, but you cannot change files.
             write_file, edit_file, delete_file, and move_file are disabled in this mode.
+            http_request is limited to GET and HEAD in this mode.
             Use the read-only tools to investigate. When your investigation is complete, call
             submit_plan with a title, summary, and concrete steps (title/detail/files).
             Do not claim that changes were made. The user reviews the plan and approves execution.
@@ -74,6 +75,7 @@ public enum AgentMode: String, Codable, Sendable, CaseIterable, Identifiable, Ha
             Current mode: Auto.
             write_file and edit_file changes are applied immediately without a review step.
             delete_file and move_file still require user review.
+            Network write requests also require user review.
             Keep edits minimal, verify each result, and report exactly what changed.
             If you are executing an approved plan, output [DONE:n] after completing step n.
             You still cannot commit or push.
@@ -84,6 +86,7 @@ public enum AgentMode: String, Codable, Sendable, CaseIterable, Identifiable, Ha
 
             Current mode: Bypass.
             All file changes, including delete and move, are applied immediately without review.
+            Network write requests are also sent without approval.
             Be deliberate, keep changes minimal, and report every change.
             You still cannot commit or push.
             """

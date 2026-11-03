@@ -63,6 +63,16 @@ public struct SystemHostResolver: HostResolving {
     }
 }
 
+public struct NetworkAccessPolicy: Sendable, Equatable {
+    public var isEnabled: Bool
+    public var allowedHosts: Set<String>
+
+    public init(isEnabled: Bool = true, allowedHosts: Set<String> = []) {
+        self.isEnabled = isEnabled
+        self.allowedHosts = allowedHosts
+    }
+}
+
 enum NetworkPolicyError: Error, Sendable, Equatable, LocalizedError {
     case unsupportedScheme(String)
     case invalidHost
@@ -73,6 +83,8 @@ enum NetworkPolicyError: Error, Sendable, Equatable, LocalizedError {
     case invalidHeader(String)
     case tooManyRedirects
     case crossOriginRedirect(String)
+    case networkDisabled
+    case hostNotAllowed(String)
 
     var errorDescription: String? {
         switch self {
@@ -94,6 +106,10 @@ enum NetworkPolicyError: Error, Sendable, Equatable, LocalizedError {
             "The request exceeded the redirect limit."
         case .crossOriginRedirect(let target):
             "Redirect to a different origin is blocked: \(target)"
+        case .networkDisabled:
+            "Network access is disabled in settings."
+        case .hostNotAllowed(let host):
+            "Network access to \(host) is not in the allowed hosts list."
         }
     }
 }
@@ -129,10 +145,39 @@ struct NetworkPolicy: Sendable {
         return normalized
     }
 
-    func validate(_ url: URL, resolver: any HostResolving) async throws -> URL {
+    func validate(
+        _ url: URL,
+        resolver: any HostResolving,
+        access: NetworkAccessPolicy = .init()
+    ) async throws -> URL {
+        guard access.isEnabled else {
+            throw NetworkPolicyError.networkDisabled
+        }
         let normalized = try normalize(url)
         guard let host = normalized.host else {
             throw NetworkPolicyError.invalidHost
+        }
+
+        if !access.allowedHosts.isEmpty {
+            var allowed = false
+            var candidate = host.lowercased()
+            while candidate.hasSuffix(".") {
+                candidate.removeLast()
+            }
+            for entry in access.allowedHosts {
+                var hostEntry = entry.lowercased()
+                while hostEntry.hasSuffix(".") {
+                    hostEntry.removeLast()
+                }
+                guard !hostEntry.isEmpty else { continue }
+                if candidate == hostEntry || candidate.hasSuffix("." + hostEntry) {
+                    allowed = true
+                    break
+                }
+            }
+            guard allowed else {
+                throw NetworkPolicyError.hostNotAllowed(host)
+            }
         }
 
         let addresses: [String]

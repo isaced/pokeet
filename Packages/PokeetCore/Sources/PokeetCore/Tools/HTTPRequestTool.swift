@@ -5,6 +5,7 @@ public struct HTTPRequestTool: AgentTool {
 
     public struct Limits: Sendable {
         public var maxBodyBytes: Int
+        public var maxRequestBodyBytes: Int
         public var maxRedirects: Int
         public var maxHeaderCount: Int
         public var maxHeaderBytes: Int
@@ -13,6 +14,7 @@ public struct HTTPRequestTool: AgentTool {
 
         public init(
             maxBodyBytes: Int = 20_480,
+            maxRequestBodyBytes: Int = 65_536,
             maxRedirects: Int = 5,
             maxHeaderCount: Int = 16,
             maxHeaderBytes: Int = 8_192,
@@ -20,6 +22,7 @@ public struct HTTPRequestTool: AgentTool {
             resourceTimeout: TimeInterval = 60
         ) {
             self.maxBodyBytes = max(1_024, maxBodyBytes)
+            self.maxRequestBodyBytes = max(1_024, maxRequestBodyBytes)
             self.maxRedirects = max(0, maxRedirects)
             self.maxHeaderCount = max(1, maxHeaderCount)
             self.maxHeaderBytes = max(256, maxHeaderBytes)
@@ -49,19 +52,23 @@ public struct HTTPRequestTool: AgentTool {
         ToolSchema(
             name: Self.toolName,
             description: """
-            Fetch an HTTPS URL with GET or HEAD. Returns the status, selected headers, \
-            and a text body preview. Read-only: localhost, private, and link-local addresses are blocked.
+            Make an HTTPS request. GET/HEAD are read-only; POST/PUT/PATCH/DELETE require \
+            user approval outside Bypass mode. Returns the status, selected headers, and a \
+            text or markdown body preview. Localhost, private, and link-local addresses are blocked.
             """,
             parameters: .object([
                 "type": .string("object"),
                 "properties": .object([
                     "url": .object([
                         "type": .string("string"),
-                        "description": .string("Absolute HTTPS URL to fetch.")
+                        "description": .string("Absolute HTTPS URL to request.")
                     ]),
                     "method": .object([
                         "type": .string("string"),
-                        "enum": .array([.string("GET"), .string("HEAD")]),
+                        "enum": .array([
+                            .string("GET"), .string("HEAD"), .string("POST"),
+                            .string("PUT"), .string("PATCH"), .string("DELETE")
+                        ]),
                         "description": .string("HTTP method. Defaults to GET.")
                     ]),
                     "headers": .object([
@@ -73,9 +80,22 @@ public struct HTTPRequestTool: AgentTool {
                             "Optional request headers. Transport headers such as Host and Content-Length are rejected."
                         )
                     ]),
+                    "body": .object([
+                        "type": .string("string"),
+                        "description": .string("Optional UTF-8 request body for non-GET methods.")
+                    ]),
+                    "offset": .object([
+                        "type": .string("integer"),
+                        "description": .string("Byte offset for paginated GET/HEAD responses.")
+                    ]),
                     "max_bytes": .object([
                         "type": .string("integer"),
                         "description": .string("Maximum response body bytes to return (1024-20480).")
+                    ]),
+                    "format": .object([
+                        "type": .string("string"),
+                        "enum": .array([.string("raw"), .string("text"), .string("markdown")]),
+                        "description": .string("HTML body rendering. Defaults to raw.")
                     ])
                 ]),
                 "required": .array([.string("url")]),
@@ -84,18 +104,57 @@ public struct HTTPRequestTool: AgentTool {
         )
     }
 
+    public func review(arguments: Data, context: ToolContext) async throws -> ActionRequest? {
+        struct ReviewArguments: Decodable {
+            var url: String
+            var method: String?
+            var headers: [String: String]?
+            var body: String?
+        }
+
+        let review = try decodeToolArguments(arguments, as: ReviewArguments.self)
+        let method = (review.method ?? "GET").uppercased()
+        let writeMethods: Set<String> = ["POST", "PUT", "PATCH", "DELETE"]
+        guard writeMethods.contains(method) else { return nil }
+        guard let url = URL(string: review.url.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            throw ToolError.invalidArguments("Invalid URL: \(review.url)")
+        }
+        let headers = try NetworkPolicy.validateHeaders(
+            review.headers ?? [:],
+            maxCount: limits.maxHeaderCount,
+            maxBytes: limits.maxHeaderBytes
+        )
+        let body = review.body ?? ""
+        guard Data(body.utf8).count <= limits.maxRequestBodyBytes else {
+            throw ToolError.invalidInput("Request body exceeds \(limits.maxRequestBodyBytes) bytes.")
+        }
+        let preview = body.count > 2_000 ? String(body.prefix(2_000)) + "…" : body
+        return ActionRequest(
+            method: method,
+            url: url.absoluteString,
+            headers: headers,
+            bodyPreview: preview
+        )
+    }
+
     public func execute(arguments: Data, context: ToolContext) async throws -> ToolOutput {
         struct Arguments: Decodable {
             var url: String
             var method: String?
             var headers: [String: String]?
+            var body: String?
+            var offset: Int?
             var maxBytes: Int?
+            var format: String?
 
             enum CodingKeys: String, CodingKey {
                 case url
                 case method
                 case headers
+                case body
+                case offset
                 case maxBytes = "max_bytes"
+                case format
             }
         }
 
@@ -106,14 +165,26 @@ public struct HTTPRequestTool: AgentTool {
         }
 
         let method = (arguments.method ?? "GET").uppercased()
-        guard method == "GET" || method == "HEAD" else {
-            throw ToolError.invalidInput("http_request only supports GET and HEAD.")
+        let allowedMethods: Set<String> = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"]
+        guard allowedMethods.contains(method) else {
+            throw ToolError.invalidInput("Unsupported HTTP method: \(method).")
         }
 
+        let bodyText = arguments.body ?? ""
+        if (method == "GET" || method == "HEAD"), !bodyText.isEmpty {
+            throw ToolError.invalidInput("\(method) requests do not support a body.")
+        }
+        let bodyData = (method == "GET" || method == "HEAD") ? nil : Data(bodyText.utf8)
+        if let bodyData, bodyData.count > limits.maxRequestBodyBytes {
+            throw ToolError.invalidInput("Request body exceeds \(limits.maxRequestBodyBytes) bytes.")
+        }
+
+        let offset = max(0, arguments.offset ?? 0)
         let maxBody = min(
             max(arguments.maxBytes ?? limits.maxBodyBytes, 1_024),
             limits.maxBodyBytes
         )
+        let renderFormat = Self.normalizedFormat(arguments.format)
 
         let headers: [String: String]
         do {
@@ -128,11 +199,18 @@ public struct HTTPRequestTool: AgentTool {
 
         var current: URL
         do {
-            current = try await policy.validate(url, resolver: resolver)
+            current = try await policy.validate(
+                url,
+                resolver: resolver,
+                access: context.networkPolicy
+            )
         } catch {
             throw ToolError.invalidInput(error.localizedDescription)
         }
 
+        var currentMethod = method
+        var currentBody = bodyData
+        var currentOffset = offset
         var hops = 0
         while true {
             try Task.checkCancellation()
@@ -141,8 +219,10 @@ public struct HTTPRequestTool: AgentTool {
             do {
                 outcome = try await performRequest(
                     url: current,
-                    method: method,
+                    method: currentMethod,
                     headers: headers,
+                    body: currentBody,
+                    offset: currentOffset,
                     maxBody: maxBody
                 )
             } catch let error as ToolError {
@@ -156,7 +236,11 @@ public struct HTTPRequestTool: AgentTool {
             }
 
             guard let location = outcome.redirectLocation else {
-                return ToolOutput(content: format(outcome, maxBody: maxBody))
+                return ToolOutput(content: format(
+                    outcome,
+                    maxBody: maxBody,
+                    renderFormat: renderFormat
+                ))
             }
 
             do {
@@ -166,17 +250,36 @@ public struct HTTPRequestTool: AgentTool {
                     hops: hops,
                     maxHops: limits.maxRedirects
                 )
-                current = try await policy.validate(target, resolver: resolver)
+                current = try await policy.validate(
+                    target,
+                    resolver: resolver,
+                    access: context.networkPolicy
+                )
+                if outcome.status == 301 || outcome.status == 302 || outcome.status == 303,
+                   currentMethod != "GET", currentMethod != "HEAD" {
+                    currentMethod = "GET"
+                    currentBody = nil
+                    currentOffset = 0
+                }
                 hops += 1
             } catch {
                 return ToolOutput(
                     content: format(
                         outcome,
                         maxBody: maxBody,
+                        renderFormat: renderFormat,
                         note: "Redirect not followed: \(error.localizedDescription)"
                     )
                 )
             }
+        }
+    }
+
+    private static func normalizedFormat(_ value: String?) -> String {
+        switch value?.lowercased() {
+        case "text": return "text"
+        case "markdown": return "markdown"
+        default: return "raw"
         }
     }
 
@@ -198,6 +301,8 @@ public struct HTTPRequestTool: AgentTool {
         url: URL,
         method: String,
         headers: [String: String],
+        body requestBody: Data?,
+        offset: Int,
         maxBody: Int
     ) async throws -> ResponseOutcome {
         var request = URLRequest(url: url)
@@ -212,6 +317,15 @@ public struct HTTPRequestTool: AgentTool {
         if !headers.keys.contains(where: { $0.caseInsensitiveCompare("Accept") == .orderedSame }) {
             request.setValue("*/*", forHTTPHeaderField: "Accept")
         }
+        if let requestBody, method != "GET", method != "HEAD" {
+            request.httpBody = requestBody
+        }
+        if offset > 0, method == "GET" || method == "HEAD" {
+            request.setValue(
+                "bytes=\(offset)-\(offset + maxBody - 1)",
+                forHTTPHeaderField: "Range"
+            )
+        }
 
         let suppressor = RedirectSuppressor()
         let (bytes, response) = try await session.bytes(for: request, delegate: suppressor)
@@ -219,17 +333,23 @@ public struct HTTPRequestTool: AgentTool {
             throw ToolError.network("The server returned a non-HTTP response.")
         }
 
-        var body = Data()
+        var responseBody = Data()
         var truncated = false
         if method != "HEAD" {
+            let skip = (offset > 0 && http.statusCode != 206) ? offset : 0
+            var skipped = 0
             var readCount = 0
             for try await byte in bytes {
-                if body.count >= maxBody {
+                if skipped < skip {
+                    skipped += 1
+                    continue
+                }
+                if responseBody.count >= maxBody {
                     truncated = true
                     bytes.task.cancel()
                     break
                 }
-                body.append(byte)
+                responseBody.append(byte)
                 readCount += 1
                 if readCount % 4_096 == 0 {
                     try Task.checkCancellation()
@@ -244,8 +364,9 @@ public struct HTTPRequestTool: AgentTool {
             method: method,
             status: http.statusCode,
             headers: safeHeaders(from: http),
-            body: body,
+            body: responseBody,
             truncated: truncated,
+            offset: offset,
             redirectLocation: redirectStatuses.contains(http.statusCode) ? location : nil
         )
     }
@@ -253,7 +374,8 @@ public struct HTTPRequestTool: AgentTool {
     private func safeHeaders(from response: HTTPURLResponse) -> [(String, String)] {
         let names = [
             "content-type", "content-length", "location", "date", "last-modified",
-            "etag", "cache-control", "www-authenticate", "retry-after", "link"
+            "etag", "cache-control", "www-authenticate", "retry-after", "link",
+            "content-range", "accept-ranges"
         ]
         var result: [(String, String)] = []
         for name in names {
@@ -278,13 +400,22 @@ public struct HTTPRequestTool: AgentTool {
         return String(cleaned.prefix(256))
     }
 
-    private func format(_ outcome: ResponseOutcome, maxBody: Int, note: String? = nil) -> String {
+    private func format(
+        _ outcome: ResponseOutcome,
+        maxBody: Int,
+        renderFormat: String,
+        note: String? = nil
+    ) -> String {
         var lines = [
             "HTTP \(outcome.status) \(statusText(outcome.status)) · \(outcome.method) "
                 + "\(outcome.url.absoluteString) · \(outcome.body.count) B"
         ]
         for (name, value) in outcome.headers {
             lines.append("\(name): \(value)")
+        }
+        if outcome.method != "HEAD",
+           outcome.status == 206 || outcome.truncated {
+            lines.append("next-offset: \(outcome.offset + outcome.body.count)")
         }
         lines.append("---")
 
@@ -297,7 +428,7 @@ public struct HTTPRequestTool: AgentTool {
             lines.append("(no body)")
         } else if outcome.body.isEmpty {
             lines.append("(empty body)")
-        } else if let text = decodeText(outcome) {
+        } else if let text = decodeText(outcome, renderFormat: renderFormat) {
             lines.append(text)
             if outcome.truncated {
                 lines.append("[body truncated: showing first \(maxBody) bytes]")
@@ -338,7 +469,7 @@ public struct HTTPRequestTool: AgentTool {
         }
     }
 
-    private func decodeText(_ outcome: ResponseOutcome) -> String? {
+    private func decodeText(_ outcome: ResponseOutcome, renderFormat: String) -> String? {
         let contentType = outcome.headers
             .first(where: { $0.0 == "content-type" })?
             .1
@@ -355,6 +486,10 @@ public struct HTTPRequestTool: AgentTool {
         }
 
         if let text = String(data: outcome.body, encoding: .utf8) {
+            if renderFormat != "raw",
+               contentType.contains("html") {
+                return HTMLTextExtractor.extract(text, markdown: renderFormat == "markdown")
+            }
             return text
         }
         if contentType.hasPrefix("text/"),
@@ -372,6 +507,7 @@ private struct ResponseOutcome {
     let headers: [(String, String)]
     let body: Data
     let truncated: Bool
+    let offset: Int
     let redirectLocation: String?
 }
 

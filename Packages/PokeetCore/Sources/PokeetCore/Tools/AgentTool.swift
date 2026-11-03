@@ -15,10 +15,16 @@ public struct ToolOutput: Sendable {
 public struct ToolContext: Sendable {
     public let workspace: any Workspace
     public let git: (any GitInspecting)?
+    public let networkPolicy: NetworkAccessPolicy
 
-    public init(workspace: any Workspace, git: (any GitInspecting)? = nil) {
+    public init(
+        workspace: any Workspace,
+        git: (any GitInspecting)? = nil,
+        networkPolicy: NetworkAccessPolicy = .init()
+    ) {
         self.workspace = workspace
         self.git = git
+        self.networkPolicy = networkPolicy
     }
 }
 
@@ -33,7 +39,14 @@ public enum ToolCapability: String, Sendable, Hashable, CaseIterable {
 public protocol AgentTool: Sendable {
     var schema: ToolSchema { get }
     var capabilities: Set<ToolCapability> { get }
+    func review(arguments: Data, context: ToolContext) async throws -> ActionRequest?
     func execute(arguments: Data, context: ToolContext) async throws -> ToolOutput
+}
+
+public extension AgentTool {
+    func review(arguments: Data, context: ToolContext) async throws -> ActionRequest? {
+        nil
+    }
 }
 
 public struct ToolRegistry: Sendable {

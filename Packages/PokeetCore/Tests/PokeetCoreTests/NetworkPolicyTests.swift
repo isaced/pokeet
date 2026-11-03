@@ -216,3 +216,62 @@ struct NetworkPolicyTests {
         }
     }
 }
+
+struct NetworkAccessTests {
+    private struct PublicResolver: HostResolving {
+        func resolve(host: String) async throws -> [String] {
+            ["93.184.216.34"]
+        }
+    }
+
+    private func expectAccessError(
+        _ url: String,
+        policy: NetworkAccessPolicy,
+        containing text: String
+    ) async {
+        do {
+            _ = try await NetworkPolicy().validate(
+                URL(string: url)!,
+                resolver: PublicResolver(),
+                access: policy
+            )
+            Issue.record("Expected a NetworkPolicyError")
+        } catch let error as NetworkPolicyError {
+            #expect(error.errorDescription?.contains(text) == true)
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
+
+    @Test func disabledNetworkRejects() async {
+        await expectAccessError(
+            "https://example.com/",
+            policy: NetworkAccessPolicy(isEnabled: false),
+            containing: "disabled"
+        )
+    }
+
+    @Test func allowlistMatchesHostAndSubdomains() async throws {
+        let policy = NetworkAccessPolicy(allowedHosts: ["example.com"])
+        let url = try await NetworkPolicy().validate(
+            URL(string: "https://api.example.com/")!,
+            resolver: PublicResolver(),
+            access: policy
+        )
+        #expect(url.host == "api.example.com")
+
+        await expectAccessError(
+            "https://other.example/",
+            policy: policy,
+            containing: "not in the allowed hosts list"
+        )
+    }
+
+    @Test func allowlistNeverBypassesPrivateBlocking() async {
+        await expectAccessError(
+            "https://127.0.0.1/",
+            policy: NetworkAccessPolicy(allowedHosts: ["127.0.0.1"]),
+            containing: "private or local"
+        )
+    }
+}

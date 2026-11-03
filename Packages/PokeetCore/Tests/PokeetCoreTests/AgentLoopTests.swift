@@ -1075,3 +1075,150 @@ struct ToolConcurrencyTests {
         #expect(toolMessage?.content?.contains("timed out") == true)
     }
 }
+
+private struct ReviewedTool: AgentTool {
+    let name: String
+    let executed: LockedBox<Int>
+
+    var capabilities: Set<ToolCapability> { [.network] }
+
+    var schema: ToolSchema {
+        ToolSchema(
+            name: name,
+            description: name,
+            parameters: .object(["type": .string("object")])
+        )
+    }
+
+    func review(arguments: Data, context: ToolContext) async throws -> ActionRequest? {
+        ActionRequest(
+            method: "POST",
+            url: "https://example.com/write",
+            headers: ["Content-Type": "text/plain"],
+            bodyPreview: "payload"
+        )
+    }
+
+    func execute(arguments: Data, context: ToolContext) async throws -> ToolOutput {
+        executed.set(executed.get() + 1)
+        return ToolOutput(content: "executed")
+    }
+}
+
+struct ActionApprovalTests {
+    private func run(
+        directory: URL,
+        mode: AgentMode,
+        decision: ActionDecision,
+        approvalCalls: LockedBox<Int>
+    ) async throws -> (executed: Int, events: [AgentEvent], requests: [ChatRequest]) {
+        let executed = LockedBox(0)
+        let tool = ReviewedTool(name: "network_write", executed: executed)
+        let client = ScriptedModelClient([
+            toolCall(name: "network_write", arguments: "{}"),
+            ChatResponse(message: .assistant("done"), finishReason: "stop")
+        ])
+        let session = AgentSession(
+            client: client,
+            workspace: FileWorkspace(root: directory),
+            tools: ToolRegistry([tool]),
+            mode: mode
+        )
+        let recorder = EventRecorder()
+
+        try await session.send(
+            "run",
+            approval: { _ in [] },
+            actionApproval: { _ in
+                approvalCalls.set(approvalCalls.get() + 1)
+                return decision
+            },
+            onEvent: { await recorder.record($0) }
+        )
+
+        let events = await recorder.snapshot()
+        let requests = await client.recordedRequests()
+        return (executed.get(), events, requests)
+    }
+
+    private func hasActionPending(_ events: [AgentEvent]) -> Bool {
+        events.contains {
+            if case .actionPending = $0 { return true }
+            return false
+        }
+    }
+
+    @Test func askModeAllowsApprovedNetworkWrite() async throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+        let calls = LockedBox(0)
+
+        let result = try await run(
+            directory: directory.url,
+            mode: .ask,
+            decision: .allowed,
+            approvalCalls: calls
+        )
+
+        #expect(result.executed == 1)
+        #expect(calls.get() == 1)
+        #expect(hasActionPending(result.events))
+        let toolMessage = result.requests[1].messages.last { $0.role == .tool }
+        #expect(toolMessage?.content == "executed")
+    }
+
+    @Test func askModeDeniesRejectedNetworkWrite() async throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+        let calls = LockedBox(0)
+
+        let result = try await run(
+            directory: directory.url,
+            mode: .ask,
+            decision: .denied,
+            approvalCalls: calls
+        )
+
+        #expect(result.executed == 0)
+        #expect(calls.get() == 1)
+        #expect(hasActionPending(result.events))
+        let toolMessage = result.requests[1].messages.last { $0.role == .tool }
+        #expect(toolMessage?.content?.contains("denied by the user") == true)
+    }
+
+    @Test func bypassModeSkipsApprovalForNetworkWrite() async throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+        let calls = LockedBox(0)
+
+        let result = try await run(
+            directory: directory.url,
+            mode: .bypass,
+            decision: .denied,
+            approvalCalls: calls
+        )
+
+        #expect(result.executed == 1)
+        #expect(calls.get() == 0)
+        #expect(!hasActionPending(result.events))
+    }
+
+    @Test func planModeBlocksNetworkWrite() async throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+        let calls = LockedBox(0)
+
+        let result = try await run(
+            directory: directory.url,
+            mode: .plan,
+            decision: .allowed,
+            approvalCalls: calls
+        )
+
+        #expect(result.executed == 0)
+        #expect(calls.get() == 0)
+        #expect(!hasActionPending(result.events))
+        let toolMessage = result.requests[1].messages.last { $0.role == .tool }
+        #expect(toolMessage?.content?.contains("disabled in Plan mode") == true)
+    }
+}

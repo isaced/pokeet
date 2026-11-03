@@ -12,6 +12,7 @@ public actor AgentSession {
     private let instructions: ProjectInstructions
     private var baseSystemPrompt: String
     private var mode: AgentMode
+    private var networkPolicy: NetworkAccessPolicy
     private var messages: [ChatMessage]
 
     public init(
@@ -22,6 +23,7 @@ public actor AgentSession {
         tools: ToolRegistry = .standard,
         systemPrompt: String = AgentPrompts.system,
         mode: AgentMode = .ask,
+        networkPolicy: NetworkAccessPolicy = .init(),
         config: AgentConfiguration = AgentConfiguration(),
         summarizer: (any ContextSummarizer)? = nil
     ) {
@@ -43,6 +45,7 @@ public actor AgentSession {
         self.instructions = ProjectInstructions.load(from: workspace)
         self.baseSystemPrompt = systemPrompt
         self.mode = mode
+        self.networkPolicy = networkPolicy
         self.messages = [.system(instructions.compose(with: systemPrompt + mode.promptGuidance))]
     }
 
@@ -68,6 +71,10 @@ public actor AgentSession {
         }
     }
 
+    public func setNetworkPolicy(_ policy: NetworkAccessPolicy) {
+        networkPolicy = policy
+    }
+
     public func reset(systemPrompt: String = AgentPrompts.system) {
         baseSystemPrompt = systemPrompt
         messages = [systemMessage]
@@ -87,6 +94,7 @@ public actor AgentSession {
         _ text: String,
         images: [ChatImage] = [],
         approval: @escaping ApprovalHandler,
+        actionApproval: @escaping ActionApprovalHandler = { _ in .denied },
         onEvent: @escaping EventHandler
     ) async throws {
         let activeMode = mode
@@ -214,6 +222,7 @@ public actor AgentSession {
             let toolRun = try await runTools(
                 toolCalls,
                 activeMode: activeMode,
+                actionApproval: actionApproval,
                 onEvent: onEvent
             )
             let executions = toolRun.executions
@@ -349,12 +358,33 @@ public actor AgentSession {
     private func runTools(
         _ calls: [ToolCall],
         activeMode: AgentMode,
+        actionApproval: @escaping ActionApprovalHandler,
         onEvent: @escaping EventHandler
     ) async throws -> ToolRunResult {
         var slots = [ToolExecution?](repeating: nil, count: calls.count)
         var submittedPlan: AgentPlan?
-        let context = ToolContext(workspace: workspace, git: git)
+        let context = ToolContext(
+            workspace: workspace,
+            git: git,
+            networkPolicy: networkPolicy
+        )
         let timeout = config.toolTimeoutMilliseconds
+        var actions = [ActionRequest?](repeating: nil, count: calls.count)
+        var reviewErrors = [String?](repeating: nil, count: calls.count)
+
+        for (callIndex, call) in calls.enumerated() {
+            guard let tool = registry.tool(named: call.name) else { continue }
+            do {
+                actions[callIndex] = try await tool.review(
+                    arguments: Data(call.arguments.utf8),
+                    context: context
+                )
+            } catch {
+                reviewErrors[callIndex] = (error as? LocalizedError)?.errorDescription
+                    ?? error.localizedDescription
+            }
+        }
+
         var index = 0
 
         while index < calls.count {
@@ -382,6 +412,55 @@ public actor AgentSession {
                 continue
             }
 
+            if let reviewError = reviewErrors[index] {
+                await onEvent(.toolStarted(call.name))
+                slots[index] = ToolExecution(call: call, content: "Error: \(reviewError)")
+                await onEvent(.toolFinished(name: call.name, summary: reviewError))
+                index += 1
+                continue
+            }
+
+            if let action = actions[index] {
+                await onEvent(.toolStarted(call.name))
+
+                if activeMode == .plan {
+                    let message = "Error: Network write actions are disabled in Plan mode."
+                    slots[index] = ToolExecution(call: call, content: message)
+                    await onEvent(.toolFinished(name: call.name, summary: message))
+                    index += 1
+                    continue
+                }
+
+                if activeMode != .bypass {
+                    await onEvent(.actionPending(action))
+                    let decision = await actionApproval(action)
+                    if !decision.allow {
+                        let message = "Error: Network action was denied by the user."
+                        slots[index] = ToolExecution(call: call, content: message)
+                        await onEvent(.toolFinished(name: call.name, summary: message))
+                        index += 1
+                        continue
+                    }
+                }
+
+                let execution = await Self.executeTool(
+                    tool,
+                    call: call,
+                    context: context,
+                    timeoutMilliseconds: timeout
+                )
+                slots[index] = execution
+                if let plan = execution.output?.plan {
+                    submittedPlan = plan
+                }
+                await onEvent(.toolFinished(
+                    name: call.name,
+                    summary: Self.summary(of: execution)
+                ))
+                index += 1
+                continue
+            }
+
             let isReadOnly = !tool.capabilities.isEmpty
                 && tool.capabilities.isSubset(of: Self.readOnlyCapabilities)
 
@@ -390,6 +469,8 @@ public actor AgentSession {
                 while end < calls.count {
                     guard let next = registry.tool(named: calls[end].name),
                           activeMode.allows(next.capabilities),
+                          actions[end] == nil,
+                          reviewErrors[end] == nil,
                           !next.capabilities.isEmpty,
                           next.capabilities.isSubset(of: Self.readOnlyCapabilities)
                     else {
