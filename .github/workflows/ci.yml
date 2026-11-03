@@ -15,9 +15,15 @@ permissions:
   contents: read
 
 jobs:
+  # All three jobs need macOS: PokeetCore links ImageIO/CoreGraphics, so Linux
+  # runners are out. "latest" tracks the newest image (macOS 26 / Xcode 26 at the
+  # time of writing) instead of pinning an older macOS 15 image that queues
+  # longer and ships Xcode 16. Pin an explicit label here if a release needs a
+  # specific Xcode.
   kernel:
     name: Agent kernel
-    runs-on: macos-15
+    runs-on: macos-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: swift test (PokeetCore)
@@ -25,7 +31,8 @@ jobs:
 
   scripting:
     name: Scripting runtime
-    runs-on: macos-15
+    runs-on: macos-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: swift test (PokeetScripting)
@@ -33,9 +40,8 @@ jobs:
 
   app:
     name: App build & tests
-    # Bump the image when the project needs a newer SDK; the kernel jobs only need
-    # the Swift toolchain that ships with any current macOS runner.
-    runs-on: macos-15
+    runs-on: macos-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 
