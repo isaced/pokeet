@@ -24,16 +24,17 @@ struct ReasoningBubble: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: isCompact ? 0 : 8) {
             header
 
             if isExpanded {
                 expandedText
-            } else {
+            } else if isStreaming {
                 collapsedPreview
             }
         }
-        .padding(12)
+        .padding(.horizontal, 12)
+        .padding(.vertical, isCompact ? 8 : 12)
         .background(
             Color(.secondarySystemBackground).opacity(0.55),
             in: RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -42,6 +43,7 @@ struct ReasoningBubble: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(Color.primary.opacity(0.06), lineWidth: 1)
         )
+        .animation(.easeInOut(duration: 0.2), value: isCompact)
         .onChange(of: isStreaming) { _, streaming in
             if !streaming, let startedAt {
                 finishedDuration = Date().timeIntervalSince(startedAt)
@@ -49,40 +51,78 @@ struct ReasoningBubble: View {
         }
     }
 
+    private var isCompact: Bool {
+        !isStreaming && !isExpanded
+    }
+
     private var header: some View {
         Button {
             toggleExpanded()
         } label: {
-            HStack(spacing: 10) {
-                if isStreaming {
-                    ProgressView()
-                        .controlSize(.mini)
-                } else {
-                    Image(systemName: "brain.head.profile")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                VStack(alignment: .leading, spacing: 2) {
-                    title
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
-
-                    Text(isExpanded ? "Tap to collapse" : "Tap to read my mind")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer(minLength: 8)
-
-                Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+            if isCompact {
+                compactHeader
+            } else {
+                regularHeader
             }
-            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(isExpanded ? "Collapse thought process" : "Expand thought process")
+    }
+
+    private var compactHeader: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "brain.head.profile")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Text(compactTitle)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+
+            Spacer(minLength: 8)
+
+            Image(systemName: "chevron.down")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+        }
+        .contentShape(Rectangle())
+    }
+
+    private var compactTitle: String {
+        if let finishedDuration {
+            return "Thought for \(durationLabel(finishedDuration))"
+        }
+        return "Thought process"
+    }
+
+    private var regularHeader: some View {
+        HStack(spacing: 10) {
+            if isStreaming {
+                ProgressView()
+                    .controlSize(.mini)
+            } else {
+                Image(systemName: "brain.head.profile")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                title
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+
+                Text(isExpanded ? "Tap to collapse" : "Tap to read my mind")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 8)
+
+            Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .contentShape(Rectangle())
     }
 
     @ViewBuilder
