@@ -107,6 +107,7 @@ final class ChatViewModel {
     private var reasoningBubbleID: UUID?
     private var reasoningStartedAt: Date?
     private var runningToolCount = 0
+    private var toolBubbleIDs: [String: UUID] = [:]
     private var streamBuffer = StreamBuffer()
     private var streamFlushTask: Task<Void, Never>?
     private var checkpointTask: Task<Void, Never>?
@@ -389,6 +390,7 @@ final class ChatViewModel {
         flushStreamNow()
         finalizeReasoningBubble()
         finalizeStreamingAssistantBubble()
+        finalizeToolBubbles()
         streamingBubbleID = nil
         cancelStreamFlush()
         pendingProposals = []
@@ -543,6 +545,7 @@ final class ChatViewModel {
         lastAssistantText = ""
         pendingPlan = nil
         runningToolCount = 0
+        toolBubbleIDs.removeAll()
         cancelStreamFlush()
         checkpointTask?.cancel()
         checkpointTask = nil
@@ -550,6 +553,7 @@ final class ChatViewModel {
             flushStreamNow()
             finalizeStreamingAssistantBubble()
             finalizeReasoningBubble()
+            finalizeToolBubbles()
             isRunning = false
             status = nil
             runTask = nil
@@ -666,21 +670,32 @@ final class ChatViewModel {
             lastAssistantText = parsed.text
             status = "Thinking…"
             scheduleCheckpoint()
-        case .toolStarted(let name):
+        case .toolStarted(let name, let callID, let detail):
             flushStreamNow()
             finalizeReasoningBubble()
             runningToolCount += 1
             status = "Running \(name)…"
-        case .toolFinished(let name, let summary):
+            let label = detail.map { "\(name) · \($0)" } ?? name
+            let bubble = Bubble(role: .tool, text: label, isStreaming: true)
+            bubbles.append(bubble)
+            toolBubbleIDs[callID] = bubble.id
+            scheduleCheckpoint()
+        case .toolFinished(let name, let callID, let summary):
             runningToolCount = max(0, runningToolCount - 1)
             if runningToolCount == 0 {
                 status = "Thinking…"
             }
-            if name == HTTPRequestTool.toolName, summary.hasPrefix("HTTP ") {
+            if let id = toolBubbleIDs.removeValue(forKey: callID),
+               let index = bubbleIndex(of: id) {
+                bubbles[index].isStreaming = false
                 let line = summary
                     .split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: true)
                     .first.map(String.init) ?? summary
-                bubbles.append(Bubble(role: .tool, text: String(line.prefix(140))))
+                if name == HTTPRequestTool.toolName, summary.hasPrefix("HTTP ") {
+                    bubbles[index].text += " · \(String(line.prefix(120)))"
+                } else if summary.hasPrefix("Error:") {
+                    bubbles[index].text += "\n\(String(line.prefix(160)))"
+                }
             }
             scheduleCheckpoint()
         case .proposalsPending(let proposals):
@@ -705,6 +720,7 @@ final class ChatViewModel {
             flushStreamNow()
             finalizeReasoningBubble()
             finalizeStreamingAssistantBubble()
+            finalizeToolBubbles()
             streamingBubbleID = nil
             runningToolCount = 0
             status = nil
@@ -721,6 +737,7 @@ final class ChatViewModel {
             flushStreamNow()
             finalizeReasoningBubble()
             finalizeStreamingAssistantBubble()
+            finalizeToolBubbles()
             streamingBubbleID = nil
             runningToolCount = 0
             errorMessage = message
@@ -840,6 +857,13 @@ final class ChatViewModel {
         streamingBubbleID = nil
     }
 
+    private func finalizeToolBubbles() {
+        for index in bubbles.indices where bubbles[index].role == .tool && bubbles[index].isStreaming {
+            bubbles[index].isStreaming = false
+        }
+        toolBubbleIDs.removeAll()
+    }
+
     private func bubbleIndex(of id: UUID) -> Int? {
         if bubbles.last?.id == id {
             return bubbles.index(before: bubbles.endIndex)
@@ -867,6 +891,7 @@ final class ChatViewModel {
     private func discardPartialResponse() {
         cancelStreamFlush()
         finalizeReasoningBubble()
+        finalizeToolBubbles()
         while let last = bubbles.last, last.role == .assistant || last.role == .reasoning {
             bubbles.removeLast()
         }

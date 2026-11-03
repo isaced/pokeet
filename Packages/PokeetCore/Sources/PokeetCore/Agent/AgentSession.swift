@@ -394,39 +394,55 @@ public actor AgentSession {
             let call = calls[index]
 
             guard let tool = registry.tool(named: call.name) else {
-                await onEvent(.toolStarted(call.name))
+                await onEvent(.toolStarted(
+                    name: call.name,
+                    callID: call.id,
+                    detail: Self.toolDetail(for: call)
+                ))
                 let message = "Unknown tool '\(call.name)'."
                 slots[index] = ToolExecution(call: call, content: "Error: \(message)")
-                await onEvent(.toolFinished(name: call.name, summary: message))
+                await onEvent(.toolFinished(name: call.name, callID: call.id, summary: message))
                 index += 1
                 continue
             }
 
             guard activeMode.allows(tool.capabilities) else {
-                await onEvent(.toolStarted(call.name))
+                await onEvent(.toolStarted(
+                    name: call.name,
+                    callID: call.id,
+                    detail: Self.toolDetail(for: call)
+                ))
                 let message = "Error: '\(call.name)' is disabled in \(activeMode.displayName) mode. "
                     + "Investigate with read-only tools and present a plan; switch modes to apply changes."
                 slots[index] = ToolExecution(call: call, content: message)
-                await onEvent(.toolFinished(name: call.name, summary: message))
+                await onEvent(.toolFinished(name: call.name, callID: call.id, summary: message))
                 index += 1
                 continue
             }
 
             if let reviewError = reviewErrors[index] {
-                await onEvent(.toolStarted(call.name))
+                await onEvent(.toolStarted(
+                    name: call.name,
+                    callID: call.id,
+                    detail: Self.toolDetail(for: call)
+                ))
                 slots[index] = ToolExecution(call: call, content: "Error: \(reviewError)")
-                await onEvent(.toolFinished(name: call.name, summary: reviewError))
+                await onEvent(.toolFinished(name: call.name, callID: call.id, summary: reviewError))
                 index += 1
                 continue
             }
 
             if let action = actions[index] {
-                await onEvent(.toolStarted(call.name))
+                await onEvent(.toolStarted(
+                    name: call.name,
+                    callID: call.id,
+                    detail: Self.toolDetail(for: call)
+                ))
 
                 if activeMode == .plan {
                     let message = "Error: Network write actions are disabled in Plan mode."
                     slots[index] = ToolExecution(call: call, content: message)
-                    await onEvent(.toolFinished(name: call.name, summary: message))
+                    await onEvent(.toolFinished(name: call.name, callID: call.id, summary: message))
                     index += 1
                     continue
                 }
@@ -437,7 +453,7 @@ public actor AgentSession {
                     if !decision.allow {
                         let message = "Error: Network action was denied by the user."
                         slots[index] = ToolExecution(call: call, content: message)
-                        await onEvent(.toolFinished(name: call.name, summary: message))
+                        await onEvent(.toolFinished(name: call.name, callID: call.id, summary: message))
                         index += 1
                         continue
                     }
@@ -455,6 +471,7 @@ public actor AgentSession {
                 }
                 await onEvent(.toolFinished(
                     name: call.name,
+                    callID: call.id,
                     summary: Self.summary(of: execution)
                 ))
                 index += 1
@@ -481,7 +498,11 @@ public actor AgentSession {
 
                 let runCalls = Array(calls[index..<end])
                 for runCall in runCalls {
-                    await onEvent(.toolStarted(runCall.name))
+                    await onEvent(.toolStarted(
+                        name: runCall.name,
+                        callID: runCall.id,
+                        detail: Self.toolDetail(for: runCall)
+                    ))
                 }
 
                 let chunkSize = max(1, config.maxConcurrentReadTools)
@@ -529,6 +550,7 @@ public actor AgentSession {
                         }
                         await onEvent(.toolFinished(
                             name: outcome.execution.call.name,
+                            callID: outcome.execution.call.id,
                             summary: Self.summary(of: outcome.execution)
                         ))
                     }
@@ -537,7 +559,11 @@ public actor AgentSession {
 
                 index = end
             } else {
-                await onEvent(.toolStarted(call.name))
+                await onEvent(.toolStarted(
+                    name: call.name,
+                    callID: call.id,
+                    detail: Self.toolDetail(for: call)
+                ))
                 let execution = await Self.executeTool(
                     tool,
                     call: call,
@@ -550,6 +576,7 @@ public actor AgentSession {
                 }
                 await onEvent(.toolFinished(
                     name: call.name,
+                    callID: call.id,
                     summary: Self.summary(of: execution)
                 ))
                 index += 1
@@ -614,6 +641,31 @@ public actor AgentSession {
             return String(output.content.prefix(200))
         }
         return execution.content ?? ""
+    }
+
+    private static func toolDetail(for call: ToolCall) -> String? {
+        guard let data = call.arguments.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            return nil
+        }
+
+        if let from = object["from"] as? String,
+           let to = object["to"] as? String,
+           !from.isEmpty {
+            return "\(from) → \(to)"
+        }
+        if let method = object["method"] as? String,
+           let url = object["url"] as? String,
+           !url.isEmpty {
+            return "\(method.uppercased()) \(url)"
+        }
+        for key in ["path", "pattern", "url", "title"] {
+            if let value = object[key] as? String, !value.isEmpty {
+                return value
+            }
+        }
+        return nil
     }
 
     private func consume(

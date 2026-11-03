@@ -68,11 +68,19 @@ struct MessageBubble: View, Equatable {
                 Spacer(minLength: 32)
             }
         case .tool:
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Image(systemName: "wrench.and.screwdriver")
-                    .font(.caption2)
+            HStack(alignment: .center, spacing: 6) {
+                if bubble.isStreaming {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .tint(.secondary)
+                } else {
+                    Image(systemName: "wrench.and.screwdriver")
+                        .font(.caption2)
+                }
                 Text(bubble.text)
                     .font(.caption.monospaced())
+                    .lineLimit(2)
+                    .truncationMode(.middle)
             }
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)

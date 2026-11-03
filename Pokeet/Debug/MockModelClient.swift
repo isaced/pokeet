@@ -30,6 +30,24 @@ struct MockModelClient: ModelClient {
 
         if lastMessage?.role == .user,
            let text = lastMessage?.content?.lowercased(),
+           text.contains("read test") {
+            return ChatResponse(
+                message: .assistant(
+                    nil,
+                    toolCalls: [
+                        ToolCall(
+                            id: "mock-read-\(UUID().uuidString)",
+                            name: "read_file",
+                            arguments: #"{"path":"README.md"}"#
+                        )
+                    ]
+                ),
+                finishReason: "tool_calls"
+            )
+        }
+
+        if lastMessage?.role == .user,
+           let text = lastMessage?.content?.lowercased(),
            text.contains("post test") {
             let arguments = #"{"url":"https://httpbin.org/post","method":"POST","headers":{"Content-Type":"application/json"},"body":"{\"hello\":\"world\"}"}"#
             return ChatResponse(

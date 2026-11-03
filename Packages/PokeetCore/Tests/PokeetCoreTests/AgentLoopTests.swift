@@ -1000,10 +1000,64 @@ struct ToolConcurrencyTests {
 
         let events = await recorder.snapshot()
         let started = events.compactMap { event -> String? in
-            if case .toolStarted(let name) = event { return name }
+            if case .toolStarted(let name, _, _) = event { return name }
             return nil
         }
         #expect(started == ["slow_a", "slow_b"])
+
+        let finished = events.compactMap { event -> String? in
+            if case .toolFinished(let name, _, _) = event { return name }
+            return nil
+        }
+        #expect(finished == ["slow_a", "slow_b"])
+    }
+
+    @Test func toolEventsCarryCallIDAndPathDetail() async throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+        try "hello".write(
+            to: directory.url.appendingPathComponent("sample.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let client = ScriptedModelClient([
+            toolCall(id: "read_1", name: "read_file", arguments: #"{"path":"sample.txt"}"#),
+            ChatResponse(message: .assistant("done"), finishReason: "stop")
+        ])
+        let session = AgentSession(
+            client: client,
+            workspace: FileWorkspace(root: directory.url),
+            mode: .bypass
+        )
+        let recorder = EventRecorder()
+
+        try await session.send(
+            "read it",
+            approval: { _ in [] },
+            onEvent: { await recorder.record($0) }
+        )
+
+        let events = await recorder.snapshot()
+        let starts = events.compactMap { event -> (String, String, String?)? in
+            if case .toolStarted(let name, let callID, let detail) = event {
+                return (name, callID, detail)
+            }
+            return nil
+        }
+        #expect(starts.count == 1)
+        #expect(starts.first?.0 == "read_file")
+        #expect(starts.first?.1 == "read_1")
+        #expect(starts.first?.2 == "sample.txt")
+
+        let finishes = events.compactMap { event -> (String, String)? in
+            if case .toolFinished(let name, let callID, _) = event {
+                return (name, callID)
+            }
+            return nil
+        }
+        #expect(finishes.count == 1)
+        #expect(finishes.first?.1 == "read_1")
     }
 
     @Test func writeToolsRemainSequential() async throws {
