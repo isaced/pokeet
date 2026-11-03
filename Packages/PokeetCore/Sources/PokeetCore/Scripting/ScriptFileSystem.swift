@@ -1,30 +1,5 @@
 import Foundation
 
-public struct ScriptFileInfo: Sendable, Equatable {
-    public var path: String
-    public var exists: Bool
-    public var isDirectory: Bool
-    public var sizeBytes: Int
-    public var lineCount: Int
-    public var isText: Bool
-
-    public init(
-        path: String,
-        exists: Bool,
-        isDirectory: Bool = false,
-        sizeBytes: Int = 0,
-        lineCount: Int = 0,
-        isText: Bool = true
-    ) {
-        self.path = path
-        self.exists = exists
-        self.isDirectory = isDirectory
-        self.sizeBytes = sizeBytes
-        self.lineCount = lineCount
-        self.isText = isText
-    }
-}
-
 /// The only filesystem a sandboxed script can see.
 ///
 /// Reads fall through to the workspace; writes are buffered and surface as
@@ -34,7 +9,7 @@ public protocol ScriptFileSystem: AnyObject, Sendable {
     func write(_ path: String, content: String) throws
     func list(_ path: String, recursive: Bool) throws -> [WorkspaceEntry]
     func exists(_ path: String) -> Bool
-    func info(_ path: String) throws -> ScriptFileInfo
+    func info(_ path: String) throws -> FileInfo
     func proposals() -> [FileProposal]
 }
 
@@ -146,49 +121,24 @@ public final class OverlayScriptFileSystem: ScriptFileSystem, @unchecked Sendabl
         return workspace.exists(normalized)
     }
 
-    public func info(_ path: String) throws -> ScriptFileInfo {
+    public func info(_ path: String) throws -> FileInfo {
         lock.lock()
         defer { lock.unlock() }
 
         let normalized = try normalize(path, allowRoot: true)
         if let staged = writes[normalized] {
-            let data = Data(staged.utf8)
-            return ScriptFileInfo(
+            return FileInfo(
                 path: normalized,
                 exists: true,
-                sizeBytes: data.count,
-                lineCount: Self.lineCount(of: staged),
+                sizeBytes: staged.utf8.count,
+                lineCount: FileProbe.lineCount(of: staged),
                 isText: true
             )
         }
-
-        let url = try sandbox.resolve(normalized, allowRoot: true)
-        let fileManager = FileManager.default
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
-            return ScriptFileInfo(path: normalized, exists: false)
-        }
-        if isDirectory.boolValue {
-            return ScriptFileInfo(path: normalized, exists: true, isDirectory: true)
-        }
-
-        let attributes = try? fileManager.attributesOfItem(atPath: url.path)
-        let size = (attributes?[.size] as? NSNumber)?.intValue ?? 0
-        let handle = try? FileHandle(forReadingFrom: url)
-        defer { try? handle?.close() }
-        let sample = (try? handle?.read(upToCount: 8_192)) ?? Data()
-        let isText = String(data: sample, encoding: .utf8) != nil
-        var lines = 0
-        if isText, size <= limits.maxReadBytes,
-           let text = try? workspace.read(normalized, maxBytes: limits.maxReadBytes) {
-            lines = Self.lineCount(of: text)
-        }
-        return ScriptFileInfo(
-            path: normalized,
-            exists: true,
-            sizeBytes: size,
-            lineCount: lines,
-            isText: isText
+        return try FileProbe.probe(
+            normalized,
+            in: workspace,
+            lineCountLimit: limits.maxReadBytes
         )
     }
 
@@ -229,14 +179,5 @@ public final class OverlayScriptFileSystem: ScriptFileSystem, @unchecked Sendabl
             return ""
         }
         return trimmed.hasPrefix("./") ? String(trimmed.dropFirst(2)) : trimmed
-    }
-
-    private static func lineCount(of text: String) -> Int {
-        guard !text.isEmpty else { return 0 }
-        var count = 0
-        for character in text where character == "\n" {
-            count += 1
-        }
-        return text.hasSuffix("\n") ? count : count + 1
     }
 }

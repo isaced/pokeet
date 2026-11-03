@@ -17,7 +17,7 @@ struct ToolCapabilityTests {
                 .filter { $0.capabilities.contains(.readFiles) }
                 .map(\.schema.name)
         )
-        #expect(readTools == ["list_files", "read_file", "grep", "find"])
+        #expect(readTools == ["list_files", "read_file", "grep", "find", "file_info"])
 
         let gitTools = Set(
             registry.tools
@@ -59,6 +59,7 @@ struct ToolCapabilityTests {
         #expect(names.contains("read_file"))
         #expect(names.contains("grep"))
         #expect(names.contains("find"))
+        #expect(names.contains("file_info"))
         #expect(names.contains("git_status"))
         #expect(names.contains("git_diff"))
         #expect(names.contains("git_log"))

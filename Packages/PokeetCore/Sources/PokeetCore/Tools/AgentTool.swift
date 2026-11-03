@@ -70,6 +70,7 @@ public struct ToolRegistry: Sendable {
             MoveFileTool(),
             GrepTool(),
             FindTool(),
+            FileInfoTool(),
             RunScriptTool(),
             GitStatusTool(),
             GitDiffTool(),
