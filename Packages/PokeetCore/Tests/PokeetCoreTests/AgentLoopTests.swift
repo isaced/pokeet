@@ -1007,7 +1007,7 @@ struct ToolConcurrencyTests {
 
         let events = await recorder.snapshot()
         let started = events.compactMap { event -> String? in
-            if case .toolStarted(let name, _, _) = event { return name }
+            if case .toolStarted(let name, _, _, _) = event { return name }
             return nil
         }
         #expect(started == ["slow_a", "slow_b"])
@@ -1047,7 +1047,7 @@ struct ToolConcurrencyTests {
 
         let events = await recorder.snapshot()
         let starts = events.compactMap { event -> (String, String, String?)? in
-            if case .toolStarted(let name, let callID, let detail) = event {
+            if case .toolStarted(let name, let callID, let detail, _) = event {
                 return (name, callID, detail)
             }
             return nil
@@ -1065,6 +1065,51 @@ struct ToolConcurrencyTests {
         }
         #expect(finishes.count == 1)
         #expect(finishes.first?.1 == "read_1")
+    }
+
+    @Test func scriptToolEventsCarryPreviewAndOutput() async throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+
+        let client = ScriptedModelClient([
+            toolCall(name: "run_script", arguments: #"{"script":"console.log('ok')"}"#),
+            ChatResponse(message: .assistant("done"), finishReason: "stop")
+        ])
+        let session = AgentSession(
+            client: client,
+            workspace: FileWorkspace(root: directory.url),
+            mode: .bypass,
+            scripting: ScriptRuntimes([FakeScriptRuntime { _, _ in
+                ScriptResult(
+                    exitCode: 0,
+                    stdout: "ok\n",
+                    stderr: "",
+                    termination: .exited,
+                    durationMilliseconds: 3
+                )
+            }])
+        )
+        let recorder = EventRecorder()
+
+        try await session.send(
+            "run it",
+            approval: { _ in [] },
+            onEvent: { await recorder.record($0) }
+        )
+
+        let events = await recorder.snapshot()
+        let previews = events.compactMap { event -> String? in
+            if case .toolStarted(_, _, _, let preview) = event { return preview }
+            return nil
+        }
+        #expect(previews == ["console.log('ok')"])
+
+        let summaries = events.compactMap { event -> String? in
+            if case .toolFinished(_, _, let summary) = event { return summary }
+            return nil
+        }
+        #expect(summaries.first?.contains("exit 0") == true)
+        #expect(summaries.first?.contains("ok") == true)
     }
 
     @Test func writeToolsRemainSequential() async throws {

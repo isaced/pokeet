@@ -15,6 +15,12 @@ struct MockModelClient: ModelClient {
                     finishReason: "stop"
                 )
             }
+            if lastTool.contains("JavaScript · exit 0") {
+                return ChatResponse(
+                    message: .assistant("All three checks passed — the parser returns the expected values."),
+                    finishReason: "stop"
+                )
+            }
             let isPlanExecution = request.messages.contains {
                 $0.role == .user && ($0.content?.contains("Execute this plan") == true)
             }
@@ -65,6 +71,25 @@ struct MockModelClient: ModelClient {
                         ToolCall(
                             id: "mock-edit-\(UUID().uuidString)",
                             name: "edit_file",
+                            arguments: arguments
+                        )
+                    ]
+                ),
+                finishReason: "tool_calls"
+            )
+        }
+
+        if lastMessage?.role == .user,
+           let text = lastMessage?.content?.lowercased(),
+           text.contains("script test") {
+            let arguments = #"{"script":"const cases = [['3+4', 7], ['2*21', 42], ['10/4', 2.5]];\nfor (const [expression, expected] of cases) {\n  const value = Function('return ' + expression)();\n  assert.equal(value, expected, expression);\n  console.log(expression, '=', value);\n}\nconsole.log('all checks passed');"}"#
+            return ChatResponse(
+                message: .assistant(
+                    nil,
+                    toolCalls: [
+                        ToolCall(
+                            id: "mock-script-\(UUID().uuidString)",
+                            name: "run_script",
                             arguments: arguments
                         )
                     ]

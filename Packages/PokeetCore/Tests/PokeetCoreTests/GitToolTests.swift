@@ -161,7 +161,7 @@ struct GitToolTests {
         )
 
         let details = await recorder.snapshot().compactMap { event -> (String, String?)? in
-            if case .toolStarted(let name, _, let detail) = event {
+            if case .toolStarted(let name, _, let detail, _) = event {
                 return (name, detail)
             }
             return nil

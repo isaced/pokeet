@@ -411,7 +411,8 @@ public actor AgentSession {
                 await onEvent(.toolStarted(
                     name: call.name,
                     callID: call.id,
-                    detail: Self.toolDetail(for: call)
+                    detail: Self.toolDetail(for: call),
+                    preview: Self.toolPreview(for: call)
                 ))
                 let message = "Unknown tool '\(call.name)'."
                 slots[index] = ToolExecution(call: call, content: "Error: \(message)")
@@ -424,7 +425,8 @@ public actor AgentSession {
                 await onEvent(.toolStarted(
                     name: call.name,
                     callID: call.id,
-                    detail: Self.toolDetail(for: call)
+                    detail: Self.toolDetail(for: call),
+                    preview: Self.toolPreview(for: call)
                 ))
                 let message = "Error: '\(call.name)' is disabled in \(activeMode.displayName) mode. "
                     + "Investigate with read-only tools and present a plan; switch modes to apply changes."
@@ -438,7 +440,8 @@ public actor AgentSession {
                 await onEvent(.toolStarted(
                     name: call.name,
                     callID: call.id,
-                    detail: Self.toolDetail(for: call)
+                    detail: Self.toolDetail(for: call),
+                    preview: Self.toolPreview(for: call)
                 ))
                 slots[index] = ToolExecution(call: call, content: "Error: \(reviewError)")
                 await onEvent(.toolFinished(name: call.name, callID: call.id, summary: reviewError))
@@ -450,7 +453,8 @@ public actor AgentSession {
                 await onEvent(.toolStarted(
                     name: call.name,
                     callID: call.id,
-                    detail: Self.toolDetail(for: call)
+                    detail: Self.toolDetail(for: call),
+                    preview: Self.toolPreview(for: call)
                 ))
 
                 if activeMode == .plan {
@@ -515,7 +519,8 @@ public actor AgentSession {
                     await onEvent(.toolStarted(
                         name: runCall.name,
                         callID: runCall.id,
-                        detail: Self.toolDetail(for: runCall)
+                        detail: Self.toolDetail(for: runCall),
+                        preview: Self.toolPreview(for: runCall)
                     ))
                 }
 
@@ -576,7 +581,8 @@ public actor AgentSession {
                 await onEvent(.toolStarted(
                     name: call.name,
                     callID: call.id,
-                    detail: Self.toolDetail(for: call)
+                    detail: Self.toolDetail(for: call),
+                    preview: Self.toolPreview(for: call)
                 ))
                 let execution = await Self.executeTool(
                     tool,
@@ -652,9 +658,19 @@ public actor AgentSession {
 
     private static func summary(of execution: ToolExecution) -> String {
         if let output = execution.output {
-            return String(output.content.prefix(200))
+            return String(output.content.prefix(1_200))
         }
         return execution.content ?? ""
+    }
+
+    /// Optional source shown in the trace, for tools whose input is worth reading.
+    private static func toolPreview(for call: ToolCall) -> String? {
+        guard call.name == RunScriptTool.toolName else { return nil }
+        let object = try? JSONSerialization.jsonObject(with: Data(call.arguments.utf8)) as? [String: Any]
+        guard let script = object?["script"] as? String else { return nil }
+        let trimmed = script.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return String(trimmed.prefix(1_500))
     }
 
     private static func toolDetail(for call: ToolCall) -> String? {

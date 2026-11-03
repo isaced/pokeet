@@ -28,6 +28,10 @@ final class ChatViewModel {
         var filePaths: [String]
         var reasoningDuration: TimeInterval?
         var runDuration: TimeInterval?
+        /// Source of a script run, shown when the trace row is expanded.
+        var preview: String?
+        /// Result text of a script run, shown when the trace row is expanded.
+        var output: String?
 
         init(
             id: UUID = UUID(),
@@ -37,7 +41,9 @@ final class ChatViewModel {
             images: [ChatImage] = [],
             filePaths: [String] = [],
             reasoningDuration: TimeInterval? = nil,
-            runDuration: TimeInterval? = nil
+            runDuration: TimeInterval? = nil,
+            preview: String? = nil,
+            output: String? = nil
         ) {
             self.id = id
             self.role = role
@@ -47,6 +53,8 @@ final class ChatViewModel {
             self.filePaths = filePaths
             self.reasoningDuration = reasoningDuration
             self.runDuration = runDuration
+            self.preview = preview
+            self.output = output
         }
     }
 
@@ -678,13 +686,13 @@ final class ChatViewModel {
             lastAssistantText = parsed.text
             status = "Thinking…"
             scheduleCheckpoint()
-        case .toolStarted(let name, let callID, let detail):
+        case .toolStarted(let name, let callID, let detail, let preview):
             flushStreamNow()
             finalizeReasoningBubble()
             runningToolCount += 1
             status = "Running \(name)…"
             let label = detail.map { "\(name) · \($0)" } ?? name
-            let bubble = Bubble(role: .tool, text: label, isStreaming: true)
+            let bubble = Bubble(role: .tool, text: label, isStreaming: true, preview: preview)
             bubbles.append(bubble)
             toolBubbleIDs[callID] = bubble.id
             scheduleCheckpoint()
@@ -699,7 +707,16 @@ final class ChatViewModel {
                 let line = summary
                     .split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: true)
                     .first.map(String.init) ?? summary
-                if name == HTTPRequestTool.toolName, summary.hasPrefix("HTTP ") {
+                if name == RunScriptTool.toolName {
+                    // Replace the "N lines" placeholder with the outcome line.
+                    bubbles[index].text = "\(name) · \(String(line.prefix(120)))"
+                    // The row already shows the outcome, so do not repeat it in the details.
+                    let body = summary.hasPrefix(line)
+                        ? String(summary.dropFirst(line.count))
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                        : summary
+                    bubbles[index].output = body.isEmpty ? nil : body
+                } else if name == HTTPRequestTool.toolName, summary.hasPrefix("HTTP ") {
                     bubbles[index].text += " · \(String(line.prefix(120)))"
                 } else if summary.hasPrefix("Error:") {
                     bubbles[index].text += "\n\(String(line.prefix(160)))"
@@ -848,7 +865,9 @@ final class ChatViewModel {
                 images: $0.images,
                 filePaths: $0.filePaths,
                 reasoningDuration: $0.reasoningDuration,
-                runDuration: $0.runDuration
+                runDuration: $0.runDuration,
+                preview: $0.preview,
+                output: $0.output
             )
         }
         return SessionSnapshot(
@@ -1027,7 +1046,9 @@ final class ChatViewModel {
                 images: stored.images,
                 filePaths: stored.filePaths,
                 reasoningDuration: stored.reasoningDuration,
-                runDuration: stored.runDuration
+                runDuration: stored.runDuration,
+                preview: stored.preview,
+                output: stored.output
             )
         }
         pager.reset(total: bubbles.count)

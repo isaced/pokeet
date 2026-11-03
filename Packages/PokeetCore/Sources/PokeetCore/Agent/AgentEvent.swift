@@ -40,7 +40,7 @@ public enum AgentEvent: Sendable, Equatable {
     case assistantReasoningDelta(String)
     case assistantTextDelta(String)
     case assistantMessage(String)
-    case toolStarted(name: String, callID: String, detail: String?)
+    case toolStarted(name: String, callID: String, detail: String?, preview: String?)
     case toolFinished(name: String, callID: String, summary: String)
     case proposalsPending([FileProposal])
     case actionPending(ActionRequest)

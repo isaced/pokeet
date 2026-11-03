@@ -1,4 +1,5 @@
 import Foundation
+import PokeetCore
 
 final class LockedBox<T>: @unchecked Sendable {
     private let lock = NSLock()
@@ -126,5 +127,17 @@ struct TestDirectory {
             withIntermediateDirectories: true
         )
         try content.write(to: fileURL, atomically: true, encoding: .utf8)
+    }
+}
+
+struct FakeScriptRuntime: ScriptRuntime {
+    let behaviour: @Sendable (ScriptRequest, any ScriptFileSystem) throws -> ScriptResult
+
+    var name: String { "javascript" }
+    var displayName: String { "Fake JS" }
+    var aliases: [String] { ["js"] }
+
+    func run(_ request: ScriptRequest, files: any ScriptFileSystem) async throws -> ScriptResult {
+        try behaviour(request, files)
     }
 }

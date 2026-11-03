@@ -55,6 +55,8 @@ Path validation reuses `PathSandbox`: no absolute paths, no `~`, no `..`, no `.g
 
 `ScriptResult` carries `exitCode`, `stdout`, `stderr`, `termination` (`exited`, `threw`, `timedOut`, `outOfMemory`, `cancelled`), `outputTruncated` and duration. Output is hard-capped (default 16 KB total, newline included), and every log line is newline-terminated.
 
+In the app, the trace row for a script collapses to a single status line (`Ran · JavaScript · exit 0 · 12 ms`) and expands to the script source plus the captured output, so a run can be audited without re-reading the conversation. Script rows are serialised rather than batched with `read_file`, because they can touch the overlay.
+
 Cancellation is cooperative in both directions: the caller may cancel the Swift task, which sets a flag the engine's interrupt handler polls, so the interpreter stops instead of being abandoned.
 
 ## Sandbox API

@@ -2,18 +2,6 @@ import Foundation
 import Testing
 @testable import PokeetCore
 
-private struct FakeScriptRuntime: ScriptRuntime {
-    let name = "javascript"
-    let displayName = "Fake JS"
-    let aliases = ["js"]
-
-    let behaviour: @Sendable (ScriptRequest, any ScriptFileSystem) throws -> ScriptResult
-
-    func run(_ request: ScriptRequest, files: any ScriptFileSystem) async throws -> ScriptResult {
-        try behaviour(request, files)
-    }
-}
-
 struct RunScriptToolTests {
     @Test func reportsUnavailableWithoutRuntime() async throws {
         let directory = try TestDirectory()

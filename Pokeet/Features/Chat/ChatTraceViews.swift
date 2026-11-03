@@ -91,38 +91,20 @@ struct TraceStepRow: View {
     let bubble: ChatViewModel.Bubble
     let isNotice: Bool
 
+    @State private var isExpanded = false
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                icon
-                    .frame(width: 14, alignment: .center)
-
-                if isNotice {
-                    Text(bubble.text)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-                } else {
-                    HStack(alignment: .firstTextBaseline, spacing: 5) {
-                        Text(label)
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(.secondary)
-
-                        if let detail {
-                            Text("·")
-                                .font(.caption)
-                                .foregroundStyle(.tertiary)
-                            Text(detail)
-                                .font(.caption.monospaced())
-                                .foregroundStyle(.tertiary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                        }
-                    }
+        VStack(alignment: .leading, spacing: 4) {
+            if hasDetails {
+                Button {
+                    withAnimation(.snappy(duration: 0.2)) { isExpanded.toggle() }
+                } label: {
+                    header
                 }
-
-                Spacer(minLength: 0)
+                .buttonStyle(.plain)
+                .accessibilityLabel(isExpanded ? "Collapse script" : "Expand script")
+            } else {
+                header
             }
 
             if let errorLine {
@@ -132,8 +114,84 @@ struct TraceStepRow: View {
                     .lineLimit(2)
                     .padding(.leading, 20)
             }
+
+            if isExpanded, hasDetails {
+                details
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var header: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            icon
+                .frame(width: 14, alignment: .center)
+
+            if isNotice {
+                Text(bubble.text)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+            } else {
+                HStack(alignment: .firstTextBaseline, spacing: 5) {
+                    Text(label)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+
+                    if let detail {
+                        Text("·")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                        Text(detail)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                }
+            }
+
+            Spacer(minLength: 0)
+
+            if hasDetails {
+                Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .contentShape(Rectangle())
+    }
+
+    private var details: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let preview = bubble.preview, !preview.isEmpty {
+                block(preview)
+            }
+            if let output = bubble.output, !output.isEmpty {
+                block(output)
+            }
+        }
+        .padding(.leading, 20)
+        .padding(.top, 2)
+    }
+
+    private func block(_ text: String) -> some View {
+        Text(text)
+            .font(.system(.caption2, design: .monospaced))
+            .foregroundStyle(.secondary)
+            .textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(8)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color(.secondarySystemBackground))
+            )
+    }
+
+    private var hasDetails: Bool {
+        guard !isNotice else { return false }
+        return bubble.preview?.isEmpty == false || bubble.output?.isEmpty == false
     }
 
     @ViewBuilder
