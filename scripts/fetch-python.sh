@@ -44,6 +44,20 @@ cp -R "$ROOT/Python.xcframework/lib/python$VERSION" "$VENDOR/.stdlib-copy" 2>/de
 rm -rf "$VENDOR/.stdlib-copy"
 cp -R "$ROOT/Python.xcframework/ios-arm64/include/python$VERSION" "$VENDOR/python-include"
 
+# The device slice ships pyconfig-arm64.h only, but pyconfig.h also has an
+# `#ifdef __x86_64__` branch that includes pyconfig-x86_64.h. An Intel Mac
+# simulating an iPhone — or an x86_64 CI runner — takes that branch and fails
+# with "'pyconfig-x86_64.h' file not found". The universal simulator slice
+# carries every arch's config, so top up whatever the device slice is missing;
+# -n keeps the device arch's own file untouched.
+SIM_INCLUDE="$ROOT/Python.xcframework/ios-arm64_x86_64-simulator/include/python$VERSION"
+if [[ -d "$SIM_INCLUDE" ]]; then
+    for config in "$SIM_INCLUDE"/pyconfig-*.h; do
+        [[ -e "$config" ]] || continue
+        cp -n "$config" "$VENDOR/python-include/" 2>/dev/null || true
+    done
+fi
+
 step "Staging the stdlib"
 STDLIB="$VENDOR/python-home/lib/python$VERSION"
 rm -rf "$VENDOR/python-home"
