@@ -53,8 +53,8 @@ Internal testers need only an App Store Connect role; external testers need **Be
 Written in App Store Connect, not in the repository, because step 2 is the key:
 
 1. Settings → Model → Manage providers → Add provider.
-2. API format `OpenAI Responses`, Base URL `https://opencode.ai/zen/go/v1`, the beta key.
-3. Fetch models from provider → `opencode-go/deepseek-v4.1-flash`.
+2. API format `OpenAI Responses`, base URL and key as given in the notes.
+3. Fetch models from provider → pick the model named there.
 4. Projects → New project → create (no remote needed).
 5. Ask for `hello.py`, approve the diff, open Changes, commit.
 

@@ -45,4 +45,4 @@ Pokeet is a developer tool and is not directed at children under 13.
 
 ## Changes and contact
 
-Material changes to this policy will be published on this page, with the date above updated. Questions: [isaced@63.com](mailto:isaced@63.com).
+Material changes to this policy will be published on this page, with the date above updated. Questions: [isacedgg@gmail.com](mailto:isacedgg@gmail.com).
