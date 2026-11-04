@@ -247,6 +247,55 @@ struct PythonFilesystemTests {
         #expect(lines[3] == "2")
     }
 
+    // MARK: the rest of os
+
+    @Test("os answers about the project, not the app sandbox")
+    func osSeesTheProject() async throws {
+        let fixture = try makeFixture(["src/a.py": "one\ntwo\n", "README.md": "# t\n"])
+        let result = try await fixture.run("""
+        import os
+        print(os.getcwd())
+        print(sorted(os.listdir('.')))
+        print(os.path.exists('src/a.py'), os.path.exists('missing.py'))
+        print(os.path.isfile('src/a.py'), os.path.isdir('src'))
+        print(os.path.getsize('README.md'))
+        """)
+        #expect(result.termination == .exited, "stderr: \(result.stderr)")
+        let lines = result.stdout.split(separator: "\n").map(String.init)
+        #expect(lines[0] == "/")
+        #expect(lines[1].contains("README.md") && lines[1].contains("src"))
+        #expect(!lines[1].contains("etc") && !lines[1].contains("System"), "leaked the real root: \(lines[1])")
+        #expect(lines[2] == "True False")
+        #expect(lines[3] == "True True")
+        #expect(lines[4] == "4")
+    }
+
+    @Test("os.scandir refuses instead of listing the real disk")
+    func scandirRefuses() async throws {
+        let fixture = try makeFixture(["a.txt": "x"])
+        let result = try await fixture.run("""
+        import os
+        try:
+            os.scandir('.')
+        except NotImplementedError:
+            print('refused')
+        """)
+        #expect(result.termination == .exited, "stderr: \(result.stderr)")
+        #expect(result.stdout == "refused\n")
+    }
+
+    @Test("patching os does not break the standard library")
+    func stdlibStillImports() async throws {
+        let fixture = try makeFixture()
+        let result = try await fixture.run("""
+        import json, re, collections, itertools, math, datetime, textwrap, difflib
+        import tempfile, shutil, hashlib, base64, uuid, decimal, fractions
+        print(json.dumps({'ok': True}))
+        """)
+        #expect(result.termination == .exited, "stderr: \(result.stderr)")
+        #expect(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == #"{"ok": true}"#)
+    }
+
     // MARK: isolation
 
     @Test("writes from two runs stay separate proposals")

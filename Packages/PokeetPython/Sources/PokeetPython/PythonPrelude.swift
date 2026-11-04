@@ -186,6 +186,46 @@ def info(path):
     return _call("fs.info", path=str(path))
 
 
+# -- redirect the parts of os that would otherwise read the real disk ------
+#
+# The interpreter's working directory is "/" — the app's own sandbox — so an
+# unredirected os.listdir(".") lists system directories and quietly answers the
+# wrong question. Import machinery does not go through these functions, so
+# patching them after startup is safe; os.scandir is left raising rather than
+# returning the wrong thing.
+import os as _os
+
+_os.getcwd = lambda: "/"
+_os.listdir = listdir
+_os.path.exists = exists
+
+
+def _is_file(path):
+    return exists(path) and not info(path)["isDirectory"]
+
+
+def _is_dir(path):
+    return exists(path) and info(path)["isDirectory"]
+
+
+def _size(path):
+    return info(path)["size"]
+
+
+_os.path.isfile = _is_file
+_os.path.isdir = _is_dir
+_os.path.getsize = _size
+
+
+def _scandir(path="."):
+    raise NotImplementedError(
+        "os.scandir is not available in the sandbox; use pokeet.walk() or pokeet.listdir()"
+    )
+
+
+_os.scandir = _scandir
+
+
 # -- redirect open() ------------------------------------------------------
 def _sandboxed_open(file, mode="r", *args, **kwargs):
     if isinstance(file, int):
