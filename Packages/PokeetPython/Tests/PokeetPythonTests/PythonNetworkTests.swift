@@ -128,6 +128,38 @@ struct PythonNetworkTests {
         #expect(result.stdout.contains("a%20b"))
     }
 
+    @Test("urllib.error classes are real and raise_for_status opts in")
+    func urllibError() async throws {
+        NetworkTestSupport.respond(status: 404, body: "nope")
+        defer { StubURLProtocol.handler = nil }
+
+        let result = try await run("""
+        import urllib.error
+        from urllib.request import urlopen
+
+        response = urlopen('https://api.github.com/missing')
+        print('status', response.status)
+        try:
+            response.raise_for_status()
+        except urllib.error.HTTPError as error:
+            print('http error', error.code)
+        """)
+
+        #expect(result.termination == .exited, "stderr: \(result.stderr)")
+        #expect(result.stdout.contains("status 404"))
+        #expect(result.stdout.contains("http error 404"))
+    }
+
+    @Test("the app's environment is not visible to a script")
+    func environmentIsEmpty() async throws {
+        let result = try await run("""
+        import os
+        print('GITHUB_TOKEN' in os.environ, len(os.environ))
+        """)
+        #expect(result.termination == .exited, "stderr: \(result.stderr)")
+        #expect(result.stdout.hasPrefix("False"))
+    }
+
     @Test("urllib.parse still works, it never needed a socket")
     func parseStillWorks() async throws {
         let result = try await run("""

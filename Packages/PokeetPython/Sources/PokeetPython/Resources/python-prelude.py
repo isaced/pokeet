@@ -221,6 +221,26 @@ class HTTPMessage:
         return iter(self._map)
 
 
+class URLError(OSError):
+    """Raised when a request cannot be made at all (DNS, TLS, policy)."""
+
+    def __init__(self, reason, filename=None):
+        super().__init__(reason)
+        self.reason = reason
+        self.filename = filename
+
+
+class HTTPError(URLError):
+    """The error type urllib raises for 4xx/5xx; here it is opt-in via raise_for_status."""
+
+    def __init__(self, url, code, reason, headers=None):
+        super().__init__(reason, url)
+        self.url = url
+        self.code = code
+        self.status = code
+        self.headers = headers
+
+
 class HTTPResponse:
     def __init__(self, raw):
         self.status = raw["status"]
@@ -253,6 +273,12 @@ class HTTPResponse:
 
     def getcode(self):
         return self.status
+
+    def raise_for_status(self):
+        """urllib raises for 4xx/5xx; here the response is returned, so ask for it."""
+        if self.status >= 400:
+            raise HTTPError(self.url, self.status, "HTTP %d" % self.status, self.headers)
+        return self
 
     def info(self):
         return self.headers
@@ -338,8 +364,15 @@ def _install_urllib():
     request_module = _types.ModuleType("urllib.request")
     request_module.urlopen = urlopen
     request_module.Request = Request
-    request_module.HTTPError = OSError
-    request_module.URLError = OSError
+    request_module.HTTPError = HTTPError
+    request_module.URLError = URLError
+
+    error_module = _types.ModuleType("urllib.error")
+    error_module.HTTPError = HTTPError
+    error_module.URLError = URLError
+    error_module.ContentTooShortError = URLError
+    _sys.modules["urllib.error"] = error_module
+    package.error = error_module
     _sys.modules["urllib.request"] = request_module
     package.request = request_module
 
@@ -375,6 +408,13 @@ import stat as _statmod
 import time as _time
 
 _os.getcwd = lambda: "/"
+
+# The interpreter would otherwise answer with the app's own environment, which is
+# both a leak and a lie: there is no GITHUB_TOKEN in here, and telling a model that
+# environment variables are available invites it to write code that cannot work.
+# The few names the stdlib needs for temp files are kept.
+_KEEP_ENV = ("TMPDIR", "TMP", "TEMP", "HOME", "LANG", "LC_ALL", "TZ")
+_os.environ = {name: _os.environ[name] for name in _KEEP_ENV if name in _os.environ}
 
 
 def _abspath(path):

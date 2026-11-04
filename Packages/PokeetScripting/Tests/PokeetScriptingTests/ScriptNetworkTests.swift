@@ -113,6 +113,17 @@ struct RunScriptNetworkTests {
         #expect(output.content.contains("pong"), "\(output.content)")
     }
 
+    @Test("a failure names its reason on the first line")
+    func failureHeadline() async throws {
+        let output = try await RunScriptTool().execute(
+            arguments: Data(#"{"script":"throw new Error('boom')"}"#.utf8),
+            context: try context()
+        )
+        // The collapsed trace row shows only this line, so the reason has to be on it.
+        let headline = output.content.split(separator: "\n").first.map(String.init) ?? ""
+        #expect(headline.hasPrefix("JavaScript · uncaught error · Error: boom · "))
+    }
+
     @Test("the tool's allowlist still applies inside a script")
     func toolPolicyApplies() async throws {
         NetworkTestSupport.respondForTool(body: "leak")

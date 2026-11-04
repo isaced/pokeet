@@ -30,9 +30,11 @@ public struct RunScriptTool: AgentTool {
             description: """
             Run a short script in the on-device sandbox and return its output. \
             There is no shell and no package manager. \
-            Network requests go through the app's policy: https:// only, private and \
-            local addresses blocked, redirects re-checked. Use http.get/http.post or \
-            fetch() in JavaScript, and urllib.request.urlopen() in Python. \
+            Network requests go through the app's policy: https:// only, redirects \
+            re-checked, no sockets. Use http.get/http.post or fetch() in JavaScript, and \
+            urllib.request.urlopen(Request) in Python — urlopen returns the response for \
+            any status (call raise_for_status() or read .status), and there are no \
+            environment variables to read secrets from. \
             JavaScript otherwise uses the sandbox API (console, assert, fs, path, \
             require for relative CommonJS files). Python is a full interpreter with a \
             trimmed standard library: open() reads and writes project files, and \
@@ -152,8 +154,16 @@ public struct RunScriptTool: AgentTool {
         case .exited:
             sections.append("\(runtime.displayName) · exit \(result.exitCode) · \(Int(result.durationMilliseconds)) ms")
         case .threw(let message):
+            // The first line is all the collapsed trace shows, so it has to carry the
+            // reason; the traceback stays for when the row is expanded.
+            let headline = message
+                .split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: true)
+                .first
+                .map { $0.count > 120 ? String($0.prefix(120)) + "…" : String($0) }
+                ?? "uncaught error"
             sections.append(
-                "\(runtime.displayName) · uncaught error · \(Int(result.durationMilliseconds)) ms\n\(message)"
+                "\(runtime.displayName) · uncaught error · \(headline) · "
+                    + "\(Int(result.durationMilliseconds)) ms\n\(message)"
             )
         case .timedOut:
             sections.append(
