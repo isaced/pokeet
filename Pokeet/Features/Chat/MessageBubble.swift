@@ -4,6 +4,8 @@ import UIKit
 
 struct MessageBubble: View, Equatable {
     let bubble: ChatViewModel.Bubble
+    /// Only user messages offer editing: anything else is model output, not input.
+    var onEdit: ((ChatViewModel.Bubble) -> Void)?
 
     nonisolated static func == (lhs: MessageBubble, rhs: MessageBubble) -> Bool {
         let a = lhs.bubble
@@ -39,6 +41,20 @@ struct MessageBubble: View, Equatable {
                             .foregroundStyle(Color.accentColor)
                             .background(Color.accentColor.opacity(0.12))
                             .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                            .contextMenu {
+                                Button {
+                                    copy()
+                                } label: {
+                                    Label("Copy", systemImage: "doc.on.doc")
+                                }
+                                if let onEdit {
+                                    Button {
+                                        onEdit(bubble)
+                                    } label: {
+                                        Label("Edit", systemImage: "pencil")
+                                    }
+                                }
+                            }
                     }
                 }
             }
@@ -51,6 +67,13 @@ struct MessageBubble: View, Equatable {
         case .assistant:
             HStack {
                 StreamingMarkdownText(text: bubble.text, isStreaming: bubble.isStreaming)
+                    .contextMenu {
+                        Button {
+                            copy()
+                        } label: {
+                            Label("Copy", systemImage: "doc.on.doc")
+                        }
+                    }
                 Spacer(minLength: 0)
             }
         case .tool:
@@ -70,6 +93,13 @@ struct MessageBubble: View, Equatable {
             }
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .contextMenu {
+                Button {
+                    copy()
+                } label: {
+                    Label("Copy", systemImage: "doc.on.doc")
+                }
+            }
         case .notice:
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Image(systemName: "info.circle")
@@ -79,6 +109,13 @@ struct MessageBubble: View, Equatable {
             }
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .contextMenu {
+                Button {
+                    copy()
+                } label: {
+                    Label("Copy", systemImage: "doc.on.doc")
+                }
+            }
         case .error:
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Image(systemName: "exclamationmark.triangle.fill")
@@ -87,11 +124,25 @@ struct MessageBubble: View, Equatable {
             .font(.caption)
             .foregroundStyle(.red)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .contextMenu {
+                Button {
+                    copy()
+                } label: {
+                    Label("Copy", systemImage: "doc.on.doc")
+                }
+            }
         case .todo:
             if let todos = bubble.todos, !todos.isEmpty {
                 TodoCardView(todos: todos)
             }
         }
+    }
+}
+
+extension MessageBubble {
+    private func copy() {
+        UIPasteboard.general.string = bubble.text
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
     }
 }
 

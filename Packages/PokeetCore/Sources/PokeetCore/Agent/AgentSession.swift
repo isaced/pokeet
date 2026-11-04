@@ -98,6 +98,24 @@ public actor AgentSession {
         messages = [systemMessage]
     }
 
+    /// Drops everything from the Nth user message onwards, so it can be edited and sent
+    /// again. Returns false when there is no such message, which is the caller's cue that
+    /// the bubble and the transcript have drifted apart.
+    @discardableResult
+    public func rewind(toUserMessage ordinal: Int) -> Bool {
+        guard ordinal >= 0 else { return false }
+        var seen = -1
+        for (index, message) in messages.enumerated() where message.role == .user {
+            seen += 1
+            guard seen == ordinal else { continue }
+            messages = Array(messages[..<index])
+            todos = []
+            needsTaskReminder = false
+            return true
+        }
+        return false
+    }
+
     public func restore(_ history: [ChatMessage], systemPrompt: String = AgentPrompts.system) {
         baseSystemPrompt = systemPrompt
         messages = [systemMessage]

@@ -158,6 +158,7 @@ final class ChatViewModel {
     private(set) var streamRevision = 0
     private var didLoadSession = false
     private var needsHistoryRestore = false
+    private(set) var pendingEdit: PendingEdit?
 
     init(project: Project, environment: AppEnvironment, session: SessionMetadata) {
         let initialMode = session.mode ?? environment.settings.defaultAgentMode
@@ -355,6 +356,33 @@ final class ChatViewModel {
         pager.window(total: bubbles.count).lowerBound > 0
     }
 
+    /// A message waiting to be replaced: the text is back in the composer, and the turn
+    /// it came from is only cut when the edit is actually sent.
+    struct PendingEdit: Sendable, Equatable {
+        let bubbleID: UUID
+        let ordinal: Int
+    }
+
+    /// Puts a sent message back in the composer. Nothing is removed until `send()` runs,
+    /// so backing out of an edit costs nothing.
+    func edit(_ bubble: Bubble) {
+        guard !isRunning, bubble.role == .user,
+              let index = bubbles.firstIndex(where: { $0.id == bubble.id })
+        else { return }
+
+        pendingEdit = PendingEdit(
+            bubbleID: bubble.id,
+            ordinal: bubbles[..<index].count { $0.role == .user }
+        )
+        input = bubble.text
+        pendingImages = bubble.images
+        let workspace = FileWorkspace(root: project.directory)
+        pendingFiles = bubble.filePaths.compactMap { path in
+            guard let content = try? workspace.read(path, maxBytes: 200_000) else { return nil }
+            return ContextFile(path: path, content: content)
+        }
+    }
+
     /// Reveals the previous page and returns the bubble that kept the scroll anchor.
     @discardableResult
     func loadOlderBubbles() -> UUID? {
@@ -394,18 +422,20 @@ final class ChatViewModel {
             ? (files.isEmpty ? "Image" : files.map(\.path).joined(separator: ", "))
             : text
 
-        bubbles.append(Bubble(
-            role: .user,
-            text: text,
-            images: images,
-            filePaths: files.map(\.path)
-        ))
-        pager.reset(total: bubbles.count)
         modeSnapshot = mode
 
         let sessionText = Self.composedText(text, files: files)
+        let replacing = pendingEdit
+        pendingEdit = nil
         runTask = Task { [weak self] in
-            await self?.run(sessionText, images: images)
+            guard let self else { return }
+            await self.beginRun(
+                sessionText,
+                text: text,
+                images: images,
+                files: files,
+                replacing: replacing
+            )
         }
     }
 
@@ -591,6 +621,33 @@ final class ChatViewModel {
         await saveSession()
     }
 
+    /// Appends the user bubble — after cutting the turn an edit is replacing, so the new
+    /// message takes its place rather than piling up behind it.
+    private func beginRun(
+        _ sessionText: String,
+        text: String,
+        images: [ChatImage],
+        files: [ContextFile],
+        replacing pending: PendingEdit?
+    ) async {
+        if let pending, await ensureHistoryRestored(),
+           await session.rewind(toUserMessage: pending.ordinal),
+           let index = bubbles.firstIndex(where: { $0.id == pending.bubbleID }) {
+            bubbles.removeSubrange(index...)
+            pager.reset(total: bubbles.count)
+        }
+
+        bubbles.append(Bubble(
+            role: .user,
+            text: text,
+            images: images,
+            filePaths: files.map(\.path)
+        ))
+        pager.reset(total: bubbles.count)
+
+        await run(sessionText, images: images)
+    }
+
     private func run(_ text: String, images: [ChatImage]) async {
         coordinator.reset()
         actionCoordinator.reset()
@@ -625,20 +682,7 @@ final class ChatViewModel {
             mode: modeSnapshot
         )
 
-        if needsHistoryRestore {
-            guard let history = await environment.sessions.loadMessages(
-                projectName: project.name,
-                sessionID: sessionID
-            ) else {
-                errorMessage = "Could not load this session's history."
-                return
-            }
-            await session.restore(history)
-            if let todos = bubbles.last(where: { $0.role == .todo })?.todos, !todos.isEmpty {
-                await session.setTasks(todos)
-            }
-            needsHistoryRestore = false
-        }
+        guard await ensureHistoryRestored() else { return }
 
         do {
             await session.setMode(modeSnapshot)
@@ -1108,6 +1152,26 @@ final class ChatViewModel {
         pendingProposals = proposals
         isShowingReview = true
         status = nil
+    }
+
+    /// The transcript is loaded from the snapshot; the model's message history is
+    /// restored on first use, which is also what `rewind` needs before it can find a
+    /// user message to cut back to.
+    private func ensureHistoryRestored() async -> Bool {
+        guard needsHistoryRestore else { return true }
+        guard let history = await environment.sessions.loadMessages(
+            projectName: project.name,
+            sessionID: sessionID
+        ) else {
+            errorMessage = "Could not load this session's history."
+            return false
+        }
+        await session.restore(history)
+        if let todos = bubbles.last(where: { $0.role == .todo })?.todos, !todos.isEmpty {
+            await session.setTasks(todos)
+        }
+        needsHistoryRestore = false
+        return true
     }
 
     private func restoreSession() async {

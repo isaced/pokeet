@@ -1456,3 +1456,40 @@ struct ActionApprovalTests {
         #expect(toolMessage?.content?.contains("disabled in Plan mode") == true)
     }
 }
+
+struct AgentRewindTests {
+    private func session(_ replies: [String]) throws -> (AgentSession, TestDirectory) {
+        let directory = try TestDirectory()
+        let client = ScriptedModelClient(
+            replies.map { ChatResponse(message: .assistant($0), finishReason: "stop") }
+        )
+        return (
+            AgentSession(client: client, workspace: FileWorkspace(root: directory.url)),
+            directory
+        )
+    }
+
+    @Test func rewindsToAnEarlierUserMessage() async throws {
+        let (session, directory) = try session(["first answer", "second answer"])
+        defer { directory.cleanup() }
+
+        try await session.send("one", approval: { _ in [] }, onEvent: { _ in })
+        try await session.send("two", approval: { _ in [] }, onEvent: { _ in })
+        #expect(await session.history.count == 5)
+
+        #expect(await session.rewind(toUserMessage: 1))
+        let history = await session.history
+        #expect(history.count == 3)
+        #expect(history[1].content == "one")
+        #expect(history.last?.content == "first answer")
+    }
+
+    @Test func rewindingPastTheEndDoesNothing() async throws {
+        let (session, directory) = try session(["answer"])
+        defer { directory.cleanup() }
+
+        try await session.send("one", approval: { _ in [] }, onEvent: { _ in })
+        #expect(await session.rewind(toUserMessage: 5) == false)
+        #expect(await session.history.count == 3)
+    }
+}

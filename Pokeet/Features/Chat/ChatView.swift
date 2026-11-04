@@ -240,8 +240,13 @@ struct ChatView: View {
                 if bubble.role == .todo, let todos = bubble.todos, !todos.isEmpty {
                     TodoCardView(todos: todos)
                 } else {
-                    MessageBubble(bubble: bubble)
-                        .equatable()
+                    MessageBubble(
+                        bubble: bubble,
+                        onEdit: model.isRunning ? nil : { bubble in
+                            model.edit(bubble)
+                        }
+                    )
+                    .equatable()
                 }
             case .trace:
                 if bubble.role == .reasoning {
