@@ -179,6 +179,7 @@ final class ChatViewModel {
             workspace: FileWorkspace(root: project.directory),
             git: project.isGitRepository ? environment.git : nil,
             sessionID: sessionID.uuidString,
+            tools: ToolRegistry.standard(scriptRuntimes: environment.scripting.names),
             mode: initialMode,
             networkPolicy: NetworkAccessPolicy(
                 isEnabled: environment.settings.networkEnabled,

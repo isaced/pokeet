@@ -8,13 +8,18 @@ public struct RunScriptTool: AgentTool {
     public static let maximumSourceBytes = 60_000
 
     private let network: NetworkClient
+    private let runtimes: [String]
 
     /// A script reads a whole document, unlike `http_request`, which renders a preview.
     public static let networkLimits = NetworkClient.Limits(maxBodyBytes: 262_144)
 
     /// `network` is injectable so tests can stub transport without stubbing the sandbox.
-    public init(network: NetworkClient = NetworkClient(limits: RunScriptTool.networkLimits)) {
+    public init(
+        network: NetworkClient = NetworkClient(limits: RunScriptTool.networkLimits),
+        runtimes: [String] = ["javascript", "python"]
+    ) {
         self.network = network
+        self.runtimes = runtimes
     }
 
     public var capabilities: Set<ToolCapability> { [.runScript] }
@@ -40,7 +45,7 @@ public struct RunScriptTool: AgentTool {
                 "properties": .object([
                     "runtime": .object([
                         "type": .string("string"),
-                        "description": .string("Script runtime: 'javascript' (default) or 'python'.")
+                        "description": .string("Script runtime. Available: \(runtimes.joined(separator: ", ")).")
                     ]),
                     "script": .object([
                         "type": .string("string"),

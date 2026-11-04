@@ -79,6 +79,12 @@ public struct ToolRegistry: Sendable {
     }
 
     public static var standard: ToolRegistry {
+        standard()
+    }
+
+    /// `scriptRuntimes` keeps `run_script` honest in a build that ships only one
+    /// interpreter, instead of promising Python and failing at call time.
+    public static func standard(scriptRuntimes: [String] = ["javascript", "python"]) -> ToolRegistry {
         ToolRegistry([
             ListFilesTool(),
             ReadFileTool(),
@@ -91,7 +97,7 @@ public struct ToolRegistry: Sendable {
             FileInfoTool(),
             ReadImageTool(),
             TodoWriteTool(),
-            RunScriptTool(),
+            RunScriptTool(runtimes: scriptRuntimes),
             GitStatusTool(),
             GitDiffTool(),
             GitLogTool(),
