@@ -7,32 +7,67 @@ import PokeetScripting
 @MainActor
 @Observable
 final class AppEnvironment {
+    /// One environment for the process: the run registry outlives every screen, so it cannot
+    /// be owned by a view.
+    static let shared = AppEnvironment()
+
     let settings: AppSettings
     let projects: ProjectStore
     let sessions: SessionStore
     let git: any GitServicing & GitInspecting
     let scripting: ScriptRuntimes
+    let runs = AgentRunRegistry()
+    let notifier = SessionNotifier.shared
+    /// Set when a notification is tapped; the session list consumes it and pushes the chat.
+    private(set) var pendingSessionLink: SessionDeepLink?
 
-    init() {
-        settings = AppSettings()
-        projects = ProjectStore()
+    init(
+        settings: AppSettings = AppSettings(),
+        projects: ProjectStore = ProjectStore(),
+        sessions: SessionStore? = nil,
+        git: (any GitServicing & GitInspecting)? = nil,
+        scripting: ScriptRuntimes? = nil
+    ) {
+        self.settings = settings
+        self.projects = projects
+        self.sessions = sessions ?? SessionStore(directory: Self.defaultSessionsDirectory)
+        self.git = git ?? SwiftGitXGitService()
+        self.scripting = scripting ?? Self.makeScriptRuntimes()
 
-        let support = FileManager.default.urls(
+        // Taps arrive through the shared delegate, so wire it before anything can run.
+        notifier.configure()
+        notifier.onOpen = { [weak self] link in
+            self?.pendingSessionLink = link
+        }
+    }
+
+    func consumeSessionLink(for project: Project) -> UUID? {
+        guard let link = pendingSessionLink,
+              link.projectDirectory.standardizedFileURL.path
+                == project.directory.standardizedFileURL.path
+        else {
+            return nil
+        }
+        pendingSessionLink = nil
+        return link.sessionID
+    }
+
+    private static var defaultSessionsDirectory: URL {
+        FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
         )[0]
-        sessions = SessionStore(
-            directory: support.appendingPathComponent("Pokeet/Sessions", isDirectory: true)
-        )
+        .appendingPathComponent("Pokeet/Sessions", isDirectory: true)
+    }
 
-        git = SwiftGitXGitService()
-        // QuickJS runs on-device with interrupt and memory limits; see RunScriptTool.
-        // CPython is registered only when its stdlib made it into the bundle: without it
-        // the interpreter cannot start, and run_script should say so rather than crash.
+    // QuickJS runs on-device with interrupt and memory limits; see RunScriptTool.
+    // CPython is registered only when its stdlib made it into the bundle: without it
+    // the interpreter cannot start, and run_script should say so rather than crash.
+    private static func makeScriptRuntimes() -> ScriptRuntimes {
         var runtimes: [any ScriptRuntime] = [QuickJSRuntime()]
         if let home = PythonRuntime.bundledHome() {
             runtimes.append(PythonRuntime(home: home))
         }
-        scripting = ScriptRuntimes(runtimes)
+        return ScriptRuntimes(runtimes)
     }
 }

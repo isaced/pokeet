@@ -117,6 +117,8 @@ struct SessionSnapshot: Sendable, Equatable {
     /// Raw `PlanOutcome`; nil while the plan is still in flight.
     let planOutcome: String?
     let appliedChanges: [AppliedChange]?
+    /// Written while the agent is working, so a cold start can tell a crash from a finished turn.
+    let runInFlight: Bool?
 
     init(
         bubbles: [SessionBubble],
@@ -124,7 +126,8 @@ struct SessionSnapshot: Sendable, Equatable {
         plan: AgentPlan? = nil,
         planIsExecuting: Bool? = nil,
         planOutcome: String? = nil,
-        appliedChanges: [AppliedChange]? = nil
+        appliedChanges: [AppliedChange]? = nil,
+        runInFlight: Bool? = nil
     ) {
         self.bubbles = bubbles
         self.cacheStats = cacheStats
@@ -132,6 +135,7 @@ struct SessionSnapshot: Sendable, Equatable {
         self.planIsExecuting = planIsExecuting
         self.planOutcome = planOutcome
         self.appliedChanges = appliedChanges
+        self.runInFlight = runInFlight
     }
 }
 
@@ -145,6 +149,7 @@ struct SessionHeader: Codable, Sendable, Equatable {
     let planIsExecuting: Bool?
     let planOutcome: String?
     let appliedChanges: [AppliedChange]?
+    let runInFlight: Bool?
     let updatedAt: Date?
 
     init(
@@ -155,6 +160,7 @@ struct SessionHeader: Codable, Sendable, Equatable {
         planIsExecuting: Bool? = nil,
         planOutcome: String? = nil,
         appliedChanges: [AppliedChange]? = nil,
+        runInFlight: Bool? = nil,
         updatedAt: Date?
     ) {
         self.version = version
@@ -164,6 +170,7 @@ struct SessionHeader: Codable, Sendable, Equatable {
         self.planIsExecuting = planIsExecuting
         self.planOutcome = planOutcome
         self.appliedChanges = appliedChanges
+        self.runInFlight = runInFlight
         self.updatedAt = updatedAt
     }
 }
@@ -174,19 +181,24 @@ struct SessionMetadata: Codable, Sendable, Equatable, Hashable, Identifiable {
     var mode: AgentMode?
     let createdAt: Date
     var updatedAt: Date
+    /// Mirrored from the snapshot header so the list can flag a session whose run was cut
+    /// short without opening (and loading) every conversation.
+    var runInFlight: Bool?
 
     init(
         id: UUID = UUID(),
         title: String = "New chat",
         mode: AgentMode? = nil,
         createdAt: Date = Date(),
-        updatedAt: Date = Date()
+        updatedAt: Date = Date(),
+        runInFlight: Bool? = nil
     ) {
         self.id = id
         self.title = title
         self.mode = mode
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+        self.runInFlight = runInFlight
     }
 }
 
@@ -310,7 +322,8 @@ actor SessionStore {
             plan: header.plan,
             planIsExecuting: header.planIsExecuting,
             planOutcome: header.planOutcome,
-            appliedChanges: header.appliedChanges
+            appliedChanges: header.appliedChanges,
+            runInFlight: header.runInFlight
         )
     }
 
@@ -385,6 +398,7 @@ actor SessionStore {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         if let indexPosition = index.firstIndex(where: { $0.id == sessionID }) {
             index[indexPosition].updatedAt = now
+            index[indexPosition].runInFlight = snapshot.runInFlight
             if !trimmedTitle.isEmpty {
                 index[indexPosition].title = trimmedTitle
             }
@@ -422,6 +436,15 @@ actor SessionStore {
             try writeCompressed(header, to: urls.header)
         } catch {
             return
+        }
+
+        // Only the flag: rewriting the index for every checkpoint would add I/O for the
+        // fields nothing changed. The entry itself is created by `ensureSession`.
+        var index = readIndex(projectName: projectName)
+        if let position = index.firstIndex(where: { $0.id == sessionID }),
+           index[position].runInFlight != snapshot.runInFlight {
+            index[position].runInFlight = snapshot.runInFlight
+            writeIndex(index, projectName: projectName)
         }
     }
 
@@ -498,6 +521,7 @@ actor SessionStore {
             planIsExecuting: snapshot.planIsExecuting,
             planOutcome: snapshot.planOutcome,
             appliedChanges: snapshot.appliedChanges,
+            runInFlight: snapshot.runInFlight,
             updatedAt: now
         )
     }

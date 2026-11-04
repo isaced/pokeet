@@ -155,8 +155,12 @@ struct ChatView: View {
         .task {
             await model.loadInitialState()
         }
+        .onAppear {
+            model.attach()
+        }
         .onDisappear {
-            model.cancelRun()
+            // Leaving the page is not stopping: the run lives in the app, not in this view.
+            model.detach()
         }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active {
@@ -319,8 +323,7 @@ struct ChatView: View {
         }
     }
 
-    private func statusCapsule(_ text: String) -> some View {
-        HStack(spacing: 8) {
+    private func statusCapsule(_ text: String) -> some View {        HStack(spacing: 8) {
             ProgressView()
                 .controlSize(.small)
             Text(text)
@@ -333,6 +336,49 @@ struct ChatView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 16)
         .padding(.bottom, 4)
+    }
+
+    /// Shown when the header on disk still says a run was writing when the process died.
+    private var continuationBar: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "pause.circle")
+                .font(.system(size: 18, weight: .medium))
+                .foregroundStyle(.orange)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("The last run was interrupted")
+                    .font(.caption.weight(.semibold))
+                Text("Pokeet stopped mid-turn. The transcript is saved — pick it up where it left off.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.leading)
+
+                HStack(spacing: 12) {
+                    Button("Continue") {
+                        model.resume()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+
+                    Button("Dismiss") {
+                        model.dismissContinuation()
+                    }
+                    .buttonStyle(.plain)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+                .padding(.top, 2)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(
+            Color.orange.opacity(0.08),
+            in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+        )
+        .padding(.horizontal, 16)
+        .padding(.bottom, 6)
     }
 
     @ViewBuilder
@@ -402,6 +448,10 @@ struct ChatView: View {
         VStack(spacing: 0) {
             statusArea
             pendingAttachments
+
+            if model.needsContinuation, !model.isRunning {
+                continuationBar
+            }
 
             if let plan = model.currentPlan, model.showsPlanBar {
                 PlanProgressView(plan: plan, phase: model.planPhase ?? .reviewing) {

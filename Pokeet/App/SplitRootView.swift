@@ -36,6 +36,7 @@ struct SplitRootView: View {
         .navigationSplitViewStyle(.balanced)
         .task {
             await environment.projects.refresh()
+            selectLinkedProject()
         }
         .onChange(of: environment.projects.projects) { _, projects in
             if let selectedProjectID,
@@ -43,7 +44,23 @@ struct SplitRootView: View {
                 return
             }
             selectedProjectID = projects.first?.id
+            selectLinkedProject()
         }
+        .onChange(of: environment.pendingSessionLink) { _, _ in
+            selectLinkedProject()
+        }
+    }
+
+    /// A notification tap opens the chat, so the sidebar has to land on its project first.
+    private func selectLinkedProject() {
+        guard let link = environment.pendingSessionLink else { return }
+        guard let match = environment.projects.projects.first(where: {
+            $0.directory.standardizedFileURL.path
+                == link.projectDirectory.standardizedFileURL.path
+        }) else {
+            return
+        }
+        selectedProjectID = match.id
     }
 
     private var sidebar: some View {

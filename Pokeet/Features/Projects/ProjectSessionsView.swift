@@ -62,15 +62,15 @@ struct ProjectSessionsView: View {
     var body: some View {
         List {
             ForEach(model.sessions) { session in
-                NavigationLink {
-                    ChatView(
-                        project: project,
-                        session: session,
-                        environment: environment
-                    )
+                Button {
+                    openedSession = session
                 } label: {
-                    SessionRow(session: session)
+                    SessionRow(
+                        session: session,
+                        runtime: environment.runs.existing(for: project, sessionID: session.id)
+                    )
                 }
+                .buttonStyle(.plain)
                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                     Button(role: .destructive) {
                         pendingDelete = session
@@ -133,8 +133,12 @@ struct ProjectSessionsView: View {
                 environment: environment
             )
         }
-        .onAppear {
-            Task { await model.load() }
+        .task {
+            await model.load()
+            openLinkedSession()
+        }
+        .onChange(of: environment.pendingSessionLink) { _, _ in
+            openLinkedSession()
         }
         .confirmationDialog(
             "Delete session?",
@@ -146,6 +150,9 @@ struct ProjectSessionsView: View {
         ) { session in
             Button("Delete \(session.title)", role: .destructive) {
                 Task {
+                    // Stop and forget the run first: deleting the folder under a live agent
+                    // would leave it writing into a path that no longer exists.
+                    environment.runs.discard(for: project, sessionID: session.id)
                     await model.delete(session)
                     pendingDelete = nil
                 }
@@ -179,32 +186,85 @@ struct ProjectSessionsView: View {
     private func createSession() {
         openedSession = SessionMetadata()
     }
+
+    /// A notification tap lands here; open the conversation it named.
+    private func openLinkedSession() {
+        guard let sessionID = environment.consumeSessionLink(for: project) else { return }
+        if let existing = model.sessions.first(where: { $0.id == sessionID }) {
+            openedSession = existing
+        } else {
+            openedSession = SessionMetadata(id: sessionID)
+        }
+    }
 }
 
 private struct SessionRow: View {
     let session: SessionMetadata
+    let runtime: SessionRuntime?
+
+    /// A session whose last run was cut short says so even before the chat is opened, so the
+    /// row reads the flag the store keeps next to the title.
+    private var isInterrupted: Bool {
+        runtime?.needsContinuation ?? (session.runInFlight == true)
+    }
+
+    private var activityLabel: String? {
+        if let label = runtime?.activityLabel {
+            return label
+        }
+        return isInterrupted ? "Interrupted" : nil
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(session.title)
-                .font(.headline)
-                .lineLimit(1)
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(session.title)
+                    .font(.headline)
+                    .lineLimit(1)
 
-            HStack(spacing: 8) {
-                Text(session.updatedAt, format: .relative(presentation: .named))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    Text(session.updatedAt, format: .relative(presentation: .named))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
 
-                if let mode = session.mode, mode != .ask {
-                    HStack(spacing: 3) {
-                        Image(systemName: mode.systemImage)
-                        Text(mode.displayName)
+                    if let mode = session.mode, mode != .ask {
+                        HStack(spacing: 3) {
+                            Image(systemName: mode.systemImage)
+                            Text(mode.displayName)
+                        }
+                        .font(.caption2)
+                        .foregroundStyle(mode.tint)
                     }
-                    .font(.caption2)
-                    .foregroundStyle(mode.tint)
+
+                    if let label = activityLabel {
+                        HStack(spacing: 4) {
+                            if runtime?.isRunning == true {
+                                ProgressView()
+                                    .controlSize(.mini)
+                            } else if isInterrupted {
+                                Image(systemName: "pause.circle")
+                            }
+                            Text(label)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        }
+                        .font(.caption2)
+                        .foregroundStyle(
+                            isInterrupted || runtime?.isAwaitingApproval == true
+                                ? Color.orange
+                                : Color.accentColor
+                        )
+                    }
                 }
             }
+
+            Spacer(minLength: 8)
+
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.tertiary)
         }
         .padding(.vertical, 4)
+        .contentShape(Rectangle())
     }
 }

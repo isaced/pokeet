@@ -133,6 +133,53 @@ public actor AgentSession {
         actionApproval: @escaping ActionApprovalHandler = { _ in .denied },
         onEvent: @escaping EventHandler
     ) async throws {
+        do {
+            try await runTurn(
+                text,
+                images: images,
+                approval: approval,
+                actionApproval: actionApproval,
+                onEvent: onEvent
+            )
+        } catch {
+            // A run that stops mid tool round leaves an assistant `tool_calls` turn with no
+            // results behind it, and every provider rejects the next request that carries one.
+            repairHistory()
+            throw error
+        }
+    }
+
+    /// Answers tool calls that never reported back, so the transcript stays valid. A cancelled
+    /// run and a session restored after the app was killed mid-round both end up here.
+    public func repairHistory() {
+        guard let index = messages.lastIndex(where: {
+            $0.role == .assistant && !($0.toolCalls ?? []).isEmpty
+        }) else { return }
+        // Only the tail can be repaired: once a real turn followed the round, the missing
+        // results belong in the middle of the transcript and the provider would still balk.
+        guard messages[(index + 1)...].allSatisfy({ $0.role == .tool }) else { return }
+
+        let answered = Set(messages[(index + 1)...].compactMap(\.toolCallID))
+        let missing = (messages[index].toolCalls ?? [])
+            .map(\.id)
+            .filter { !answered.contains($0) }
+        guard !missing.isEmpty else { return }
+
+        for callID in missing {
+            messages.append(.tool(
+                "Error: the run stopped before this tool reported a result.",
+                callID: callID
+            ))
+        }
+    }
+
+    private func runTurn(
+        _ text: String,
+        images: [ChatImage],
+        approval: @escaping ApprovalHandler,
+        actionApproval: @escaping ActionApprovalHandler,
+        onEvent: @escaping EventHandler
+    ) async throws {
         let activeMode = mode
         let activeRegistry = registry.filtered(for: mode)
         webSearchBudget.reset()
