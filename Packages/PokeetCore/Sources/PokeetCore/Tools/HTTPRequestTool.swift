@@ -31,19 +31,28 @@ public struct HTTPRequestTool: AgentTool {
         }
     }
 
-    private let session: URLSession
-    private let resolver: any HostResolving
     private let limits: Limits
-    private let policy = NetworkPolicy()
+    private let client: NetworkClient
 
     public init(session: URLSession? = nil, limits: Limits = Limits()) {
         self.init(session: session, resolver: SystemHostResolver(), limits: limits)
     }
 
     init(session: URLSession?, resolver: any HostResolving, limits: Limits) {
-        self.session = session ?? Self.makeSession(limits: limits)
-        self.resolver = resolver
         self.limits = limits
+        self.client = NetworkClient(
+            session: session,
+            resolver: resolver,
+            limits: NetworkClient.Limits(
+                maxBodyBytes: limits.maxBodyBytes,
+                maxRequestBodyBytes: limits.maxRequestBodyBytes,
+                maxRedirects: limits.maxRedirects,
+                maxHeaderCount: limits.maxHeaderCount,
+                maxHeaderBytes: limits.maxHeaderBytes,
+                requestTimeout: limits.requestTimeout,
+                resourceTimeout: limits.resourceTimeout
+            )
+        )
     }
 
     public var capabilities: Set<ToolCapability> { [.network] }
@@ -197,82 +206,30 @@ public struct HTTPRequestTool: AgentTool {
             throw ToolError.invalidInput(error.localizedDescription)
         }
 
-        var current: URL
+        let response: NetworkResponse
         do {
-            current = try await policy.validate(
-                url,
-                resolver: resolver,
+            response = try await client.fetch(
+                url: url,
+                method: method,
+                headers: headers,
+                body: bodyData,
+                offset: offset,
+                maxBody: maxBody,
                 access: context.networkPolicy
             )
-        } catch {
+        } catch let error as NetworkClientError {
+            throw ToolError.network(error.localizedDescription)
+        } catch let error as NetworkPolicyError {
             throw ToolError.invalidInput(error.localizedDescription)
         }
 
-        var currentMethod = method
-        var currentBody = bodyData
-        var currentOffset = offset
-        var hops = 0
-        while true {
-            try Task.checkCancellation()
-
-            let outcome: ResponseOutcome
-            do {
-                outcome = try await performRequest(
-                    url: current,
-                    method: currentMethod,
-                    headers: headers,
-                    body: currentBody,
-                    offset: currentOffset,
-                    maxBody: maxBody
-                )
-            } catch let error as ToolError {
-                throw error
-            } catch is CancellationError {
-                throw CancellationError()
-            } catch let error as URLError where error.code == .cancelled {
-                throw CancellationError()
-            } catch {
-                throw ToolError.network(error.localizedDescription)
-            }
-
-            guard let location = outcome.redirectLocation else {
-                return ToolOutput(content: format(
-                    outcome,
-                    maxBody: maxBody,
-                    renderFormat: renderFormat
-                ))
-            }
-
-            do {
-                let target = try NetworkPolicy.redirectTarget(
-                    from: current,
-                    location: location,
-                    hops: hops,
-                    maxHops: limits.maxRedirects
-                )
-                current = try await policy.validate(
-                    target,
-                    resolver: resolver,
-                    access: context.networkPolicy
-                )
-                if outcome.status == 301 || outcome.status == 302 || outcome.status == 303,
-                   currentMethod != "GET", currentMethod != "HEAD" {
-                    currentMethod = "GET"
-                    currentBody = nil
-                    currentOffset = 0
-                }
-                hops += 1
-            } catch {
-                return ToolOutput(
-                    content: format(
-                        outcome,
-                        maxBody: maxBody,
-                        renderFormat: renderFormat,
-                        note: "Redirect not followed: \(error.localizedDescription)"
-                    )
-                )
-            }
-        }
+        return ToolOutput(content: format(
+            response,
+            method: method,
+            offset: offset,
+            maxBody: maxBody,
+            renderFormat: renderFormat
+        ))
     }
 
     private static func normalizedFormat(_ value: String?) -> String {
@@ -283,139 +240,23 @@ public struct HTTPRequestTool: AgentTool {
         }
     }
 
-    static func makeSession(limits: Limits) -> URLSession {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = limits.requestTimeout
-        configuration.timeoutIntervalForResource = limits.resourceTimeout
-        configuration.httpShouldSetCookies = false
-        configuration.httpCookieStorage = nil
-        configuration.httpCookieAcceptPolicy = .never
-        configuration.urlCache = nil
-        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-        configuration.httpMaximumConnectionsPerHost = 1
-        configuration.waitsForConnectivity = false
-        return URLSession(configuration: configuration)
-    }
-
-    private func performRequest(
-        url: URL,
-        method: String,
-        headers: [String: String],
-        body requestBody: Data?,
-        offset: Int,
-        maxBody: Int
-    ) async throws -> ResponseOutcome {
-        var request = URLRequest(url: url)
-        request.httpMethod = method
-        request.timeoutInterval = limits.requestTimeout
-        for (name, value) in headers {
-            request.setValue(value, forHTTPHeaderField: name)
-        }
-        if !headers.keys.contains(where: { $0.caseInsensitiveCompare("User-Agent") == .orderedSame }) {
-            request.setValue("Pokeet/http_request", forHTTPHeaderField: "User-Agent")
-        }
-        if !headers.keys.contains(where: { $0.caseInsensitiveCompare("Accept") == .orderedSame }) {
-            request.setValue("*/*", forHTTPHeaderField: "Accept")
-        }
-        if let requestBody, method != "GET", method != "HEAD" {
-            request.httpBody = requestBody
-        }
-        if offset > 0, method == "GET" || method == "HEAD" {
-            request.setValue(
-                "bytes=\(offset)-\(offset + maxBody - 1)",
-                forHTTPHeaderField: "Range"
-            )
-        }
-
-        let suppressor = RedirectSuppressor()
-        let (bytes, response) = try await session.bytes(for: request, delegate: suppressor)
-        guard let http = response as? HTTPURLResponse else {
-            throw ToolError.network("The server returned a non-HTTP response.")
-        }
-
-        var responseBody = Data()
-        var truncated = false
-        if method != "HEAD" {
-            let skip = (offset > 0 && http.statusCode != 206) ? offset : 0
-            var skipped = 0
-            var readCount = 0
-            for try await byte in bytes {
-                if skipped < skip {
-                    skipped += 1
-                    continue
-                }
-                if responseBody.count >= maxBody {
-                    truncated = true
-                    bytes.task.cancel()
-                    break
-                }
-                responseBody.append(byte)
-                readCount += 1
-                if readCount % 4_096 == 0 {
-                    try Task.checkCancellation()
-                }
-            }
-        }
-
-        let redirectStatuses: Set<Int> = [301, 302, 303, 307, 308]
-        let location = http.value(forHTTPHeaderField: "Location")
-        return ResponseOutcome(
-            url: url,
-            method: method,
-            status: http.statusCode,
-            headers: safeHeaders(from: http),
-            body: responseBody,
-            truncated: truncated,
-            offset: offset,
-            redirectLocation: redirectStatuses.contains(http.statusCode) ? location : nil
-        )
-    }
-
-    private func safeHeaders(from response: HTTPURLResponse) -> [(String, String)] {
-        let names = [
-            "content-type", "content-length", "location", "date", "last-modified",
-            "etag", "cache-control", "www-authenticate", "retry-after", "link",
-            "content-range", "accept-ranges"
-        ]
-        var result: [(String, String)] = []
-        for name in names {
-            if let value = response.value(forHTTPHeaderField: name) {
-                result.append((name, sanitize(value)))
-            }
-        }
-        for (key, value) in response.allHeaderFields {
-            let name = String(describing: key).lowercased()
-            guard name.hasPrefix("x-ratelimit-") else { continue }
-            result.append((name, sanitize(String(describing: value))))
-        }
-        return result
-    }
-
-    private func sanitize(_ value: String) -> String {
-        let cleaned = value
-            .replacingOccurrences(of: "\r", with: " ")
-            .replacingOccurrences(of: "\n", with: " ")
-            .replacingOccurrences(of: "\0", with: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return String(cleaned.prefix(256))
-    }
-
     private func format(
-        _ outcome: ResponseOutcome,
+        _ outcome: NetworkResponse,
+        method: String,
+        offset: Int,
         maxBody: Int,
-        renderFormat: String,
-        note: String? = nil
+        renderFormat: String
     ) -> String {
+        let note = outcome.redirectNote
         var lines = [
-            "HTTP \(outcome.status) \(statusText(outcome.status)) · \(outcome.method) "
+            "HTTP \(outcome.status) \(statusText(outcome.status)) · \(method) "
                 + "\(outcome.url.absoluteString) · \(outcome.body.count) B"
         ]
         for (name, value) in outcome.headers {
             lines.append("\(name): \(value)")
         }
-        if outcome.method != "HEAD",
-           outcome.status == 206 || outcome.truncated {
-            lines.append("next-offset: \(outcome.offset + outcome.body.count)")
+        if method != "HEAD", outcome.status == 206 || outcome.truncated {
+            lines.append("next-offset: \(offset + outcome.body.count)")
         }
         lines.append("---")
 
@@ -424,7 +265,7 @@ public struct HTTPRequestTool: AgentTool {
             return lines.joined(separator: "\n")
         }
 
-        if outcome.method == "HEAD" {
+        if method == "HEAD" {
             lines.append("(no body)")
         } else if outcome.body.isEmpty {
             lines.append("(empty body)")
@@ -469,7 +310,7 @@ public struct HTTPRequestTool: AgentTool {
         }
     }
 
-    private func decodeText(_ outcome: ResponseOutcome, renderFormat: String) -> String? {
+    private func decodeText(_ outcome: NetworkResponse, renderFormat: String) -> String? {
         let contentType = outcome.headers
             .first(where: { $0.0 == "content-type" })?
             .1
@@ -497,28 +338,5 @@ public struct HTTPRequestTool: AgentTool {
             return text
         }
         return nil
-    }
-}
-
-private struct ResponseOutcome {
-    let url: URL
-    let method: String
-    let status: Int
-    let headers: [(String, String)]
-    let body: Data
-    let truncated: Bool
-    let offset: Int
-    let redirectLocation: String?
-}
-
-private final class RedirectSuppressor: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
-    func urlSession(
-        _ session: URLSession,
-        task: URLSessionTask,
-        willPerformHTTPRedirection response: HTTPURLResponse,
-        newRequest request: URLRequest,
-        completionHandler: @escaping @Sendable (URLRequest?) -> Void
-    ) {
-        completionHandler(nil)
     }
 }
