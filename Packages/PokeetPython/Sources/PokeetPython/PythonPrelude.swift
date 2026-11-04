@@ -365,13 +365,16 @@ _os.path.getatime = _getmtime
 
 
 class _DirEntry:
-    """Shaped like os.DirEntry: what glob and pathlib actually touch."""
+    """Shaped like os.DirEntry: what glob and pathlib actually touch.
 
-    def __init__(self, name, path, is_directory, raw):
+    Only `name` and `is_dir()` are free — `fs.list` already answered those. A
+    stat costs one host call, so it waits until somebody asks.
+    """
+
+    def __init__(self, name, path, is_directory):
         self.name = name
         self.path = path
         self._is_dir = is_directory
-        self._raw = raw
 
     def is_dir(self, *, follow_symlinks=True):
         return self._is_dir
@@ -383,7 +386,7 @@ class _DirEntry:
         return False
 
     def stat(self, *, follow_symlinks=True):
-        return _stat_result(self._raw, self.path)
+        return _stat_result(_entry(self.path), self.path)
 
     def __fspath__(self):
         return self.path
@@ -423,9 +426,7 @@ def _scandir_entries(path):
     base = "" if text in ("", ".", "/") else text.strip("/")
     for item in _call("fs.list", path=base, recursive=False)["entries"]:
         full = item["path"]
-        name = full.split("/")[-1]
-        raw = info(full)
-        yield _DirEntry(name, full, raw["isDirectory"], raw)
+        yield _DirEntry(full.split("/")[-1], full, item["isDirectory"])
 
 
 def _scandir(path="."):
