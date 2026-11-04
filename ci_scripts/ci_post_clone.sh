@@ -15,6 +15,10 @@ started=$SECONDS
 printf '▸ Staging CPython\n'
 scripts/fetch-python.sh
 
+# Xcode Cloud's non-login shell does not always carry Homebrew's prefix on PATH.
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1
+
 printf '▸ Generating Pokeet.xcodeproj\n'
 if ! command -v xcodegen >/dev/null 2>&1; then
     brew install xcodegen
