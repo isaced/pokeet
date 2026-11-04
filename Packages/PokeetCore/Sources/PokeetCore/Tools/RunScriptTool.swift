@@ -9,8 +9,11 @@ public struct RunScriptTool: AgentTool {
 
     private let network: NetworkClient
 
+    /// A script reads a whole document, unlike `http_request`, which renders a preview.
+    public static let networkLimits = NetworkClient.Limits(maxBodyBytes: 262_144)
+
     /// `network` is injectable so tests can stub transport without stubbing the sandbox.
-    public init(network: NetworkClient = NetworkClient()) {
+    public init(network: NetworkClient = NetworkClient(limits: RunScriptTool.networkLimits)) {
         self.network = network
     }
 

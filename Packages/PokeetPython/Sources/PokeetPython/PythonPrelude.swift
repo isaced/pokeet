@@ -303,6 +303,20 @@ def _install_urllib():
     package.request = request_module
 
 
+def _guarded_json_load(stream, *args, **kwargs):
+    """json.load on a truncated response would fail as a syntax error."""
+    if getattr(stream, "truncated", False):
+        raise ValueError(
+            "the response was truncated before the end of the body; "
+            "it is too large to parse in one piece"
+        )
+    return _original_json_load(stream, *args, **kwargs)
+
+
+import json as _json_module
+_original_json_load = _json_module.load
+_json_module.load = _guarded_json_load
+
 _install_urllib()
 
 

@@ -176,6 +176,7 @@ extension QuickJSRuntime {
         this.redirected = false;
         this.bodyUsed = false;
         this._body = raw.body;
+        this.truncated = !!raw.truncated;
         this.headers = new Headers({});
         var pairs = raw.headers || [];
         for (var i = 0; i < pairs.length; i++) this.headers.set(pairs[i][0], pairs[i][1]);
@@ -188,6 +189,11 @@ extension QuickJSRuntime {
       };
       Response.prototype.json = function () {
         this.bodyUsed = true;
+        if (this.truncated) {
+          throw new Error(
+            'the response was truncated before the end of the body; it is too large to parse'
+          );
+        }
         return JSON.parse(this._body);
       };
 
