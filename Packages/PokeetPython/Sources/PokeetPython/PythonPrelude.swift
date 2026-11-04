@@ -306,18 +306,154 @@ def _install_urllib():
 _install_urllib()
 
 
-# -- redirect the parts of os that would otherwise read the real disk ------
+# -- the filesystem, as much as the sandbox can honour -------------------
 #
-# The interpreter's working directory is "/" — the app's own sandbox — so an
-# unredirected os.listdir(".") lists system directories and quietly answers the
-# wrong question. Import machinery does not go through these functions, so
-# patching them after startup is safe; os.scandir is left raising rather than
-# returning the wrong thing.
+# The interpreter's working directory is "/" — the app's own sandbox — so anything
+# unredirected answers a question about the wrong disk. These shims cover the read
+# side: stat, scandir, walk and glob, which is what pathlib and the stdlib build on.
+# Import machinery does not use them, so patching after startup is safe.
+#
+# Delete, rename and mkdir are deliberately absent: the sandbox has no such
+# operation, and a script that could remove files would be a different feature.
 import os as _os
+import stat as _statmod
+import time as _time
 
 _os.getcwd = lambda: "/"
-_os.listdir = listdir
-_os.path.exists = exists
+
+
+def _abspath(path):
+    text = str(path)
+    return "/" + text.lstrip("/")
+
+
+_os.path.abspath = _abspath
+_os.path.realpath = _abspath
+
+
+def _entry(path):
+    """`info` for a path that must exist, raising FileNotFoundError like the real os."""
+    if not exists(path):
+        raise FileNotFoundError(2, "No such file or directory", str(path))
+    return info(path)
+
+
+def _stat_result(raw, path):
+    is_dir = raw["isDirectory"]
+    mode = (_statmod.S_IFDIR | 0o755) if is_dir else (_statmod.S_IFREG | 0o644)
+    stamp = raw.get("modified") or 0
+    return _os.stat_result(
+        (mode, 0, 0, 1, 0, 0, raw["size"], stamp, stamp, stamp)
+    )
+
+
+def _stat_path(path=".", *, dir_fd=None, follow_symlinks=True):
+    return _stat_result(_entry(path), path)
+
+
+_os.stat = _stat_path
+_os.lstat = _stat_path
+
+
+def _getmtime(path):
+    return _entry(path).get("modified") or 0
+
+
+_os.path.getmtime = _getmtime
+_os.path.getctime = _getmtime
+_os.path.getatime = _getmtime
+
+
+class _DirEntry:
+    """Shaped like os.DirEntry: what glob and pathlib actually touch."""
+
+    def __init__(self, name, path, is_directory, raw):
+        self.name = name
+        self.path = path
+        self._is_dir = is_directory
+        self._raw = raw
+
+    def is_dir(self, *, follow_symlinks=True):
+        return self._is_dir
+
+    def is_file(self, *, follow_symlinks=True):
+        return not self._is_dir
+
+    def is_symlink(self):
+        return False
+
+    def stat(self, *, follow_symlinks=True):
+        return _stat_result(self._raw, self.path)
+
+    def __fspath__(self):
+        return self.path
+
+    def __repr__(self):
+        return "<DirEntry %r>" % (self.path,)
+
+
+class _ScandirIterator:
+    def __init__(self, path):
+        self._entries = list(_scandir_entries(path))
+        self._index = 0
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self._index >= len(self._entries):
+            raise StopIteration
+        entry = self._entries[self._index]
+        self._index += 1
+        return entry
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+        return False
+
+    def close(self):
+        self._index = len(self._entries)
+
+
+def _scandir_entries(path):
+    text = str(path) if path is not None else "."
+    base = "" if text in ("", ".", "/") else text.strip("/")
+    for item in _call("fs.list", path=base, recursive=False)["entries"]:
+        full = item["path"]
+        name = full.split("/")[-1]
+        raw = info(full)
+        yield _DirEntry(name, full, raw["isDirectory"], raw)
+
+
+def _scandir(path="."):
+    return _ScandirIterator(path)
+
+
+_os.scandir = _scandir
+_os.listdir = lambda path=".": [entry.name for entry in _scandir(path)]
+
+
+def _walk(top=".", topdown=True, onerror=None, followlinks=False):
+    """Same contract as os.walk: yields (dirpath, dirnames, filenames)."""
+    top = str(top).strip("/") or "."
+    try:
+        entries = list(_scandir(top))
+    except OSError as error:
+        if onerror is not None:
+            onerror(error)
+        return
+    dirnames = [entry.name for entry in entries if entry.is_dir()]
+    filenames = [entry.name for entry in entries if entry.is_file()]
+    yield (top, dirnames, filenames)
+    for name in dirnames:
+        child = name if top in (".", "") else top + "/" + name
+        yield from _walk(child, topdown, onerror, followlinks)
+
+
+_os.walk = _walk
 
 
 def _is_file(path):
@@ -329,21 +465,13 @@ def _is_dir(path):
 
 
 def _size(path):
-    return info(path)["size"]
+    return _entry(path)["size"]
 
 
+_os.path.exists = exists
 _os.path.isfile = _is_file
 _os.path.isdir = _is_dir
 _os.path.getsize = _size
-
-
-def _scandir(path="."):
-    raise NotImplementedError(
-        "os.scandir is not available in the sandbox; use pokeet.walk() or pokeet.listdir()"
-    )
-
-
-_os.scandir = _scandir
 
 
 # -- redirect open() ------------------------------------------------------

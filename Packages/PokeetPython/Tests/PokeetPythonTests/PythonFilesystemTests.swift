@@ -270,18 +270,16 @@ struct PythonFilesystemTests {
         #expect(lines[4] == "4")
     }
 
-    @Test("os.scandir refuses instead of listing the real disk")
-    func scandirRefuses() async throws {
+    @Test("os.scandir lists the project, never the real disk")
+    func scandirListsTheProject() async throws {
         let fixture = try makeFixture(["a.txt": "x"])
         let result = try await fixture.run("""
         import os
-        try:
-            os.scandir('.')
-        except NotImplementedError:
-            print('refused')
+        print([entry.name for entry in os.scandir('.')])
         """)
         #expect(result.termination == .exited, "stderr: \(result.stderr)")
-        #expect(result.stdout == "refused\n")
+        #expect(result.stdout.contains("a.txt"))
+        #expect(!result.stdout.contains("System"))
     }
 
     @Test("patching os does not break the standard library")
@@ -314,5 +312,81 @@ struct PythonFilesystemTests {
         let proposals = fixture.files.proposals()
         #expect(proposals.count == 2)
         #expect(proposals.first { $0.path == "a.txt" }?.baseContent == "base\n")
+    }
+}
+
+/// The read side of `os`, so ordinary stdlib code — pathlib, glob, shutil — works.
+@Suite("Python os surface", .serialized)
+struct PythonOSSurfaceTests {
+    private func run(_ source: String, files seed: [String: String]) async throws -> ScriptResult {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pokeet-os-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        for (path, content) in seed {
+            let url = root.appendingPathComponent(path)
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(), withIntermediateDirectories: true
+            )
+            try content.write(to: url, atomically: true, encoding: .utf8)
+        }
+        return try await PythonRuntime().run(
+            ScriptRequest(source: source, filename: "script.py"),
+            files: OverlayScriptFileSystem(workspace: FileWorkspace(root: root))
+        )
+    }
+
+    @Test("os.stat reports a real stat_result")
+    func stat() async throws {
+        let result = try await run("""
+        import os, stat
+        info = os.stat('src/a.py')
+        print(stat.S_ISREG(info.st_mode), info.st_size)
+        print(stat.S_ISDIR(os.stat('src').st_mode))
+        """, files: ["src/a.py": "hello\n"])
+        #expect(result.termination == .exited, "\(result.stderr)")
+        #expect(result.stdout == "True 6\nTrue\n")
+    }
+
+    @Test("os.scandir, os.walk and glob work")
+    func scandirWalkGlob() async throws {
+        let result = try await run("""
+        import os, glob
+        print(sorted(entry.name for entry in os.scandir('src')))
+        for root, dirs, files in os.walk('src'):
+            print(root, sorted(dirs), sorted(files))
+        print(sorted(glob.glob('src/*.py')))
+        """, files: ["src/a.py": "x", "src/b.py": "y", "src/nested/c.py": "z"])
+        #expect(result.termination == .exited, "\(result.stderr)")
+        let lines = result.stdout.split(separator: "\n").map(String.init)
+        #expect(lines[0] == "['a.py', 'b.py', 'nested']")
+        #expect(lines[1] == "src ['nested'] ['a.py', 'b.py']")
+        #expect(lines[3].contains("src/a.py"), "stdout=\(result.stdout)")
+    }
+
+    @Test("pathlib walks the workspace")
+    func pathlib() async throws {
+        let result = try await run("""
+        from pathlib import Path
+        print(sorted(p.name for p in Path('src').iterdir()))
+        print(sorted(p.name for p in Path('src').glob('*.py')))
+        print(Path('src/a.py').stat().st_size, Path('src/a.py').exists())
+        """, files: ["src/a.py": "abcd", "src/b.py": "y"])
+        #expect(result.termination == .exited, "\(result.stderr)")
+        let lines = result.stdout.split(separator: "\n").map(String.init)
+        #expect(lines[0] == "['a.py', 'b.py']")
+        #expect(lines[1] == "['a.py', 'b.py']", "stdout=\(result.stdout)")
+        #expect(lines[2] == "4 True")
+    }
+
+    @Test("a missing path raises FileNotFoundError, like the real os")
+    func missing() async throws {
+        let result = try await run("""
+        import os
+        try:
+            os.stat('nope.txt')
+        except FileNotFoundError:
+            print('missing')
+        """, files: [:])
+        #expect(result.stdout == "missing\n")
     }
 }

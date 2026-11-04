@@ -102,8 +102,13 @@ fs.info(path)                      // { exists, isDirectory, sizeBytes, lineCoun
 fs.list(path) / fs.listRecursive(path)   // respects .gitignore
 fs.readdir(path)                   // alias for fs.list
 
+// Node-shaped aliases, so a snippet written for Node runs unchanged
+fs.readFileSync / writeFileSync / appendFileSync / readdirSync / statSync / existsSync
+fs.unlinkSync / renameSync / mkdirSync / rmSync   // throw ENOSYS: no such operation
+
 path.join / dirname / basename / extname / normalize / resolve / sep
 
+require('fs') / require('path') / require('os')   // the sandbox's own modules
 require('./relative/module.js')    // CommonJS, relative paths only
 require('./data.json')
 
@@ -112,7 +117,18 @@ process.argv / process.env / process.cwd() / process.exit(code)
 
 `require` supports relative files, `.js`, `.json` and `index.js`, with a module cache. Package names fail with an explicit "no node_modules" message so the model stops trying.
 
-Not provided: `fetch`, `XMLHttpRequest`, `WebSocket`, timers, `node:*` modules.
+Not provided: `fetch`, `XMLHttpRequest`, `WebSocket`, timers, `Buffer`, `stream`, `child_process`.
+
+### Python
+
+`builtins.open` and `io.open` are redirected, so the ordinary file API is the sandbox's
+file API — and `pathlib` comes along for free. On top of that the read side of `os` is
+shimmed: `stat`/`lstat`, `scandir`, `walk`, `listdir`, `path.exists/isfile/isdir/getsize/
+getmtime/abspath/realpath`, and `getcwd` returning `/`. `glob` and `pathlib.Path.glob` work
+because they are built on `scandir`.
+
+The write side is deliberately narrower: no `remove`, `rename`, `mkdir` or `rmdir`. A script
+that could delete files would be a different feature, not a bigger shim.
 
 ## Limits
 

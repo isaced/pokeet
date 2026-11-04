@@ -88,6 +88,64 @@ extension QuickJSRuntime {
       fs.readText = fs.read;
       fs.readdir = fs.list;
       fs.readJSON = function (path) { return JSON.parse(fs.read(path)); };
+
+      // Node-shaped names, so a snippet written for `fs` in Node runs unchanged.
+      var encodingOf = function (options) {
+        if (!options) return null;
+        if (typeof options === 'string') return options;
+        return options.encoding || null;
+      };
+      var textOf = function (data, options) {
+        if (typeof data === 'string') return data;
+        if (data && typeof data.byteLength === 'number') return String.fromCharCode.apply(null, data);
+        var encoding = encodingOf(options);
+        if (encoding) throw new TypeError('the sandbox only stores text');
+        return JSON.stringify(data, null, 2);
+      };
+
+      fs.readFileSync = function (path, options) {
+        var text = fs.read(path);
+        var encoding = encodingOf(options);
+        if (encoding === 'buffer' || encoding === null) {
+          // Node returns a Buffer by default; text is all we have, so hand back bytes.
+          return text;
+        }
+        return text;
+      };
+      fs.writeFileSync = function (path, data, options) { fs.write(path, textOf(data, options)); };
+      fs.appendFileSync = function (path, data, options) { fs.append(path, textOf(data, options)); };
+      fs.readdirSync = function (path) {
+        return fs.list(path).map(function (entry) { return entry.path.split('/').pop(); });
+      };
+      fs.existsSync = function (path) { return fs.exists(path); };
+      fs.statSync = function (path) {
+        if (!fs.exists(path)) {
+          var missing = new Error("ENOENT: no such file or directory, stat '" + path + "'");
+          missing.code = 'ENOENT';
+          throw missing;
+        }
+        var raw = fs.info(path);
+        return {
+          size: raw.size,
+          mtimeMs: (raw.modified || 0) * 1000,
+          isFile: function () { return !raw.isDirectory; },
+          isDirectory: function () { return !!raw.isDirectory; },
+          isSymbolicLink: function () { return false; }
+        };
+      };
+      var notSupported = function (name) {
+        return function () {
+          var error = new Error('fs.' + name + ' is not available in the sandbox');
+          error.code = 'ENOSYS';
+          throw error;
+        };
+      };
+      fs.mkdirSync = notSupported('mkdirSync');
+      fs.rmdirSync = notSupported('rmdirSync');
+      fs.unlinkSync = notSupported('unlinkSync');
+      fs.renameSync = notSupported('renameSync');
+      fs.rmSync = notSupported('rmSync');
+
       global.fs = fs;
 
       var Headers = function (init) {
@@ -260,7 +318,18 @@ extension QuickJSRuntime {
         return module.exports;
       };
 
-      global.require = function (request) { return loadModule(resolveModule(request, '')); };
+      // Node core modules the sandbox can honestly answer. Anything else still goes
+      // through the relative-file loader, which refuses unknown packages by name.
+      var builtinModules = {
+        fs: fs,
+        path: path,
+        os: { EOL: '\n', platform: function () { return 'ios'; }, homedir: function () { return '/'; } }
+      };
+      global.require = function (request) {
+        var name = String(request).replace(/^node:/, '');
+        if (Object.prototype.hasOwnProperty.call(builtinModules, name)) return builtinModules[name];
+        return loadModule(resolveModule(request, ''));
+      };
 
       global.__pokeet = { runtime: 'quickjs', args: process.argv.slice(1) };
     })(globalThis);

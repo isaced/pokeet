@@ -125,3 +125,70 @@ struct RunScriptNetworkTests {
         #expect(output.content.contains("blocked"))
     }
 }
+
+@Suite("JavaScript fs surface", .serialized)
+struct JavaScriptFileSystemTests {
+    private func run(_ source: String, seed: [String: String] = [:]) async throws -> ScriptResult {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pokeet-jsfs-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        for (path, content) in seed {
+            let url = root.appendingPathComponent(path)
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(), withIntermediateDirectories: true
+            )
+            try content.write(to: url, atomically: true, encoding: .utf8)
+        }
+        return try await QuickJSRuntime().run(
+            ScriptRequest(source: source, filename: "script.js"),
+            files: OverlayScriptFileSystem(workspace: FileWorkspace(root: root))
+        )
+    }
+
+    @Test("Node-shaped fs calls work through require('fs')")
+    func nodeShapedFS() async throws {
+        let result = try await run("""
+        const fs = require('fs');
+        fs.writeFileSync('notes.md', '# hi\\n');
+        fs.appendFileSync('notes.md', 'more\\n');
+        console.log(fs.readFileSync('notes.md').trim());
+        console.log(fs.readdirSync('.').includes('notes.md'));
+        console.log(fs.statSync('notes.md').isFile(), fs.existsSync('nope.md'));
+        """)
+        #expect(result.termination == .exited, "\(result.stderr)")
+        #expect(result.stdout.contains("# hi\nmore"))
+        #expect(result.stdout.contains("true"))
+        #expect(result.stdout.contains("true false"))
+    }
+
+    @Test("require('path') is the same helper as before")
+    func requirePath() async throws {
+        let result = try await run("""
+        const path = require('path');
+        console.log(path.join('src', 'a.js'), path.basename('src/a.js'));
+        """)
+        #expect(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "src/a.js a.js")
+    }
+
+    @Test("statSync reports ENOENT like Node")
+    func missingFile() async throws {
+        let result = try await run("""
+        const fs = require('fs');
+        try { fs.statSync('nope.txt'); } catch (error) { console.log(error.code); }
+        """)
+        #expect(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "ENOENT")
+    }
+
+    @Test("operations the sandbox cannot honour refuse by name")
+    func unsupportedOps() async throws {
+        let result = try await run("""
+        const fs = require('fs');
+        for (const name of ['unlinkSync', 'renameSync', 'mkdirSync']) {
+          try { fs[name]('x'); } catch (error) { console.log(name, error.code); }
+        }
+        """)
+        #expect(result.termination == .exited, "\(result.stderr)")
+        #expect(result.stdout.contains("unlinkSync ENOSYS"))
+        #expect(result.stdout.contains("mkdirSync ENOSYS"))
+    }
+}
