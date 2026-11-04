@@ -176,7 +176,8 @@ Packages/PokeetPython/Sources/CPython/           // embedding glue + _pokeet mod
 Packages/PokeetPython/Sources/PokeetPython/
   PythonRuntime.swift        // ScriptRuntime, watchdog, termination classification
   PythonHost.swift           // filesystem dispatcher
-  PythonPrelude.swift        // open() redirect, os shims, urllib.request, pokeet helpers
+  PythonPrelude.swift        // loads the prelude resource
+  Resources/python-prelude.py  // open() redirect, os shims, urllib.request, pokeet helpers
 scripts/fetch-python.sh      // stages Vendor/: xcframework, headers, trimmed stdlib
 ```
 

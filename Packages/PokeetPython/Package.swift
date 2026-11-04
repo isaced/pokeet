@@ -40,6 +40,7 @@ let package = Package(
                 "CPython",
                 .product(name: "PokeetCore", package: "PokeetCore")
             ],
+            resources: [.copy("Resources/python-prelude.py")],
             swiftSettings: [.unsafeFlags(["-Xcc", "-I\(pythonInclude)"])]
         ),
         .testTarget(
