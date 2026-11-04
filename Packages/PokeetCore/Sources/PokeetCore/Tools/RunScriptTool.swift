@@ -16,8 +16,11 @@ public struct RunScriptTool: AgentTool {
             name: Self.toolName,
             description: """
             Run a short script in the on-device sandbox and return its output. \
-            There is no shell, no network, and no package manager: only the sandbox API \
-            (console, assert, fs, path, require for relative CommonJS files). \
+            There is no shell, no network, and no package manager. \
+            JavaScript uses the sandbox API (console, assert, fs, path, require for \
+            relative CommonJS files). Python is a full interpreter with a trimmed \
+            standard library: open() reads and writes project files, and `import pokeet` \
+            lists, checks and inspects them. \
             Reads see the repository; writes are captured as diff proposals and are not \
             applied until the user approves them.
             """,
@@ -26,7 +29,7 @@ public struct RunScriptTool: AgentTool {
                 "properties": .object([
                     "runtime": .object([
                         "type": .string("string"),
-                        "description": .string("Script runtime. Defaults to 'javascript'.")
+                        "description": .string("Script runtime: 'javascript' (default) or 'python'.")
                     ]),
                     "script": .object([
                         "type": .string("string"),

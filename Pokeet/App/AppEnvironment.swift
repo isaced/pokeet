@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import PokeetCore
+import PokeetPython
 import PokeetScripting
 
 @MainActor
@@ -26,6 +27,12 @@ final class AppEnvironment {
 
         git = SwiftGitXGitService()
         // QuickJS runs on-device with interrupt and memory limits; see RunScriptTool.
-        scripting = ScriptRuntimes([QuickJSRuntime()])
+        // CPython is registered only when its stdlib made it into the bundle: without it
+        // the interpreter cannot start, and run_script should say so rather than crash.
+        var runtimes: [any ScriptRuntime] = [QuickJSRuntime()]
+        if let home = PythonRuntime.bundledHome() {
+            runtimes.append(PythonRuntime(home: home))
+        }
+        scripting = ScriptRuntimes(runtimes)
     }
 }

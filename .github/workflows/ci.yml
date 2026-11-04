@@ -77,6 +77,11 @@ jobs:
       - name: swift test (PokeetScripting)
         run: swift test --package-path Packages/PokeetScripting
 
+      # The app embeds CPython, which is too large to commit: the fetch script stages
+      # Vendor/ with the framework and a trimmed stdlib.
+      - name: Fetch CPython
+        run: scripts/fetch-python.sh
+
       # The Xcode project is generated and gitignored, so CI regenerates it.
       - name: Install XcodeGen
         run: brew install xcodegen

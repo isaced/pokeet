@@ -70,3 +70,6 @@ DerivedData/
 
 # Local device and signing values for scripts/run-on-device.sh
 scripts/local.env
+
+# Vendored CPython (scripts/fetch-python.sh)
+Vendor/

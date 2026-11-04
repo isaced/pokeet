@@ -119,12 +119,12 @@ Guardrails: the agent cannot run shell commands and cannot commit or push — th
 
 `run_script` lets the agent check its own work: compute a value, test a regex, parse a file, or run a handful of assertions. It is not a shell and not a test runner.
 
-- **No escape hatch** — no shell, no network, no `npm`, no file access outside the project.
+- **No escape hatch** — no shell, no network, no `npm` or `pip`, no file access outside the project.
 - **Hard limits** — a wall-clock deadline, a heap cap and a stack cap are enforced by the engine itself, so a runaway loop stops instead of pinning a thread.
 - **Review still applies** — the sandbox has no direct write access. Script writes are buffered and surface as normal diff cards, so Ask mode reviews them like any other edit.
-- **On-device and small** — QuickJS is an interpreter, so no JIT entitlement is needed and no code is downloaded. It adds about 2.8 MB to the app binary.
+- **On-device and small** — both are interpreters, so no JIT entitlement is needed and no code is downloaded. QuickJS adds 2.8 MB; CPython adds 8.6 MB once the stdlib is trimmed.
 
-Toolchain is JavaScript today. Embedded CPython is the next step; until then, a project's own test suite is the one thing that still needs a real machine.
+JavaScript and Python both run on the device. Python is a full interpreter with a trimmed standard library — `open()` reads and writes project files, `import pokeet` lists and inspects them — capped by the same review flow and the same limits. Its wall clock is enforced by a watchdog rather than an interrupt handler, so a script stuck inside a long C call cannot be stopped; that is the one gap process isolation would close and iOS does not allow. A project's own test suite still needs a real machine.
 
 ## Get started
 
@@ -149,6 +149,7 @@ All four support streaming, tool calling and image input. Provider templates inc
 Requirements: Xcode 27+, iOS 18+, Swift 6, and [XcodeGen](https://github.com/yonaskolb/XcodeGen). The generated project isn't checked in.
 
 ```sh
+scripts/fetch-python.sh   # stages Vendor/: CPython xcframework + trimmed stdlib (gitignored)
 xcodegen generate
 open Pokeet.xcodeproj
 ```

@@ -11,6 +11,8 @@ packages:
     path: Packages/PokeetCore
   PokeetScripting:
     path: Packages/PokeetScripting
+  PokeetPython:
+    path: Packages/PokeetPython
   SwiftGitX:
     url: https://github.com/ibrahimcetin/SwiftGitX.git
     exactVersion: 0.4.0
@@ -38,9 +40,18 @@ targets:
       - path: Pokeet
         excludes:
           - Info.plist
+      # Staged by scripts/fetch-python.sh; a folder reference so the tree keeps its shape,
+      # which the interpreter needs to find encodings/ and the extension modules.
+      - path: Vendor/python-home
+        type: folder
+        buildPhase: resources
     dependencies:
       - package: PokeetCore
       - package: PokeetScripting
+      - package: PokeetPython
+      # Staged by scripts/fetch-python.sh. Embedded, because CPython is a dylib.
+      - framework: Vendor/Python.xcframework
+        embed: true
       - package: SwiftGitX
       - package: libgit2
       - package: Textual

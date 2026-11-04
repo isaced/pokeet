@@ -21,8 +21,13 @@ scripts/run-on-device.sh          # xcodegen → device build → install → la
 - `Pokeet/` — the app (SwiftUI + services). `Pokeet/Features/<Area>/`, `Pokeet/Services/`.
 - `Packages/PokeetCore` — dependency-free kernel: agent loop, tools, providers, workspace. No UIKit/SwiftUI here.
 - `Packages/PokeetScripting` — QuickJS runtime wrapper.
+- `Packages/PokeetPython` — embedded CPython, same `ScriptRuntime` contract. Links nothing itself: the app embeds `Vendor/Python.xcframework`, and the package's macOS tests take the host dylib with `-Xlinker`.
 - `PokeetTests/` — XCTest, runs against the app target. `Packages/*/Tests` — Swift Testing.
 - `docs/` — design docs per subsystem; update the matching doc when behaviour changes.
+
+## CPython is staged, not committed
+
+`Vendor/` is gitignored and built by `scripts/fetch-python.sh` (downloads Python-Apple-support, trims `test/`, `ctypes` and the network modules). Run it once per clone, and after changing the version. Without it `xcodegen generate` has no stdlib to copy and the app builds without a Python runtime — `run_script` then offers JavaScript only.
 
 ## Checks
 

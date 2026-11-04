@@ -6,7 +6,7 @@ It is deliberately **not** a shell:
 
 | Capability | Available? |
 |---|---|
-| Read repository files | yes, through `fs` |
+| Read repository files | yes, through `fs` (JavaScript) or `open()` (Python) |
 | Propose file changes | yes, buffered and reviewed as diffs |
 | Write files directly | no |
 | Network | no |
@@ -38,6 +38,27 @@ Measured on an iPhoneOS arm64 release build:
 | Loop throughput (1e6 additions) | ~40 ms |
 | Infinite loop aborted at a 500 ms deadline | 500 ms, 8.7k interrupt polls |
 | 32 MB allocation bomb | aborted in ~30 ms |
+
+### Runtime: CPython, and why its clock needs a different trick
+
+Python is a second runtime, not a replacement: `run_script` takes `runtime: "javascript" | "python"`. It earns its bytes by being a real interpreter — `import json, re, collections` works, and a script written against the stdlib behaves the way the user expects.
+
+The limits are the same contract, reached differently:
+
+| Limit | QuickJS | CPython |
+|---|---|---|
+| Wall clock | `JS_SetInterruptHandler` | a watchdog thread raises `KeyboardInterrupt` through `PyThreadState_SetAsyncExc` |
+| Memory | `JS_SetMemoryLimit` | a counting allocator installed on `PYMEM_DOMAIN_RAW` refuses allocations |
+| Stack | `JS_SetMaxStackSize` | `Py_SetRecursionLimit`, which only bounds Python frames |
+
+Two details of the interrupt are load-bearing, and both are easy to get wrong:
+
+- The watchdog must first call `PyGILState_Ensure`. `PyThreadState_SetAsyncExc` resolves the interpreter from thread-local state, and a bare thread has none — calling it without this segfaults.
+- It must pass `PyThread_get_thread_ident()`, not `PyThreadState_GetID()`. The latter returns the thread state's id, which never matches.
+
+`Py_AddPendingCall` looks like the right API and is not: CPython only services pending calls on the interpreter's own main thread, which on iOS is the UI thread. The GIL is what makes the workaround possible — a bytecode loop releases it every switch interval, so the watchdog gets a turn.
+
+That is also the boundary: **a script stuck inside a long C call cannot be interrupted**, because no bytecode boundary is reached. Regex backtracking and large decompressions are the realistic cases. Bounding those needs process isolation, which iOS does not offer.
 
 ### Filesystem: overlay, never direct writes
 
@@ -131,9 +152,17 @@ Packages/PokeetScripting/Sources/CQuickJS/       // vendored quickjs-ng + pokeet
 Packages/PokeetScripting/Sources/PokeetScripting/
   QuickJSRuntime.swift       // C bridge, limits, termination classification
   JavaScriptPrelude.swift    // sandbox API
+Packages/PokeetPython/Sources/CPython/           // embedding glue + _pokeet module
+Packages/PokeetPython/Sources/PokeetPython/
+  PythonRuntime.swift        // ScriptRuntime, watchdog, termination classification
+  PythonHost.swift           // filesystem dispatcher
+  PythonPrelude.swift        // open() redirect, pokeet helpers
+scripts/fetch-python.sh      // stages Vendor/: xcframework, headers, trimmed stdlib
 ```
 
-The kernel stays dependency-free: `PokeetCore` knows only the `ScriptRuntime` protocol, and the app injects `ScriptRuntimes([QuickJSRuntime()])` through `AgentSession(scripting:)`.
+CPython is not vendored: `Vendor/` is gitignored and rebuilt by the fetch script, which also strips `ctypes` and the network modules. The app embeds `Vendor/Python.xcframework` through `project.yml`; the package links no interpreter itself, so the same manifest serves the app and the macOS test bundle (which passes the host dylib with `-Xlinker`).
+
+The kernel stays dependency-free: `PokeetCore` knows only the `ScriptRuntime` protocol, and the app injects `ScriptRuntimes([QuickJSRuntime(), PythonRuntime(home:)])` through `AgentSession(scripting:)`. Python is registered only when its stdlib is in the bundle, so a checkout without `scripts/fetch-python.sh` still runs — with one runtime instead of two.
 
 ## Adding a runtime
 
@@ -148,6 +177,12 @@ Implement `ScriptRuntime` (async `run(_:files:)`) and register it. Rules:
 ```sh
 swift test --package-path Packages/PokeetCore      # tool wiring, overlay, proposals, limits
 swift test --package-path Packages/PokeetScripting # engine: deadline, OOM, escapes, require, exit codes
+
+scripts/fetch-python.sh
+swift test --package-path Packages/PokeetPython \
+  -Xlinker "$(brew --prefix python@3.12)/Frameworks/Python.framework/Versions/3.12/lib/libpython3.12.dylib"
+xcodebuild test -project Pokeet.xcodeproj -scheme Pokeet \
+  -destination 'platform=iOS Simulator,name=iPhone 17' -only-testing:PokeetTests/PythonRuntimeTests
 ```
 
 Notable cases: infinite loop interrupted at the deadline, allocation bomb stopped at the heap limit, path escapes rejected, writes never reach disk before approval, proposals dropped for interrupted runs.
