@@ -24,12 +24,19 @@ No secrets are needed at build time: keys live in the Keychain, entered by the u
 
 ## The workflow
 
-One workflow, `TestFlight`:
+One workflow, `Publish TestFlight` (id `A5839D0B-EE31-4B31-8DCE-8BFD34AD9ED1`, product `87d864c7-debe-4633-88b3-44afc11160fa`):
 
-- **Start condition**: tag changes matching `v*`. A branch trigger would upload a build on every push and burn compute minutes; a tag is the release act.
+- **Start condition**: tag changes matching `v*`. A branch trigger would upload a build on every push and burn compute minutes; a tag is the release act. A manual `asc xcode-cloud run --branch` does not work here — the workflow has no branch start condition, so a tag push is the only trigger.
 - **Environment**: latest Xcode with iOS 18 support.
-- **Actions**: Build → Test (`Pokeet` scheme, `PokeetTests`) → Archive (Release).
-- **Post-actions**: TestFlight Internal Testing and External Testing. This is the step that actually puts the archive in TestFlight — without it the build stays in Xcode Cloud. Post-actions are not in App Store Connect's public API, so they are added in Xcode's workflow editor, not by `asc`.
+- **Actions**: Archive (Release), iPhone only. No Test action: `PokeetTests` are already gated by `.github/workflows/ci.yml`, and a second run on every tag buys nothing.
+- **Post-actions**: TestFlight Internal Testing (`Internal`, `f6758af4-597b-459d-a3c5-09bef98ce02a`) and External Testing (`External Testers`, `63827c29-1ded-4ca9-b309-0abbbc2a272e`). This is the step that actually puts the archive in TestFlight — without it the build stays in Xcode Cloud. Post-actions are not in App Store Connect's public API, so they are added in Xcode's workflow editor, not by `asc`.
+
+The external post-action submits the build for Beta App Review by itself, so a tag is enough to reach testers. Expect ~9 minutes from tag to uploaded build, plus Apple's processing.
+
+Two upload failures that cost a cycle each:
+
+- **ITMS-90474 iPad multitasking.** XcodeGen defaults an app target to `TARGETED_DEVICE_FAMILY` `"1,2"`, which overrides the project-level `1`, so a portrait-only iPhone app advertised iPad support. The target restates it in `project.yml`.
+- **Missing privacy manifest.** `ITMS-91053` is a warning, not a failure, but it arrives as email per build; `Pokeet/Resources/PrivacyInfo.xcprivacy` covers `UserDefaults` and file timestamps.
 
 Rolling a release:
 
