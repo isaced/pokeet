@@ -268,8 +268,54 @@ class HTTPResponse:
         return False
 
 
+class Request:
+    """The parts of urllib.request.Request that scripts actually build."""
+
+    def __init__(self, url, data=None, headers=None, origin_req_host=None,
+                 unverifiable=False, method=None):
+        self.full_url = url.decode("utf-8") if isinstance(url, bytes) else str(url)
+        self.data = data
+        self.headers = dict(headers or {})
+        self.origin_req_host = origin_req_host
+        self.unverifiable = unverifiable
+        self._method = method
+
+    def get_full_url(self):
+        return self.full_url
+
+    def get_method(self):
+        return (self._method or ("POST" if self.data is not None else "GET")).upper()
+
+    def add_header(self, key, value):
+        self.headers[key] = value
+
+    def add_unredirected_header(self, key, value):
+        self.headers[key] = value
+
+    def has_header(self, name):
+        return any(existing.lower() == name.lower() for existing in self.headers)
+
+    def header_items(self):
+        return list(self.headers.items())
+
+    def __repr__(self):
+        return "<Request %s %s>" % (self.get_method(), self.full_url)
+
+
 def urlopen(url, data=None, timeout=None, *, headers=None, method=None):
     """Open `url` through the app's network policy."""
+    merged = dict(headers or {})
+    if isinstance(url, Request):
+        # The idiomatic form: build a Request, hand it to urlopen.
+        request = url
+        url = request.full_url
+        if data is None:
+            data = request.data
+        request_headers = dict(request.headers)
+        request_headers.update(merged)
+        merged = request_headers
+        method = method or request.get_method()
+
     if isinstance(url, bytes):
         url = url.decode("utf-8")
     target = str(url)
@@ -277,7 +323,7 @@ def urlopen(url, data=None, timeout=None, *, headers=None, method=None):
     body = ""
     if data is not None:
         body = data.decode("utf-8") if isinstance(data, bytes) else str(data)
-    raw = _call("net.request", url=target, method=verb, headers=headers or {}, body=body)
+    raw = _call("net.request", url=target, method=verb, headers=merged, body=body)
     return HTTPResponse(raw)
 
 
@@ -291,7 +337,7 @@ def _install_urllib():
 
     request_module = _types.ModuleType("urllib.request")
     request_module.urlopen = urlopen
-    request_module.Request = object  # accepted, not modelled
+    request_module.Request = Request
     request_module.HTTPError = OSError
     request_module.URLError = OSError
     _sys.modules["urllib.request"] = request_module

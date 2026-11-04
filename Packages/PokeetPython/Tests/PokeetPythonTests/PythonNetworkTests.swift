@@ -60,6 +60,27 @@ struct PythonNetworkTests {
         #expect(result.stdout.contains("201 hello"))
     }
 
+    @Test("the idiomatic Request + urlopen form works")
+    func requestObject() async throws {
+        NetworkTestSupport.respond(body: #"{"name":"pokeet"}"#)
+        defer { StubURLProtocol.handler = nil }
+
+        let result = try await run("""
+        import json, urllib.request
+
+        req = urllib.request.Request(
+            'https://api.github.com/repos/isaced/pokeet',
+            headers={'Accept': 'application/vnd.github+json', 'User-Agent': 'pokeet/1.0'},
+        )
+        with urllib.request.urlopen(req, timeout=15) as response:
+            payload = json.load(response)
+        print(response.status, payload['name'])
+        """)
+
+        #expect(result.termination == .exited, "stderr: \(result.stderr)")
+        #expect(result.stdout.contains("200 pokeet"))
+    }
+
     @Test("a local host is reachable, since the policy no longer refuses one")
     func localHostIsAllowed() async throws {
         NetworkTestSupport.respond(body: "local")
@@ -90,6 +111,21 @@ struct PythonNetworkTests {
             files: OverlayScriptFileSystem(workspace: FileWorkspace(root: directory))
         )
         #expect(result.stdout.contains("off"))
+    }
+
+    @Test("every way of importing urlopen resolves to the shim")
+    func importForms() async throws {
+        let result = try await run("""
+        import urllib.request
+        from urllib.request import urlopen
+        from urllib import request
+        import urllib.parse
+        print(urlopen is urllib.request.urlopen, request.urlopen is urlopen)
+        print(urllib.parse.quote('a b'))
+        """)
+        #expect(result.termination == .exited, "stderr: \(result.stderr)")
+        #expect(result.stdout.contains("True True"))
+        #expect(result.stdout.contains("a%20b"))
     }
 
     @Test("urllib.parse still works, it never needed a socket")
