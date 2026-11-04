@@ -4,6 +4,7 @@ import Textual
 
 struct PlanReviewView: View {
     let plan: AgentPlan
+    let phase: PlanPhase
     let onExecute: () -> Void
     let onStay: () -> Void
     let onRefine: (String) -> Void
@@ -11,6 +12,11 @@ struct PlanReviewView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var isRefining = false
     @State private var notes = ""
+
+    private var isFinished: Bool {
+        if case .finished = phase { return true }
+        return false
+    }
 
     var body: some View {
         NavigationStack {
@@ -44,7 +50,7 @@ struct PlanReviewView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") {
+                    Button(isFinished ? "Done" : "Close") {
                         onStay()
                         dismiss()
                     }
@@ -60,24 +66,35 @@ struct PlanReviewView: View {
 
     private var actionBar: some View {
         HStack(spacing: 10) {
-            Button("Stay") {
+            Button(isFinished || phase == .executing ? "Done" : "Stay") {
                 onStay()
                 dismiss()
             }
             .buttonStyle(.bordered)
 
-            Button("Refine") {
-                isRefining = true
+            if phase == .reviewing {
+                Button("Refine") {
+                    isRefining = true
+                }
+                .buttonStyle(.bordered)
             }
-            .buttonStyle(.bordered)
 
             Spacer(minLength: 8)
 
-            Button("Execute") {
-                onExecute()
-                dismiss()
+            if isFinished {
+                // The plan already ran; another press is a deliberate re-run, not an approval.
+                Button("Re-run") {
+                    onExecute()
+                    dismiss()
+                }
+                .buttonStyle(.bordered)
+            } else if phase == .reviewing {
+                Button("Execute") {
+                    onExecute()
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
             }
-            .buttonStyle(.borderedProminent)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)

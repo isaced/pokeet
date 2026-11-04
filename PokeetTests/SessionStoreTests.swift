@@ -122,6 +122,7 @@ final class SessionStoreTests: XCTestCase {
             bubbles: [SessionBubble(id: UUID(), role: "assistant", text: "Plan")],
             plan: plan,
             planIsExecuting: true,
+            planOutcome: PlanOutcome.interrupted.rawValue,
             appliedChanges: [change]
         )
 
@@ -136,7 +137,35 @@ final class SessionStoreTests: XCTestCase {
         let loaded = await store.load(projectName: "demo", sessionID: session.id)
         XCTAssertEqual(loaded?.plan, plan)
         XCTAssertEqual(loaded?.planIsExecuting, true)
+        XCTAssertEqual(loaded?.planOutcome, "interrupted")
         XCTAssertEqual(loaded?.appliedChanges, [change])
+    }
+
+    func testPlanOutcomeSurvivesRoundtrip() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = SessionStore(directory: directory)
+        let session = await store.create(projectName: "demo", title: "Plan")
+        let plan = AgentPlan(
+            title: "Ship it",
+            steps: [AgentPlan.Step(title: "Edit README", status: .done)]
+        )
+        await store.save(
+            SessionSnapshot(
+                bubbles: [],
+                plan: plan,
+                planIsExecuting: false,
+                planOutcome: PlanOutcome.completed.rawValue
+            ),
+            messages: [],
+            projectName: "demo",
+            sessionID: session.id,
+            title: "Plan"
+        )
+
+        let loaded = await store.load(projectName: "demo", sessionID: session.id)
+        XCTAssertEqual(loaded?.planOutcome, "completed")
     }
 
     func testImagesAreExternalizedAndDeduplicated() async throws {

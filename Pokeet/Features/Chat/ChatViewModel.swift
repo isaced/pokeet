@@ -7,6 +7,18 @@ struct ContextFile: Sendable, Equatable {
     let content: String
 }
 
+/// How a plan ended. A plan without an outcome is still in flight.
+enum PlanOutcome: String, Codable, Sendable, Equatable {
+    case completed
+    case interrupted
+}
+
+enum PlanPhase: Sendable, Equatable {
+    case reviewing
+    case executing
+    case finished(PlanOutcome)
+}
+
 @MainActor
 @Observable
 final class ChatViewModel {
@@ -103,12 +115,25 @@ final class ChatViewModel {
     private(set) var pendingPlan: AgentPlan?
     private(set) var currentPlan: AgentPlan?
     private(set) var planIsExecuting = false
+    private(set) var planOutcome: PlanOutcome?
     private(set) var appliedChanges: [AppliedChange] = []
     var isShowingPlan = false
     private var lastAssistantText = ""
 
     var planForReview: AgentPlan? {
         pendingPlan ?? currentPlan
+    }
+
+    var planPhase: PlanPhase? {
+        guard planForReview != nil else { return nil }
+        if planIsExecuting { return .executing }
+        if let planOutcome { return .finished(planOutcome) }
+        return .reviewing
+    }
+
+    /// The strip above the composer is for work in flight; a finished plan belongs to the transcript.
+    var showsPlanBar: Bool {
+        planForReview != nil && planOutcome == nil
     }
 
     private let environment: AppEnvironment
@@ -354,6 +379,12 @@ final class ChatViewModel {
         pendingImages = []
         pendingFiles = []
 
+        // Moving on to a new request retires a plan that already ended.
+        if planOutcome != nil {
+            currentPlan = nil
+            planOutcome = nil
+        }
+
         if bubbles.isEmpty, title == "New chat" {
             title = Self.derivedTitle(text: text, files: files, images: images)
         }
@@ -418,7 +449,10 @@ final class ChatViewModel {
         isShowingReview = false
         pendingPlan = nil
         isShowingPlan = false
-        planIsExecuting = false
+        if planIsExecuting {
+            planIsExecuting = false
+            planOutcome = .interrupted
+        }
         runningToolCount = 0
         coordinator.cancelPending()
         actionCoordinator.cancelPending()
@@ -448,6 +482,7 @@ final class ChatViewModel {
         isShowingPlan = false
         pendingPlan = nil
         currentPlan = plan
+        planOutcome = nil
         planIsExecuting = true
         setMode(.auto)
         input = Self.executionPrompt(for: plan)
@@ -635,11 +670,12 @@ final class ChatViewModel {
             }
         }
 
-        if modeSnapshot == .auto, currentPlan != nil {
-            planIsExecuting = false
+        recordRunDuration()
+
+        if planIsExecuting, let plan = currentPlan {
+            finishPlan(plan)
         }
 
-        recordRunDuration()
         await saveSession()
         await refreshStatus()
 
@@ -759,6 +795,7 @@ final class ChatViewModel {
         case .planSubmitted(let plan):
             pendingPlan = plan
             currentPlan = plan
+            planOutcome = nil
             planIsExecuting = false
         case .finished:
             flushStreamNow()
@@ -774,6 +811,7 @@ final class ChatViewModel {
                     let plan = AgentPlan.fallback(from: text)
                     pendingPlan = plan
                     currentPlan = plan
+                    planOutcome = nil
                     planIsExecuting = false
                 }
             }
@@ -786,6 +824,19 @@ final class ChatViewModel {
             runningToolCount = 0
             errorMessage = message
             status = nil
+        }
+    }
+
+    private func finishPlan(_ plan: AgentPlan) {
+        planIsExecuting = false
+        planOutcome = plan.isComplete ? .completed : .interrupted
+        // Leave a record where the work happened; the agent's own checklist already does that.
+        if todoBubbleID == nil, !plan.steps.isEmpty {
+            var bubble = Bubble(role: .todo, text: TaskListFormatter.statusSummary(plan.steps))
+            bubble.todos = plan.steps
+            bubbles.append(bubble)
+            pager.reset(total: bubbles.count)
+            todoBubbleID = bubble.id
         }
     }
 
@@ -917,6 +968,7 @@ final class ChatViewModel {
             cacheStats: cacheStats,
             plan: currentPlan ?? pendingPlan,
             planIsExecuting: planIsExecuting,
+            planOutcome: planOutcome?.rawValue,
             appliedChanges: appliedChanges.isEmpty ? nil : appliedChanges
         )
     }
@@ -1100,6 +1152,7 @@ final class ChatViewModel {
         lastRequest = bubbles.last(where: { $0.role == .user })?.text ?? ""
         currentPlan = snapshot.plan
         planIsExecuting = snapshot.planIsExecuting ?? false
+        planOutcome = snapshot.planOutcome.flatMap(PlanOutcome.init(rawValue:))
         appliedChanges = snapshot.appliedChanges ?? []
         pendingPlan = nil
         needsHistoryRestore = true

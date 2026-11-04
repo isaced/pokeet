@@ -1,16 +1,26 @@
 import PokeetCore
 import SwiftUI
 
+/// Live status of the plan in flight, pinned above the composer while it runs or waits for approval.
 struct PlanProgressView: View {
     let plan: AgentPlan
-    let isExecuting: Bool
+    let phase: PlanPhase
     let onTap: () -> Void
+
+    private var isExecuting: Bool {
+        phase == .executing
+    }
+
+    private var isFinished: Bool {
+        if case .finished = phase { return true }
+        return false
+    }
 
     var body: some View {
         Button(action: onTap) {
             HStack(spacing: 10) {
-                Image(systemName: plan.isComplete ? "checkmark.circle.fill" : "checklist")
-                    .foregroundStyle(plan.isComplete ? Color.green : Color.accentColor)
+                Image(systemName: isFinished || plan.isComplete ? "checkmark.circle.fill" : "checklist")
+                    .foregroundStyle(isFinished || plan.isComplete ? Color.green : Color.accentColor)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(plan.title)
@@ -43,12 +53,12 @@ struct PlanProgressView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Plan progress")
+        .accessibilityLabel(accessibilityLabel)
     }
 
     private var subtitle: String {
-        if plan.isComplete {
-            return "Plan complete"
+        if isFinished {
+            return plan.isComplete ? "Plan complete" : "Plan stopped"
         }
         if plan.steps.isEmpty {
             return isExecuting ? "Executing plan" : "Plan ready · Tap to review"
@@ -58,5 +68,12 @@ struct PlanProgressView: View {
             return "Executing step \(current) of \(plan.steps.count)"
         }
         return "Plan ready · \(plan.steps.count) steps"
+    }
+
+    private var accessibilityLabel: String {
+        if plan.steps.isEmpty {
+            return "Plan: \(plan.title), \(subtitle)"
+        }
+        return "Plan: \(plan.title), \(plan.completedStepCount) of \(plan.steps.count) steps, \(subtitle)"
     }
 }

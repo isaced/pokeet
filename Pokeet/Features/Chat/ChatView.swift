@@ -124,6 +124,7 @@ struct ChatView: View {
         .sheet(isPresented: $model.isShowingPlan) {
             PlanReviewView(
                 plan: model.planForReview ?? AgentPlan(title: "Plan", steps: []),
+                phase: model.planPhase ?? .reviewing,
                 onExecute: model.executePlan,
                 onStay: model.stayInPlan,
                 onRefine: model.refinePlan
@@ -397,16 +398,18 @@ struct ChatView: View {
             statusArea
             pendingAttachments
 
-            if let plan = model.currentPlan {
-                PlanProgressView(plan: plan, isExecuting: model.planIsExecuting) {
+            if let plan = model.currentPlan, model.showsPlanBar {
+                PlanProgressView(plan: plan, phase: model.planPhase ?? .reviewing) {
                     model.showPlan()
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 4)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
 
             composer(bindable: bindable)
         }
+        .animation(.snappy(duration: 0.24), value: model.showsPlanBar)
     }
 
     private func composer(bindable: Bindable<ChatViewModel>) -> some View {

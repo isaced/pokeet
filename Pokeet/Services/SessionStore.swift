@@ -114,6 +114,8 @@ struct SessionSnapshot: Sendable, Equatable {
     let cacheStats: CacheStats?
     let plan: AgentPlan?
     let planIsExecuting: Bool?
+    /// Raw `PlanOutcome`; nil while the plan is still in flight.
+    let planOutcome: String?
     let appliedChanges: [AppliedChange]?
 
     init(
@@ -121,12 +123,14 @@ struct SessionSnapshot: Sendable, Equatable {
         cacheStats: CacheStats? = nil,
         plan: AgentPlan? = nil,
         planIsExecuting: Bool? = nil,
+        planOutcome: String? = nil,
         appliedChanges: [AppliedChange]? = nil
     ) {
         self.bubbles = bubbles
         self.cacheStats = cacheStats
         self.plan = plan
         self.planIsExecuting = planIsExecuting
+        self.planOutcome = planOutcome
         self.appliedChanges = appliedChanges
     }
 }
@@ -139,6 +143,7 @@ struct SessionHeader: Codable, Sendable, Equatable {
     let cacheStats: CacheStats?
     let plan: AgentPlan?
     let planIsExecuting: Bool?
+    let planOutcome: String?
     let appliedChanges: [AppliedChange]?
     let updatedAt: Date?
 
@@ -148,6 +153,7 @@ struct SessionHeader: Codable, Sendable, Equatable {
         cacheStats: CacheStats?,
         plan: AgentPlan? = nil,
         planIsExecuting: Bool? = nil,
+        planOutcome: String? = nil,
         appliedChanges: [AppliedChange]? = nil,
         updatedAt: Date?
     ) {
@@ -156,6 +162,7 @@ struct SessionHeader: Codable, Sendable, Equatable {
         self.cacheStats = cacheStats
         self.plan = plan
         self.planIsExecuting = planIsExecuting
+        self.planOutcome = planOutcome
         self.appliedChanges = appliedChanges
         self.updatedAt = updatedAt
     }
@@ -302,6 +309,7 @@ actor SessionStore {
             cacheStats: header.cacheStats,
             plan: header.plan,
             planIsExecuting: header.planIsExecuting,
+            planOutcome: header.planOutcome,
             appliedChanges: header.appliedChanges
         )
     }
@@ -488,6 +496,7 @@ actor SessionStore {
             cacheStats: snapshot.cacheStats,
             plan: snapshot.plan,
             planIsExecuting: snapshot.planIsExecuting,
+            planOutcome: snapshot.planOutcome,
             appliedChanges: snapshot.appliedChanges,
             updatedAt: now
         )
