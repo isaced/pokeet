@@ -36,7 +36,7 @@ What that buys you:
 | 🌳 **Real git** | Clone, diff, commit and push on the phone. |
 | 🖼️ **Photos and project context** | Four photos per message, or files attached as `@` chips. `AGENTS.md` loads itself. |
 | 🔑 **Your key, your model** | OpenAI, Anthropic, Gemini, or anything compatible — each with its own key. |
-| 🔎 **Guarded web access** | Private hosts blocked. Your own search key. Pages are read, not just skimmed. |
+| 🔎 **Guarded web access** | HTTPS only, same-origin redirects, your own search key. Pages are read, not just skimmed. |
 | 🔒 **No server** | No account either. Your keys, your providers, your git remote — nothing else in the path. |
 
 ## See it in action
@@ -126,7 +126,8 @@ Guardrails: the agent cannot run shell commands and cannot commit or push — th
 | Adds to the app | 2.8 MB | 8.6 MB, stdlib trimmed |
 | Wall clock | interrupt handler inside the interpreter | watchdog raising `KeyboardInterrupt` |
 | Memory | hard heap limit | counting allocator on `PYMEM_DOMAIN_RAW` |
-| Sees the project | `fs`, `path`, `require` | `open()`, `pathlib`, `import pokeet` |
+| Sees the project | `fs` (Node-shaped too), `path`, `require` | `open()`, `pathlib`, `os`, `glob` |
+| Network | `fetch`, `http.get` | `urllib.request.urlopen` |
 
 <table align="center">
   <tr>
@@ -159,7 +160,9 @@ assert series == [0, 1, 1, 2, 3, 5, 8, 13, 21, 34]
 print(json.dumps({"checks": "passed"}))
 ```
 
-`json`, `re`, `collections`, `math`, `itertools` — the standard library is there. `ctypes` and the network modules are not: the first would walk around every other control, the second around `NetworkPolicy`.
+`json`, `re`, `collections`, `math`, `itertools`, `pathlib`, `glob`, `shutil` — the standard library is there. `ctypes` and `socket` are not: the first would walk around every other control, the second around `NetworkPolicy`.
+
+Both sandboxes are shaped like the real thing rather than a subset of it. Python's `open`, `os.stat`, `os.scandir`, `os.walk` and `pathlib` answer about the project; JavaScript's `fs` answers to Node's names (`readFileSync`, `statSync`, `readdirSync`) as well as its own. `require('fs')`, `require('path')`, `fetch`, `URL`, `URLSearchParams` and `setTimeout` exist, because their absence reads as "this sandbox is broken" rather than "that one name is missing".
 
 What does not change:
 

@@ -82,7 +82,7 @@ Cancellation is cooperative in both directions: the caller may cancel the Swift 
 
 ## Sandbox API
 
-Everything is injected by a ~200-line JavaScript prelude that funnels through one C bridge function, `__hostCall(op, argsJSON)`.
+Everything is injected by a JavaScript prelude that funnels through one C bridge function, `__hostCall(op, argsJSON)`.
 
 ```js
 console.log / info / debug / warn / error   // stdout (warn/error go to stderr)
@@ -113,11 +113,24 @@ require('./relative/module.js')    // CommonJS, relative paths only
 require('./data.json')
 
 process.argv / process.env / process.cwd() / process.exit(code)
+
+// globals QuickJS does not ship
+URL / URLSearchParams
+atob / btoa
+TextEncoder / TextDecoder
+setTimeout / clearTimeout    // the callback runs, the delay does not: no event loop
+setInterval                  // refuses, for the same reason
+fetch(url, init)             // promise; http.get/http.post are the synchronous form
 ```
 
 `require` supports relative files, `.js`, `.json` and `index.js`, with a module cache. Package names fail with an explicit "no node_modules" message so the model stops trying.
 
-Not provided: `fetch`, `XMLHttpRequest`, `WebSocket`, timers, `Buffer`, `stream`, `child_process`.
+Not provided: `XMLHttpRequest`, `WebSocket`, `Buffer`, `stream`, `child_process`, `node:fs`-style
+streams, dynamic `import()`.
+
+`Response.text()` and `Response.json()` return values rather than promises, so `await
+res.json()` and `res.json()` both work. `json()` refuses a truncated body by name instead of
+failing as a JSON syntax error.
 
 ### Python
 
@@ -130,6 +143,10 @@ because they are built on `scandir`.
 Binary mode is the UTF-8 bytes of the stored text, which is enough for
 `shutil.copyfile` on source files and honest about the rest: a genuinely binary file fails
 on decode instead of being silently mangled.
+
+Networking is `urllib.request` with the transport replaced — see
+[scripts-network.md](scripts-network.md) for `Request`, `urlopen`, `raise_for_status` and
+why `os.environ` is nearly empty.
 
 The write side is deliberately narrower: no `remove`, `rename`, `mkdir` or `rmdir`. A script
 that could delete files would be a different feature, not a bigger shim.
@@ -147,6 +164,7 @@ that could delete files would be a different feature, not a bigger shim.
 | Read per file | 512 KB | 1 KB–2 MB |
 | Write per file | 200 KB | up to `WorkspaceLimits.maxWriteBytes` |
 | Files touched | 20 | 1–100 |
+| Response body | 256 KB | `NetworkClient.Limits.maxBodyBytes` |
 
 `timeout_ms` is capped at 55 s so the engine interrupts before the agent loop's 60 s tool timeout fires.
 

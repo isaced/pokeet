@@ -31,9 +31,18 @@ with urlopen("https://api.example.com/data", timeout=10) as response:
     data = json.load(response)
 ```
 
-`urlopen(url, data=None, timeout=…, headers={}, method=None)` returns an object with
-`read()`, `readline()`, `status`, `code`, `headers` (case-insensitive), `geturl()`,
-`close()` and a context manager.
+`urlopen(url, data=None, timeout=…, headers={}, method=None)` accepts a string or a
+`urllib.request.Request`, and returns an object with `read()`, `readline()`, `status`,
+`code`, `headers` (case-insensitive), `geturl()`, `close()`, `raise_for_status()` and a
+context manager.
+
+Two deliberate differences from the stdlib:
+
+- **`urlopen` does not raise for 4xx/5xx.** It returns the response so the caller can read
+  the error body; `raise_for_status()` is the opt-in for urllib's behaviour.
+- **`os.environ` is nearly empty** — `TMPDIR`, `HOME`, `LANG` and friends, nothing else. The
+  app's own environment is not a script's to read, and a model told otherwise writes code
+  that cannot work.
 
 **JavaScript**
 
@@ -79,6 +88,8 @@ the block — which is how a wrong assumption survives.
   becomes a problem, the bridge is the place to add it — one call site, both runtimes.
 - **No `requests`, no streaming, no `AbortController`, no cookie jar.** `requests` needs
   sockets and is out of reach by construction.
+- **No environment variables to read secrets from.** A token has to be passed in the
+  script, or fetched by the agent with `http_request` and written into a file.
 
 ## Where the seam is
 

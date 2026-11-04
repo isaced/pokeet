@@ -1,25 +1,25 @@
-# PokeetPython — feasibility spike
+# PokeetPython
 
-Answers one question before committing to the v2 roadmap item: **can CPython be held
-to the same sandbox contract as QuickJS?** Short answer: yes, with one mechanism that
-is not the obvious one.
+The second `ScriptRuntime`: CPython 3.12, held to the same sandbox contract as QuickJS.
+It ships — `AppEnvironment` registers it whenever the stdlib made it into the bundle.
 
-Not wired into the app. `AppEnvironment` still installs `QuickJSRuntime` alone, and
-`project.yml` does not reference this package.
+What a script can do with it is documented in [docs/scripts.md](../../docs/scripts.md)
+and [docs/scripts-network.md](../../docs/scripts-network.md). This file keeps the
+engineering notes that do not fit there: how the interpreter is embedded, and what the
+limits cost.
 
 ## Run it
 
 ```sh
-swift test --package-path Packages/PokeetPython
+scripts/fetch-python.sh
+swift test --package-path Packages/PokeetPython \
+  -Xlinker "$(brew --prefix python@3.12)/Frameworks/Python.framework/Versions/3.12/lib/libpython3.12.dylib"
 ```
 
-Links against the host Python (`/opt/homebrew/opt/python@3.12`) so the loop stays fast.
-For iOS, point `POKEET_PYTHON_ROOT` at a [Python-Apple-support][pas] xcframework slice:
-
-```sh
-swift build --triple arm64-apple-ios18.0-simulator \
-  --sdk "$(xcrun --sdk iphonesimulator --show-sdk-path)"
-```
+The package links no interpreter: the app embeds `Vendor/Python.xcframework` through
+`project.yml`, and the test bundle takes the host dylib with `-Xlinker`. That keeps one
+manifest working for both, which a platform check cannot do — Xcode does not pass
+`PLATFORM_NAME` to package evaluation.
 
 [pas]: https://github.com/beeware/Python-Apple-support
 
@@ -28,6 +28,9 @@ swift build --triple arm64-apple-ios18.0-simulator \
 `PythonRuntime` conforms to `ScriptRuntime`, so it plugs into `ScriptRuntimes` and
 `run_script` unchanged — including the `runtime: "python"` argument and the `script.py`
 filename branch that already existed in `RunScriptTool`.
+
+The Python side of the sandbox lives in `Resources/python-prelude.py`: `open`, the read
+half of `os`, `urllib.request` and the `pokeet` helpers.
 
 - **Output capture** — `sys.stdout`/`stderr` are swapped for `StringIO` per run and
   drained afterwards.
@@ -132,7 +135,9 @@ Three things only show up on iOS:
 
 ## Sandbox posture
 
-Nothing here changes the app's rules: no shell, no network, no package manager, and
-scripts still cannot write to the workspace except as reviewable proposals. `ctypes`
-and `socket` must be removed before this ships — `ctypes` alone would defeat every
-other control.
+No shell, no package manager, no socket: `ctypes`, `socket`, `ssl`, `http`, `asyncio` and
+`urllib.request` are removed from the staged stdlib, so the only way out is the host
+bridge. Scripts cannot write to the workspace except as reviewable proposals.
+
+`urllib.request` is re-supplied by the prelude on top of `NetworkClient`, which is also
+what `http_request` uses — one policy, one implementation.
