@@ -199,15 +199,19 @@ struct QuickJSRuntimeTests {
         #expect(result.stdout == "true\n")
     }
 
-    @Test func hasNoNetworkAccess() async throws {
+    @Test func networkGoesThroughTheHostOrNotAtAll() async throws {
+        // `fetch` exists, but a run without `ScriptNetworkAccess` has no way to use it,
+        // and there is still no Node module to reach around it.
         let result = try await run(
             """
-            console.log(typeof fetch, typeof XMLHttpRequest, typeof WebSocket);
-            try { require('http'); console.log('net'); } catch (error) { console.log('blocked'); }
+            try { http.get('https://example.com/'); console.log('net'); }
+            catch (error) { console.log('blocked'); }
+            console.log(typeof XMLHttpRequest, typeof WebSocket);
+            try { require('http'); console.log('node'); } catch (error) { console.log('no-node'); }
             """
         )
 
-        #expect(result.stdout == "undefined undefined undefined\nblocked\n")
+        #expect(result.stdout == "blocked\nundefined undefined\nno-node\n")
     }
 
     @Test func honoursProcessExitCode() async throws {

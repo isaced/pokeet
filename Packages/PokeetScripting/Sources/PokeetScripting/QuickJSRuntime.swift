@@ -15,7 +15,12 @@ public final class QuickJSRuntime: ScriptRuntime {
     public init() {}
 
     public func run(_ request: ScriptRequest, files: any ScriptFileSystem) async throws -> ScriptResult {
-        let state = HostState(files: files, limits: request.limits, arguments: request.arguments)
+        let state = HostState(
+            files: files,
+            limits: request.limits,
+            arguments: request.arguments,
+            network: request.network
+        )
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 Self.queue.async {
@@ -82,7 +87,25 @@ public final class QuickJSRuntime: ScriptRuntime {
                 throw ScriptRuntimeError.startup("prelude failed: \(message)")
             }
 
-            let outcome = evaluate(context, source: request.source, filename: request.filename)
+            // `await` at the top level only parses as a module; a plain script cannot
+            // express it. Try the shape the source looks like it wants, then the other.
+            let wantsAwait = request.source.contains("await")
+            var outcome = evaluate(
+                context,
+                source: request.source,
+                filename: request.filename,
+                asModule: wantsAwait
+            )
+            if case .error(let message) = outcome, isSyntaxError(message) {
+                let retry = evaluate(
+                    context,
+                    source: request.source,
+                    filename: request.filename,
+                    asModule: !wantsAwait
+                )
+                if case .ok = retry { outcome = .ok }
+            }
+            drainJobs(runtime, deadline: deadline, state: state)
             let duration = pokeet_now_ms() - start
 
             let termination: ScriptTermination
@@ -122,6 +145,10 @@ public final class QuickJSRuntime: ScriptRuntime {
         }
     }
 
+    private static func isSyntaxError(_ message: String) -> Bool {
+        message.contains("SyntaxError")
+    }
+
     private static func cancelledResult(_ state: HostState, start: Double) -> ScriptResult {
         ScriptResult(
             exitCode: 1,
@@ -138,7 +165,21 @@ public final class QuickJSRuntime: ScriptRuntime {
         case error(String)
     }
 
-    private static func evaluate(_ context: OpaquePointer, source: String, filename: String) -> Evaluation {
+    /// Runs queued promise jobs to completion. `fetch` is a promise, so without this
+    /// nothing chained on it would ever run.
+    private static func drainJobs(_ runtime: OpaquePointer, deadline: Double, state: HostState) {
+        var jobContext: OpaquePointer? = nil
+        while JS_ExecutePendingJob(runtime, &jobContext) > 0 {
+            if state.isCancelled || pokeet_now_ms() >= deadline { break }
+        }
+    }
+
+    private static func evaluate(
+        _ context: OpaquePointer,
+        source: String,
+        filename: String,
+        asModule: Bool = false
+    ) -> Evaluation {
         let value: JSValue = source.withCString { pointer in
             filename.withCString { namePointer in
                 JS_Eval(
@@ -146,7 +187,7 @@ public final class QuickJSRuntime: ScriptRuntime {
                     pointer,
                     source.utf8.count,
                     namePointer,
-                    JS_EVAL_TYPE_GLOBAL
+                    asModule ? JS_EVAL_TYPE_MODULE : JS_EVAL_TYPE_GLOBAL
                 )
             }
         }
@@ -172,6 +213,7 @@ private final class HostState: @unchecked Sendable {
     let files: any ScriptFileSystem
     let limits: ScriptLimits
     let arguments: [String]
+    let network: ScriptNetworkAccess?
 
     private var stdoutBuffer = ""
     private var stderrBuffer = ""
@@ -179,10 +221,16 @@ private final class HostState: @unchecked Sendable {
     private var explicitExitCode: Int?
     private let cancellationFlag: UnsafeMutablePointer<Int32>
 
-    init(files: any ScriptFileSystem, limits: ScriptLimits, arguments: [String]) {
+    init(
+        files: any ScriptFileSystem,
+        limits: ScriptLimits,
+        arguments: [String],
+        network: ScriptNetworkAccess?
+    ) {
         self.files = files
         self.limits = limits
         self.arguments = arguments
+        self.network = network
         self.cancellationFlag = UnsafeMutablePointer<Int32>.allocate(capacity: 1)
         self.cancellationFlag.initialize(to: 0)
     }
@@ -213,6 +261,12 @@ private final class HostState: @unchecked Sendable {
             let text = payload["text"] as? String ?? ""
             append(text, isError: level == "warn" || level == "error")
             return "{}"
+
+        case "net.request":
+            guard let network else {
+                throw ScriptRuntimeError.startup("network access is not available in this run")
+            }
+            return try ScriptNetworkBridge(access: network).handle(argumentsJSON)
 
         case "fs.read":
             let path = try requiredPath(payload)

@@ -186,6 +186,126 @@ def info(path):
     return _call("fs.info", path=str(path))
 
 
+# -- urllib.request, backed by the host -------------------------------
+#
+# The real urllib needs sockets, and sockets would walk around every policy the app
+# enforces. This is the same API over the host bridge: urlopen(url) -> response with
+# .read(), .status, .headers.
+import sys as _sys
+import types as _types
+
+
+class HTTPMessage:
+    """Case-insensitive header bag, the way http.client's looks to callers."""
+
+    def __init__(self, pairs):
+        self._map = {}
+        for name, value in pairs:
+            self._map[str(name).lower()] = str(value)
+
+    def get(self, name, default=None):
+        return self._map.get(str(name).lower(), default)
+
+    def get_all(self, name):
+        value = self.get(name)
+        return [] if value is None else [value]
+
+    def items(self):
+        return list(self._map.items())
+
+    def __getitem__(self, name):
+        value = self.get(name)
+        if value is None:
+            raise KeyError(name)
+        return value
+
+    def __contains__(self, name):
+        return str(name).lower() in self._map
+
+    def __iter__(self):
+        return iter(self._map)
+
+
+class HTTPResponse:
+    def __init__(self, raw):
+        self.status = raw["status"]
+        self.code = raw["status"]
+        self.url = raw["url"]
+        self.headers = HTTPMessage(raw.get("headers") or [])
+        self.truncated = bool(raw.get("truncated"))
+        self.redirect_note = raw.get("redirectNote") or ""
+        self._body = (raw.get("body") or "").encode("utf-8")
+        self._offset = 0
+
+    def read(self, amount=-1):
+        if amount is None or amount < 0:
+            chunk = self._body[self._offset:]
+            self._offset = len(self._body)
+        else:
+            chunk = self._body[self._offset:self._offset + amount]
+            self._offset += len(chunk)
+        return chunk
+
+    def readline(self):
+        rest = self._body[self._offset:]
+        index = rest.find(b"\n")
+        chunk = rest if index < 0 else rest[:index + 1]
+        self._offset += len(chunk)
+        return chunk
+
+    def geturl(self):
+        return self.url
+
+    def getcode(self):
+        return self.status
+
+    def info(self):
+        return self.headers
+
+    def close(self):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+        return False
+
+
+def urlopen(url, data=None, timeout=None, *, headers=None, method=None):
+    """Open `url` through the app's network policy."""
+    if isinstance(url, bytes):
+        url = url.decode("utf-8")
+    target = str(url)
+    verb = (method or ("POST" if data is not None else "GET")).upper()
+    body = ""
+    if data is not None:
+        body = data.decode("utf-8") if isinstance(data, bytes) else str(data)
+    raw = _call("net.request", url=target, method=verb, headers=headers or {}, body=body)
+    return HTTPResponse(raw)
+
+
+def _install_urllib():
+    try:
+        import urllib as package          # the real package: urllib.parse still lives there
+    except ImportError:
+        package = _types.ModuleType("urllib")
+        package.__path__ = []
+        _sys.modules["urllib"] = package
+
+    request_module = _types.ModuleType("urllib.request")
+    request_module.urlopen = urlopen
+    request_module.Request = object  # accepted, not modelled
+    request_module.HTTPError = OSError
+    request_module.URLError = OSError
+    _sys.modules["urllib.request"] = request_module
+    package.request = request_module
+
+
+_install_urllib()
+
+
 # -- redirect the parts of os that would otherwise read the real disk ------
 #
 # The interpreter's working directory is "/" — the app's own sandbox — so an

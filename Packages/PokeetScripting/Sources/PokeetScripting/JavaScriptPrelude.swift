@@ -90,6 +90,89 @@ extension QuickJSRuntime {
       fs.readJSON = function (path) { return JSON.parse(fs.read(path)); };
       global.fs = fs;
 
+      var Headers = function (init) {
+        this._map = {};
+        if (init) {
+          for (var key in init) this.set(key, init[key]);
+        }
+      };
+      Headers.prototype.set = function (name, value) {
+        this._map[String(name).toLowerCase()] = String(value);
+      };
+      Headers.prototype.get = function (name) {
+        var value = this._map[String(name).toLowerCase()];
+        return value === undefined ? null : value;
+      };
+      Headers.prototype.has = function (name) {
+        return this._map[String(name).toLowerCase()] !== undefined;
+      };
+      Headers.prototype.forEach = function (fn) {
+        for (var key in this._map) fn(this._map[key], key);
+      };
+
+      var Response = function (raw) {
+        this.status = raw.status;
+        this.ok = raw.status >= 200 && raw.status < 300;
+        this.statusText = '';
+        this.url = raw.url;
+        this.redirected = false;
+        this.bodyUsed = false;
+        this._body = raw.body;
+        this.headers = new Headers({});
+        var pairs = raw.headers || [];
+        for (var i = 0; i < pairs.length; i++) this.headers.set(pairs[i][0], pairs[i][1]);
+      };
+      // Values, not promises: `await` on a non-thenable yields the value, so the
+      // fetch path still reads naturally while http.get stays synchronous.
+      Response.prototype.text = function () {
+        this.bodyUsed = true;
+        return this._body;
+      };
+      Response.prototype.json = function () {
+        this.bodyUsed = true;
+        return JSON.parse(this._body);
+      };
+
+      // Synchronous on purpose: the interpreter already has a deadline, and a request
+      // that outlives it is cancelled with the run.
+      var request = function (url, init) {
+        var options = init || {};
+        var method = String(options.method || 'GET').toUpperCase();
+        var headers = {};
+        if (options.headers) {
+          for (var key in options.headers) headers[key] = String(options.headers[key]);
+        }
+        var body = options.body;
+        var raw = call('net.request', {
+          url: String(url),
+          method: method,
+          headers: headers,
+          body: body === undefined || body === null ? '' : String(body)
+        });
+        return new Response(raw);
+      };
+
+      global.http = {
+        request: request,
+        get: function (url, init) {
+          var options = init || {};
+          options.method = 'GET';
+          return request(url, options);
+        },
+        post: function (url, body, init) {
+          var options = init || {};
+          options.method = 'POST';
+          options.body = body;
+          return request(url, options);
+        }
+      };
+
+      global.fetch = function (url, init) {
+        return Promise.resolve().then(function () {
+          return request(url, init);
+        });
+      };
+
       var path = {
         sep: '/',
         normalize: function (value) {

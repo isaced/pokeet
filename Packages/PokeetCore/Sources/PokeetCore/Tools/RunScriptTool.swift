@@ -7,7 +7,12 @@ public struct RunScriptTool: AgentTool {
     public static let maximumTimeoutMilliseconds = 55_000
     public static let maximumSourceBytes = 60_000
 
-    public init() {}
+    private let network: NetworkClient
+
+    /// `network` is injectable so tests can stub transport without stubbing the sandbox.
+    public init(network: NetworkClient = NetworkClient()) {
+        self.network = network
+    }
 
     public var capabilities: Set<ToolCapability> { [.runScript] }
 
@@ -16,11 +21,14 @@ public struct RunScriptTool: AgentTool {
             name: Self.toolName,
             description: """
             Run a short script in the on-device sandbox and return its output. \
-            There is no shell, no network, and no package manager. \
-            JavaScript uses the sandbox API (console, assert, fs, path, require for \
-            relative CommonJS files). Python is a full interpreter with a trimmed \
-            standard library: open() reads and writes project files, and `import pokeet` \
-            lists, checks and inspects them. \
+            There is no shell and no package manager. \
+            Network requests go through the app's policy: https:// only, private and \
+            local addresses blocked, redirects re-checked. Use http.get/http.post or \
+            fetch() in JavaScript, and urllib.request.urlopen() in Python. \
+            JavaScript otherwise uses the sandbox API (console, assert, fs, path, \
+            require for relative CommonJS files). Python is a full interpreter with a \
+            trimmed standard library: open() reads and writes project files, and \
+            `import pokeet` lists, checks and inspects them. \
             Reads see the repository; writes are captured as diff proposals and are not \
             applied until the user approves them.
             """,
@@ -116,7 +124,8 @@ public struct RunScriptTool: AgentTool {
             source: source,
             filename: filename,
             arguments: arguments.args ?? [],
-            limits: limits
+            limits: limits,
+            network: ScriptNetworkAccess(client: network, policy: context.networkPolicy)
         )
 
         let result = try await runtime.run(request, files: files)

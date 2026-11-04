@@ -1,0 +1,78 @@
+# Scripts and the network
+
+`run_script` can reach the network, but never through sockets. Both interpreters call the
+host, the host calls `NetworkClient`, and `NetworkClient` is the same code `http_request`
+uses. There is no second policy implementation to drift.
+
+```
+script:  http.get(url)  /  urlopen(url)
+            ↓  host bridge (the same dispatcher that serves fs.read)
+Swift:   ScriptNetworkBridge → NetworkClient → NetworkPolicy → URLSession
+```
+
+## Why not real sockets
+
+Python's `socket`, `ssl`, `http` and `urllib.request` are not in the bundle, and that is
+deliberate: `scripts/fetch-python.sh` removes them. A socket inside the app process would
+be invisible to the trace, would bypass `NetworkPolicy`, and could not be rate-limited per
+request. QuickJS has no `fetch` of its own either — any `fetch` is ours.
+
+`urllib.parse` is kept. It is pure Python and never needed a socket.
+
+## What a script can write
+
+**Python**
+
+```python
+import json
+from urllib.request import urlopen
+
+with urlopen("https://api.example.com/data", timeout=10) as response:
+    data = json.load(response)
+```
+
+`urlopen(url, data=None, timeout=…, headers={}, method=None)` returns an object with
+`read()`, `readline()`, `status`, `code`, `headers` (case-insensitive), `geturl()`,
+`close()` and a context manager.
+
+**JavaScript**
+
+```javascript
+const res = await fetch("https://api.example.com/data", { headers: { Accept: "application/json" } });
+const data = await res.json();
+```
+
+`fetch` is a promise; `http.get` / `http.post` are the synchronous form. `Response` exposes
+`status`, `ok`, `url`, `headers.get()`, `text()` and `json()` — the last two return values,
+not promises, so `await res.json()` and `res.json()` both work.
+
+Top-level `await` only parses as a module, so a source containing `await` is compiled as
+one; anything else is compiled as a script. If that fails, the other shape is tried once.
+
+## What is enforced
+
+| | |
+|---|---|
+| Transport | HTTPS only — iOS ATS, not a rule of ours |
+| Hosts | private, loopback and link-local addresses refused; the optional allowlist applies |
+| Redirects | followed by the client, and every hop is re-validated |
+| Body size | `maxRequestBodyBytes` for the request, `maxBodyBytes` for the response |
+| Response headers | a fixed allowlist — no `Set-Cookie`, no auth echoes |
+| Cookies | none; the session is ephemeral with no storage |
+| Clock | the run's deadline; a hung request is abandoned with the run |
+
+## What is not
+
+- **No approval prompt.** A script's request does not ask, unlike `http_request`'s writes.
+  This matches `bash` + `curl` in a terminal agent: the control is that you can read the
+  script, not that each request interrupts you.
+- **No request log.** The trace shows the script's stdout, not the URLs it touched. If that
+  becomes a problem, the bridge is the place to add it — one call site, both runtimes.
+- **No `requests`, no streaming, no `AbortController`, no cookie jar.** `requests` needs
+  sockets and is out of reach by construction.
+
+## Where the seam is
+
+`ScriptNetworkAccess` is optional on `ScriptRequest`. When it is nil — a test, or a build
+without the runtime configured — the prelude is still installed, and calling `http.get` or
+`urlopen` raises `network access is not available in this run` instead of failing obscurely.

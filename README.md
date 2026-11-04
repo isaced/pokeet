@@ -164,7 +164,7 @@ print(json.dumps({"checks": "passed"}))
 What does not change:
 
 - **Review still applies** — the sandbox has no direct write access. Script writes are buffered and surface as normal diff cards, so Ask mode reviews them like any other edit.
-- **No escape hatch** — no shell, no `pip`, no `npm`, no file access outside the project.
+- **No escape hatch** — no shell, no `pip`, no `npm`, no file access outside the project. Network goes through the app's policy (HTTPS only, private hosts blocked), never through a socket.
 - **The clock is enforced by the engine** — a runaway loop stops instead of pinning a thread. Python's is a watchdog rather than an interrupt handler, so a script stuck inside one long C call cannot be stopped; that gap is why JavaScript is still the default.
 
 ## Get started

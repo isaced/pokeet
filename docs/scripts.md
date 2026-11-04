@@ -9,7 +9,7 @@ It is deliberately **not** a shell:
 | Read repository files | yes, through `fs` (JavaScript) or `open()` (Python) |
 | Propose file changes | yes, buffered and reviewed as diffs |
 | Write files directly | no |
-| Network | no |
+| Network | yes, through the app's policy — see [scripts-network.md](scripts-network.md) |
 | Shell, `npm`, `pip`, compilers | no |
 | Delete or rename files | no |
 

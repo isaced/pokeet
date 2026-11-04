@@ -41,17 +41,21 @@ public struct ScriptRequest: Sendable {
     public var filename: String
     public var arguments: [String]
     public var limits: ScriptLimits
+    /// Nil means this run cannot reach the network at all.
+    public var network: ScriptNetworkAccess?
 
     public init(
         source: String,
         filename: String = "script.js",
         arguments: [String] = [],
-        limits: ScriptLimits = ScriptLimits()
+        limits: ScriptLimits = ScriptLimits(),
+        network: ScriptNetworkAccess? = nil
     ) {
         self.source = source
         self.filename = filename
         self.arguments = arguments
         self.limits = limits
+        self.network = network
     }
 }
 

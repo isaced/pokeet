@@ -77,7 +77,7 @@ public final class PythonRuntime: ScriptRuntime, @unchecked Sendable {
         var errorTypePointer: UnsafeMutablePointer<CChar>?
         var errorMessagePointer: UnsafeMutablePointer<CChar>?
 
-        let host = PythonHost(files: files)
+        let host = PythonHost(files: files, network: request.network)
         var bridge = PokeetPyHost(
             opaque: Unmanaged.passUnretained(host).toOpaque(),
             dispatch: pythonHostDispatch

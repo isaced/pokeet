@@ -64,7 +64,9 @@ step "Trimming"
 rm -rf "$STDLIB"/{test,idlelib,ensurepip,lib2to3,pydoc_data,tkinter,turtledemo,distutils,site-packages,venv,wsgiref,xmlrpc}
 rm -f  "$STDLIB"/lib-dynload/{_ctypes,_ctypes_test,_test,_testbuffer,_testcapi,_testclinic,_testimportmultiple,_testinternalcapi,_testmultiphase,_testsinglephase,_socket,_ssl,_tkinter}*.so
 rm -f  "$STDLIB"/{socket,ssl,socketserver,ftplib,smtplib,poplib,imaplib,telnetlib,uu,asynchat,asyncore}.py
-rm -rf "$STDLIB"/{http,urllib,asyncio,concurrent,multiprocessing}
+rm -rf "$STDLIB"/{http,asyncio,concurrent,multiprocessing}
+# urllib.parse is pure Python and useful in scripts; only the transport goes.
+rm -f  "$STDLIB"/urllib/{request,response}.py
 
 # Bytecode would be rebuilt on every run anyway (write_bytecode = 0).
 find "$STDLIB" -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null || true

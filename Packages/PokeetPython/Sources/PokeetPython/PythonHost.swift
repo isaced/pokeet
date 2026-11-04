@@ -8,15 +8,23 @@ import PokeetCore
 /// path, limit and write proposal is decided here.
 final class PythonHost: @unchecked Sendable {
     private let files: any ScriptFileSystem
+    private let network: ScriptNetworkAccess?
 
-    init(files: any ScriptFileSystem) {
+    init(files: any ScriptFileSystem, network: ScriptNetworkAccess?) {
         self.files = files
+        self.network = network
     }
 
     func handle(_ operation: String, argumentsJSON: String) throws -> String {
         let payload = try decode(argumentsJSON)
 
         switch operation {
+        case "net.request":
+            guard let network else {
+                throw ScriptRuntimeError.startup("network access is not available in this run")
+            }
+            return try ScriptNetworkBridge(access: network).handle(argumentsJSON)
+
         case "fs.read":
             let path = try requirePath(payload)
             return try encode(["content": files.read(path)])
