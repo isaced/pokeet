@@ -203,3 +203,86 @@ struct JavaScriptFileSystemTests {
         #expect(result.stdout.contains("mkdirSync ENOSYS"))
     }
 }
+
+@Suite("JavaScript globals", .serialized)
+struct JavaScriptGlobalsTests {
+    private func run(_ source: String) async throws -> ScriptResult {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pokeet-jsg-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        return try await QuickJSRuntime().run(
+            ScriptRequest(source: source, filename: "script.js"),
+            files: OverlayScriptFileSystem(workspace: FileWorkspace(root: root))
+        )
+    }
+
+    @Test("URL and URLSearchParams behave")
+    func urlGlobals() async throws {
+        let result = try await run("""
+        const url = new URL('https://api.example.com/items?page=2&q=a%20b');
+        console.log(url.hostname, url.pathname, url.searchParams.get('q'));
+        url.searchParams.set('page', '3');
+        url.searchParams.append('tag', 'x y');
+        console.log(url.toString());
+        console.log(new URLSearchParams({ a: 1, b: 'x y' }).toString());
+        """)
+        #expect(result.termination == .exited, "\(result.stderr)")
+        #expect(result.stdout.contains("api.example.com /items a b"))
+        #expect(result.stdout.contains("https://api.example.com/items?page=3&q=a%20b&tag=x%20y"))
+        #expect(result.stdout.contains("a=1&b=x%20y"))
+    }
+
+    @Test("base64 and text codecs round-trip")
+    func codecs() async throws {
+        let result = try await run("""
+        console.log(btoa('hello'), atob(btoa('hello')));
+        const bytes = new TextEncoder().encode('héllo');
+        console.log(bytes.length, new TextDecoder().decode(bytes));
+        """)
+        #expect(result.termination == .exited, "\(result.stderr)")
+        #expect(result.stdout.contains("aGVsbG8= hello"))
+        #expect(result.stdout.contains("6 héllo"))
+    }
+
+    @Test("setTimeout fires without an event loop, setInterval refuses")
+    func timers() async throws {
+        let result = try await run("""
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        console.log('after timeout');
+        try { setInterval(function () {}, 10); } catch (error) { console.log('no interval'); }
+        """)
+        #expect(result.termination == .exited, "\(result.stderr)")
+        #expect(result.stdout.contains("after timeout"))
+        #expect(result.stdout.contains("no interval"))
+    }
+
+    @Test("cwd, statusText and redirected describe what happened")
+    func responseShape() async throws {
+        GlobalsStubURLProtocol.handler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!, statusCode: 404, httpVersion: "HTTP/1.1", headerFields: nil
+            )!
+            return (response, Data("missing".utf8))
+        }
+        defer { GlobalsStubURLProtocol.handler = nil }
+
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pokeet-jsg-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let result = try await QuickJSRuntime().run(
+            ScriptRequest(
+                source: """
+                console.log(process.cwd());
+                const res = http.get('https://example.com/gone');
+                console.log(res.status, res.statusText, res.ok, res.redirected);
+                """,
+                filename: "script.js",
+                network: NetworkTestSupport.accessForGlobals()
+            ),
+            files: OverlayScriptFileSystem(workspace: FileWorkspace(root: root))
+        )
+        #expect(result.termination == .exited, "\(result.stderr)")
+        #expect(result.stdout.contains("/\n"))
+        #expect(result.stdout.contains("404 Not Found false false"))
+    }
+}

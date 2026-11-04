@@ -168,12 +168,23 @@ extension QuickJSRuntime {
         for (var key in this._map) fn(this._map[key], key);
       };
 
-      var Response = function (raw) {
+      var STATUS_TEXT = {
+        200: 'OK', 201: 'Created', 202: 'Accepted', 204: 'No Content',
+        206: 'Partial Content', 301: 'Moved Permanently', 302: 'Found',
+        303: 'See Other', 304: 'Not Modified', 307: 'Temporary Redirect',
+        308: 'Permanent Redirect', 400: 'Bad Request', 401: 'Unauthorized',
+        403: 'Forbidden', 404: 'Not Found', 405: 'Method Not Allowed',
+        409: 'Conflict', 410: 'Gone', 422: 'Unprocessable Content',
+        429: 'Too Many Requests', 500: 'Internal Server Error',
+        502: 'Bad Gateway', 503: 'Service Unavailable', 504: 'Gateway Timeout'
+      };
+
+      var Response = function (raw, requestedUrl) {
         this.status = raw.status;
         this.ok = raw.status >= 200 && raw.status < 300;
-        this.statusText = '';
+        this.statusText = STATUS_TEXT[raw.status] || '';
         this.url = raw.url;
-        this.redirected = false;
+        this.redirected = requestedUrl !== undefined && String(requestedUrl) !== raw.url;
         this.bodyUsed = false;
         this._body = raw.body;
         this.truncated = !!raw.truncated;
@@ -213,7 +224,7 @@ extension QuickJSRuntime {
           headers: headers,
           body: body === undefined || body === null ? '' : String(body)
         });
-        return new Response(raw);
+        return new Response(raw, String(url));
       };
 
       global.http = {
@@ -281,7 +292,7 @@ extension QuickJSRuntime {
       var process = {
         argv: ['script'].concat(global.__pokeetArgs || []),
         env: {},
-        cwd: function () { return ''; },
+        cwd: function () { return '/'; },
         exit: function (code) {
           call('process.exit', { code: code === undefined ? 0 : Number(code) | 0 });
           throw new Error('__pokeet_exit__');
@@ -335,6 +346,200 @@ extension QuickJSRuntime {
         var name = String(request).replace(/^node:/, '');
         if (Object.prototype.hasOwnProperty.call(builtinModules, name)) return builtinModules[name];
         return loadModule(resolveModule(request, ''));
+      };
+
+      // -- globals a script expects to exist ------------------------------
+      //
+      // QuickJS is bare ECMAScript: no URL, no timers, no base64, no text codecs.
+      // Their absence surfaces as a ReferenceError, which reads like a broken
+      // sandbox rather than a missing feature, so the common ones are provided.
+
+      var URLSearchParams = function (init) {
+        this._entries = [];
+        if (typeof init === 'string') {
+          var text = init.charAt(0) === '?' ? init.slice(1) : init;
+          if (text) {
+            var pairs = text.split('&');
+            for (var index = 0; index < pairs.length; index += 1) {
+              if (!pairs[index]) continue;
+              var split = pairs[index].split('=');
+              this.append(decodeURIComponent(split[0]), decodeURIComponent(split.slice(1).join('=') || ''));
+            }
+          }
+        } else if (init && typeof init === 'object') {
+          for (var key in init) this.append(key, init[key]);
+        }
+      };
+      URLSearchParams.prototype.append = function (name, value) {
+        this._entries.push([String(name), String(value)]);
+      };
+      URLSearchParams.prototype.get = function (name) {
+        for (var index = 0; index < this._entries.length; index += 1) {
+          if (this._entries[index][0] === String(name)) return this._entries[index][1];
+        }
+        return null;
+      };
+      URLSearchParams.prototype.getAll = function (name) {
+        var out = [];
+        for (var index = 0; index < this._entries.length; index += 1) {
+          if (this._entries[index][0] === String(name)) out.push(this._entries[index][1]);
+        }
+        return out;
+      };
+      URLSearchParams.prototype.has = function (name) {
+        return this.get(name) !== null;
+      };
+      URLSearchParams.prototype.set = function (name, value) {
+        for (var index = 0; index < this._entries.length; index += 1) {
+          if (this._entries[index][0] === String(name)) {
+            this._entries[index][1] = String(value);
+            return;
+          }
+        }
+        this.append(name, value);
+      };
+      URLSearchParams.prototype['delete'] = function (name) {
+        var kept = [];
+        for (var index = 0; index < this._entries.length; index += 1) {
+          if (this._entries[index][0] !== String(name)) kept.push(this._entries[index]);
+        }
+        this._entries = kept;
+      };
+      URLSearchParams.prototype.toString = function () {
+        var parts = [];
+        for (var index = 0; index < this._entries.length; index += 1) {
+          parts.push(
+            encodeURIComponent(this._entries[index][0]) + '=' + encodeURIComponent(this._entries[index][1])
+          );
+        }
+        return parts.join('&');
+      };
+      URLSearchParams.prototype.forEach = function (fn) {
+        for (var index = 0; index < this._entries.length; index += 1) {
+          fn(this._entries[index][1], this._entries[index][0], this);
+        }
+      };
+      URLSearchParams.prototype.entries = function () { return this._entries.slice(); };
+      global.URLSearchParams = URLSearchParams;
+
+      var URL = function (input, base) {
+        var text = String(input);
+        if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(text) && base) {
+          var baseText = String(base);
+          var root = baseText.match(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^/]*/);
+          text = root ? root[0] + (text.charAt(0) === '/' ? '' : '/') + text : text;
+        }
+        var match = text.match(/^([a-zA-Z][a-zA-Z0-9+.-]*):\/\/([^/?#]*)([^?#]*)(\?[^#]*)?(#.*)?$/);
+        if (!match) throw new TypeError('Invalid URL: ' + text);
+        this.protocol = match[1] + ':';
+        this.host = match[2];
+        this.hostname = match[2].split(':')[0];
+        this.port = match[2].indexOf(':') >= 0 ? match[2].split(':')[1] : '';
+        this.pathname = match[3] || '/';
+        this.search = match[4] || '';
+        this.hash = match[5] || '';
+        this.origin = this.protocol + '//' + this.host;
+        this.searchParams = new URLSearchParams(this.search);
+      };
+      URL.prototype.toString = function () {
+        var query = this.searchParams.toString();
+        return this.origin + this.pathname + (query ? '?' + query : '') + this.hash;
+      };
+      URL.prototype.toJSON = function () { return this.toString(); };
+      Object.defineProperty(URL.prototype, 'href', {
+        get: function () { return this.toString(); }
+      });
+      global.URL = URL;
+
+      global.atob = function (input) {
+        var alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+        var text = String(input).replace(/[^A-Za-z0-9+/]/g, '');
+        var out = '';
+        for (var index = 0; index < text.length; index += 4) {
+          var chunk = text.slice(index, index + 4);
+          var bits = 0;
+          for (var offset = 0; offset < 4; offset += 1) {
+            bits = (bits << 6) | (offset < chunk.length ? alphabet.indexOf(chunk.charAt(offset)) & 63 : 0);
+          }
+          out += String.fromCharCode((bits >> 16) & 255);
+          if (chunk.length > 2) out += String.fromCharCode((bits >> 8) & 255);
+          if (chunk.length > 3) out += String.fromCharCode(bits & 255);
+        }
+        return out;
+      };
+      global.btoa = function (input) {
+        var alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+        var text = String(input);
+        var out = '';
+        for (var index = 0; index < text.length; index += 3) {
+          var a = text.charCodeAt(index);
+          var b = index + 1 < text.length ? text.charCodeAt(index + 1) : NaN;
+          var c = index + 2 < text.length ? text.charCodeAt(index + 2) : NaN;
+          out += alphabet.charAt(a >> 2);
+          out += alphabet.charAt(((a & 3) << 4) | (isNaN(b) ? 0 : b >> 4));
+          out += isNaN(b) ? '=' : alphabet.charAt(((b & 15) << 2) | (isNaN(c) ? 0 : c >> 6));
+          out += isNaN(c) ? '=' : alphabet.charAt(c & 63);
+        }
+        return out;
+      };
+
+      global.TextEncoder = function () {};
+      TextEncoder.prototype.encode = function (text) {
+        var source = String(text);
+        var bytes = [];
+        for (var index = 0; index < source.length; index += 1) {
+          var code = source.codePointAt(index);
+          if (code > 0xffff) index += 1;
+          if (code < 0x80) bytes.push(code);
+          else if (code < 0x800) bytes.push(0xc0 | (code >> 6), 0x80 | (code & 63));
+          else if (code < 0x10000) {
+            bytes.push(0xe0 | (code >> 12), 0x80 | ((code >> 6) & 63), 0x80 | (code & 63));
+          } else {
+            bytes.push(
+              0xf0 | (code >> 18), 0x80 | ((code >> 12) & 63),
+              0x80 | ((code >> 6) & 63), 0x80 | (code & 63)
+            );
+          }
+        }
+        return new Uint8Array(bytes);
+      };
+
+      global.TextDecoder = function () {};
+      TextDecoder.prototype.decode = function (buffer) {
+        if (!buffer) return '';
+        var bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+        var out = '';
+        for (var index = 0; index < bytes.length;) {
+          var byte = bytes[index];
+          if (byte < 0x80) { out += String.fromCharCode(byte); index += 1; }
+          else if (byte < 0xe0) {
+            out += String.fromCharCode(((byte & 31) << 6) | (bytes[index + 1] & 63)); index += 2;
+          } else if (byte < 0xf0) {
+            out += String.fromCharCode(((byte & 15) << 12) | ((bytes[index + 1] & 63) << 6) | (bytes[index + 2] & 63));
+            index += 3;
+          } else {
+            var code = ((byte & 7) << 18) | ((bytes[index + 1] & 63) << 12)
+              | ((bytes[index + 2] & 63) << 6) | (bytes[index + 3] & 63);
+            code -= 0x10000;
+            out += String.fromCharCode(0xd800 + (code >> 10), 0xdc00 + (code & 1023));
+            index += 4;
+          }
+        }
+        return out;
+      };
+
+      // No event loop: a delay would be a lie, but a missing timer is a crash.
+      // The callback runs on the microtask queue, so ordering holds and the delay
+      // does not.
+      global.setTimeout = function (fn) {
+        Promise.resolve().then(function () {
+          if (typeof fn === 'function') fn();
+        });
+        return 0;
+      };
+      global.clearTimeout = function () {};
+      global.setInterval = function () {
+        throw new Error('setInterval is not available: the sandbox has no event loop');
       };
 
       global.__pokeet = { runtime: 'quickjs', args: process.argv.slice(1) };
