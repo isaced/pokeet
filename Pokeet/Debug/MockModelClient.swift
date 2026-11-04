@@ -28,8 +28,44 @@ struct MockModelClient: ModelClient {
                 )
             }
             if lastTool.contains("JavaScript · exit 0") {
+                if request.messages.contains(where: { $0.content?.lowercased().contains("fibonacci") == true }) {
+                    return ChatResponse(
+                        message: .assistant(
+                            "Both runtimes agree: the first ten Fibonacci numbers match, computed "
+                                + "independently in Python and JavaScript. Neither needed a server."
+                        ),
+                        finishReason: "stop"
+                    )
+                }
                 return ChatResponse(
                     message: .assistant("All three checks passed — the parser returns the expected values."),
+                    finishReason: "stop"
+                )
+            }
+            if lastTool.contains("Python · exit 0"),
+               request.messages.contains(where: { $0.content?.lowercased().contains("fibonacci") == true }) {
+                let arguments = #"{"script":"const fib = n => {\n  let a = 0, b = 1;\n  for (let i = 0; i < n; i++) {\n    const next = a + b;\n    a = b;\n    b = next;\n  }\n  return a;\n};\nconst series = Array.from({ length: 10 }, (_, i) => fib(i));\nassert.deepEqual(series, [0, 1, 1, 2, 3, 5, 8, 13, 21, 34]);\nconsole.log(series.join(' '));"}"#
+                return ChatResponse(
+                    message: .assistant(
+                        nil,
+                        toolCalls: [
+                            ToolCall(
+                                id: "mock-demo-js-\(UUID().uuidString)",
+                                name: "run_script",
+                                arguments: arguments
+                            )
+                        ]
+                    ),
+                    finishReason: "tool_calls"
+                )
+            }
+            if lastTool.contains("Python · exit 0") {
+                return ChatResponse(
+                    message: .assistant(
+                        "Python agrees: the first ten Fibonacci numbers are correct, and `json` "
+                            + "is available. The same script would run unchanged on the project's "
+                            + "own interpreter."
+                    ),
                     finishReason: "stop"
                 )
             }
@@ -101,6 +137,44 @@ struct MockModelClient: ModelClient {
                     toolCalls: [
                         ToolCall(
                             id: "mock-script-\(UUID().uuidString)",
+                            name: "run_script",
+                            arguments: arguments
+                        )
+                    ]
+                ),
+                finishReason: "tool_calls"
+            )
+        }
+
+        if lastMessage?.role == .user,
+           let text = lastMessage?.content?.lowercased(),
+           text.contains("fibonacci") {
+            let arguments = #"{"runtime":"python","script":"import json\n\ndef fib(n):\n    a, b = 0, 1\n    for _ in range(n):\n        a, b = b, a + b\n    return a\n\nseries = [fib(i) for i in range(10)]\nassert series == [0, 1, 1, 2, 3, 5, 8, 13, 21, 34]\nprint(series)\nprint(json.dumps({\"checks\": \"passed\"}))"}"#
+            return ChatResponse(
+                message: .assistant(
+                    nil,
+                    toolCalls: [
+                        ToolCall(
+                            id: "mock-demo-py-\(UUID().uuidString)",
+                            name: "run_script",
+                            arguments: arguments
+                        )
+                    ]
+                ),
+                finishReason: "tool_calls"
+            )
+        }
+
+        if lastMessage?.role == .user,
+           let text = lastMessage?.content?.lowercased(),
+           text.contains("python test") {
+            let arguments = #"{"runtime":"python","script":"import json\n\ndef fib(n):\n    a, b = 0, 1\n    for _ in range(n):\n        a, b = b, a + b\n    return a\n\nseries = [fib(i) for i in range(10)]\nassert series == [0, 1, 1, 2, 3, 5, 8, 13, 21, 34]\nprint(series)\nprint(json.dumps({\"checks\": \"passed\"}))"}"#
+            return ChatResponse(
+                message: .assistant(
+                    nil,
+                    toolCalls: [
+                        ToolCall(
+                            id: "mock-python-\(UUID().uuidString)",
                             name: "run_script",
                             arguments: arguments
                         )

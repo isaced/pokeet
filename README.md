@@ -30,6 +30,7 @@ What that buys you:
 | --- | --- |
 | 🤖 **A real agent** | Reads, searches, edits, verifies — and keeps going until the job is done. |
 | 🎛️ **Review first** | Four modes, from read-only plans to fully automatic. Default: every edit waits for you. |
+| 🐍 **Real interpreters** | JavaScript and Python run on the device — a full stdlib, not a toy subset. |
 | 🧵 **A readable run** | Reasoning, tool calls and answers, each in its own shape. |
 | 📁 **Projects and sessions** | One sandbox per project, one conversation per session. Two panes in landscape. |
 | 🌳 **Real git** | Clone, diff, commit and push on the phone. |
@@ -115,16 +116,56 @@ The tool set is the one a coding agent uses — files, search, git, web, scripts
 
 Guardrails: the agent cannot run shell commands and cannot commit or push — those are UI actions. Network egress is HTTPS-only with private and local addresses blocked. Project instructions load from `AGENTS.md` or `CLAUDE.md` when a session starts.
 
-### Sandboxed scripts
+### Scripts: JavaScript and Python, on the device
 
-`run_script` lets the agent check its own work: compute a value, test a regex, parse a file, or run a handful of assertions. It is not a shell and not a test runner.
+`run_script` is not a shell. It is two real interpreters inside the app, and the agent uses them to check its own work: compute a value, parse a config, test a regex, or assert a few facts about the change it just made.
 
-- **No escape hatch** — no shell, no network, no `npm` or `pip`, no file access outside the project.
-- **Hard limits** — a wall-clock deadline, a heap cap and a stack cap are enforced by the engine itself, so a runaway loop stops instead of pinning a thread.
+|  | JavaScript | Python |
+|---|---|---|
+| Engine | QuickJS | CPython 3.12 |
+| Adds to the app | 2.8 MB | 8.6 MB, stdlib trimmed |
+| Wall clock | interrupt handler inside the interpreter | watchdog raising `KeyboardInterrupt` |
+| Memory | hard heap limit | counting allocator on `PYMEM_DOMAIN_RAW` |
+| Sees the project | `fs`, `path`, `require` | `open()`, `pathlib`, `import pokeet` |
+
+<table align="center">
+  <tr>
+    <td align="center" valign="top">
+      <a href="docs/images/07-scripts-python.webp"><img src="docs/images/07-scripts-python.webp" width="320" alt="Pokeet running a Fibonacci check in Python, with the run_script trace expanded"></a>
+      <br>
+      <sub><b>Python</b><br>Real interpreter, real stdlib.</sub>
+    </td>
+    <td align="center" valign="top">
+      <a href="docs/images/07-scripts-javascript.webp"><img src="docs/images/07-scripts-javascript.webp" width="320" alt="The same check in JavaScript, with the JavaScript run_script trace expanded"></a>
+      <br>
+      <sub><b>JavaScript</b><br>Same task, same answer.</sub>
+    </td>
+  </tr>
+</table>
+
+A Python run is an ordinary tool call:
+
+```python
+import json
+
+def fib(n):
+    a, b = 0, 1
+    for _ in range(n):
+        a, b = b, a + b
+    return a
+
+series = [fib(i) for i in range(10)]
+assert series == [0, 1, 1, 2, 3, 5, 8, 13, 21, 34]
+print(json.dumps({"checks": "passed"}))
+```
+
+`json`, `re`, `collections`, `math`, `itertools` — the standard library is there. `ctypes` and the network modules are not: the first would walk around every other control, the second around `NetworkPolicy`.
+
+What does not change:
+
 - **Review still applies** — the sandbox has no direct write access. Script writes are buffered and surface as normal diff cards, so Ask mode reviews them like any other edit.
-- **On-device and small** — both are interpreters, so no JIT entitlement is needed and no code is downloaded. QuickJS adds 2.8 MB; CPython adds 8.6 MB once the stdlib is trimmed.
-
-JavaScript and Python both run on the device. Python is a full interpreter with a trimmed standard library — `open()` reads and writes project files, `import pokeet` lists and inspects them — capped by the same review flow and the same limits. Its wall clock is enforced by a watchdog rather than an interrupt handler, so a script stuck inside a long C call cannot be stopped; that is the one gap process isolation would close and iOS does not allow. A project's own test suite still needs a real machine.
+- **No escape hatch** — no shell, no `pip`, no `npm`, no file access outside the project.
+- **The clock is enforced by the engine** — a runaway loop stops instead of pinning a thread. Python's is a watchdog rather than an interrupt handler, so a script stuck inside one long C call cannot be stopped; that gap is why JavaScript is still the default.
 
 ## Get started
 
