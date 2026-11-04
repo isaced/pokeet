@@ -36,6 +36,42 @@ struct NetworkPolicyTests {
         }
     }
 
+    @Test func allowsPlainHTTPOnTheLocalNetworkOnly() throws {
+        let policy = NetworkPolicy()
+        for url in [
+            "http://localhost:8080/api", "http://127.0.0.1/", "http://[::1]/",
+            "http://192.168.1.10:5000/", "http://10.0.0.5/", "http://172.20.0.1/",
+            "http://169.254.10.10/", "http://nas.local/", "http://router.lan/",
+            "http://printer/"
+        ] {
+            #expect(throws: Never.self, "\(url) should be allowed") {
+                _ = try policy.validate(URL(string: url)!)
+            }
+        }
+
+        // Anywhere else plain HTTP would put the token and the body on the wire.
+        for url in ["http://example.com/", "http://8.8.8.8/", "http://172.32.0.1/"] {
+            #expect(throws: NetworkPolicyError.self, "\(url) should be refused") {
+                _ = try policy.validate(URL(string: url)!)
+            }
+        }
+    }
+
+    @Test func followsAnUpgradeButNotADowngrade() throws {
+        let plain = URL(string: "http://192.168.1.10/start")!
+        let upgraded = try NetworkPolicy.redirectTarget(
+            from: plain, location: "https://192.168.1.10/next", hops: 0, maxHops: 5
+        )
+        #expect(upgraded.scheme == "https")
+
+        let secure = URL(string: "https://example.com/start")!
+        #expect(throws: NetworkPolicyError.self) {
+            _ = try NetworkPolicy.redirectTarget(
+                from: secure, location: "http://example.com/next", hops: 0, maxHops: 5
+            )
+        }
+    }
+
     @Test func rejectsNonHTTPSAndCredentials() {
         let policy = NetworkPolicy()
 

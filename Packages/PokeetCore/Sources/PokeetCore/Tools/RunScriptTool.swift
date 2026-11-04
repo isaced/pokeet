@@ -30,8 +30,10 @@ public struct RunScriptTool: AgentTool {
             description: """
             Run a short script in the on-device sandbox and return its output. \
             There is no shell and no package manager. \
-            Network requests go through the app's policy: https:// only, redirects \
-            re-checked, no sockets. Use http.get/http.post or fetch() in JavaScript, and \
+            Network requests go through the app's policy: https:// anywhere, plus plain \
+            http:// to a local address (localhost, a private IP, .local, a bare hostname) \
+            such as a dev server on this network. Redirects are re-checked and there are \
+            no sockets. Use http.get/http.post or fetch() in JavaScript, and \
             urllib.request.urlopen(Request) in Python — urlopen returns the response for \
             any status (call raise_for_status() or read .status), and there are no \
             environment variables to read secrets from. \

@@ -48,9 +48,6 @@ struct NetworkPolicy: Sendable {
         guard let scheme = url.scheme?.lowercased(), !scheme.isEmpty else {
             throw NetworkPolicyError.unsupportedScheme("missing")
         }
-        guard scheme == "https" else {
-            throw NetworkPolicyError.unsupportedScheme(scheme)
-        }
         guard url.user == nil, url.password == nil else {
             throw NetworkPolicyError.credentialsInURL
         }
@@ -58,6 +55,17 @@ struct NetworkPolicy: Sendable {
               !host.isEmpty
         else {
             throw NetworkPolicyError.invalidHost
+        }
+        // Plain HTTP is allowed only to somewhere on this network: a dev server, a NAS,
+        // a router. Anywhere else the request would put the token and the body in the
+        // clear across a network nobody controls.
+        switch scheme {
+        case "https":
+            break
+        case "http" where Self.isLocalTarget(host):
+            break
+        default:
+            throw NetworkPolicyError.unsupportedScheme(scheme)
         }
         var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
         components?.fragment = nil
@@ -101,6 +109,59 @@ struct NetworkPolicy: Sendable {
         return normalized
     }
 
+    /// True when `host` is a literal name or address on the local network.
+    ///
+    /// Deliberately does not resolve: a resolved answer is whatever the network says
+    /// today — behind a fake-IP proxy every name lands in 198.18.0.0/15 — so the decision
+    /// has to come from what the URL literally says.
+    static func isLocalTarget(_ host: String) -> Bool {
+        var name = host.lowercased()
+        while name.hasSuffix(".") {
+            name.removeLast()
+        }
+        guard !name.isEmpty else { return false }
+
+        if name == "localhost" || name.hasSuffix(".localhost") { return true }
+        if name.hasSuffix(".local") || name.hasSuffix(".lan") { return true }
+
+        if let octets = ipv4Octets(name) {
+            if octets[0] == 10 || octets[0] == 127 { return true }
+            if octets[0] == 172, (16...31).contains(octets[1]) { return true }
+            if octets[0] == 192, octets[1] == 168 { return true }
+            if octets[0] == 169, octets[1] == 254 { return true }
+            return false
+        }
+        if name.contains(":") {
+            return isLocalIPv6(name)
+        }
+        // An unqualified name — `nas`, `router` — only resolves inside the LAN.
+        return !name.contains(".")
+    }
+
+    private static func ipv4Octets(_ address: String) -> [UInt8]? {
+        let parts = address.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 4 else { return nil }
+        var octets: [UInt8] = []
+        for part in parts {
+            guard !part.isEmpty, part.count <= 3,
+                  part.allSatisfy(\.isNumber), let value = UInt8(part)
+            else { return nil }
+            octets.append(value)
+        }
+        return octets
+    }
+
+    private static func isLocalIPv6(_ address: String) -> Bool {
+        var raw = in6_addr()
+        guard inet_pton(AF_INET6, address, &raw) == 1 else { return false }
+        let bytes = withUnsafeBytes(of: &raw) { Array($0) }
+        if bytes.allSatisfy({ $0 == 0 }) { return true }                 // ::
+        if bytes.dropLast().allSatisfy({ $0 == 0 }), bytes[15] == 1 { return true }  // ::1
+        if bytes[0] & 0xFE == 0xFC { return true }                        // fc00::/7
+        if bytes[0] == 0xFE, bytes[1] & 0xC0 == 0x80 { return true }      // fe80::/10
+        return false
+    }
+
     static func redirectTarget(
         from current: URL,
         location: String,
@@ -116,10 +177,14 @@ struct NetworkPolicy: Sendable {
         else {
             throw NetworkPolicyError.invalidHost
         }
-        guard target.scheme?.lowercased() == current.scheme?.lowercased(),
-              target.host?.lowercased() == current.host?.lowercased(),
-              effectivePort(target) == effectivePort(current)
-        else {
+        let fromScheme = current.scheme?.lowercased()
+        let toScheme = target.scheme?.lowercased()
+        let sameHost = target.host?.lowercased() == current.host?.lowercased()
+        let upgrade = fromScheme == "http" && toScheme == "https"
+        let samePort = effectivePort(target) == effectivePort(current)
+            // An upgrade moves 80 -> 443 by definition; that is not a different origin.
+            || (upgrade && current.port == nil && target.port == nil)
+        guard sameHost, samePort, upgrade || fromScheme == toScheme else {
             throw NetworkPolicyError.crossOriginRedirect(target.absoluteString)
         }
         return target

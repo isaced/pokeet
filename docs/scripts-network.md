@@ -62,13 +62,23 @@ one; anything else is compiled as a script. If that fails, the other shape is tr
 
 | | |
 |---|---|
-| Transport | HTTPS only — iOS ATS, not a rule of ours |
+| Transport | HTTPS anywhere; plain HTTP only to a literal local target (`localhost`, a private address, `.local`, an unqualified name) |
 | Hosts | the optional allowlist applies; addresses themselves are not classified |
 | Redirects | followed by the client, and every hop is re-validated |
 | Body size | `maxRequestBodyBytes` for the request, `maxBodyBytes` for the response |
 | Response headers | a fixed allowlist — no `Set-Cookie`, no auth echoes |
 | Cookies | none; the session is ephemeral with no storage |
 | Clock | the run's deadline; a hung request is abandoned with the run |
+
+### Why plain HTTP is local-only
+
+A dev server on the LAN is a normal thing to talk to, and `NSAllowsLocalNetworking` already
+lets iOS reach one over plain HTTP. Anywhere else, a plain request puts the token and the
+body on a network nobody controls, so the scheme check stays. The decision reads the host
+*as written* in the URL — resolving first is what turned every domain into 198.18.0.0/15
+and broke networking entirely on a phone behind a fake-IP proxy.
+
+A redirect from `http` to `https` on the same host is followed; the reverse is not.
 
 ### Why addresses are not classified
 

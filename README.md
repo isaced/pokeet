@@ -36,7 +36,7 @@ What that buys you:
 | 🌳 **Real git** | Clone, diff, commit and push on the phone. |
 | 🖼️ **Photos and project context** | Four photos per message, or files attached as `@` chips. `AGENTS.md` loads itself. |
 | 🔑 **Your key, your model** | OpenAI, Anthropic, Gemini, or anything compatible — each with its own key. |
-| 🔎 **Guarded web access** | HTTPS only, same-origin redirects, your own search key. Pages are read, not just skimmed. |
+| 🔎 **Guarded web access** | HTTPS everywhere, plain HTTP only to your own network. Same-origin redirects. Your own search key. |
 | 🔒 **No server** | No account either. Your keys, your providers, your git remote — nothing else in the path. |
 
 ## See it in action
@@ -167,7 +167,7 @@ Both sandboxes are shaped like the real thing rather than a subset of it. Python
 What does not change:
 
 - **Review still applies** — the sandbox has no direct write access. Script writes are buffered and surface as normal diff cards, so Ask mode reviews them like any other edit.
-- **No escape hatch** — no shell, no `pip`, no `npm`, no file access outside the project. Network goes through the app's policy (HTTPS only), never through a socket.
+- **No escape hatch** — no shell, no `pip`, no `npm`, no file access outside the project. Network goes through the app's policy — HTTPS anywhere, plain HTTP only to a local address — never through a socket.
 - **The clock is enforced by the engine** — a runaway loop stops instead of pinning a thread. Python's is a watchdog rather than an interrupt handler, so a script stuck inside one long C call cannot be stopped; that gap is why JavaScript is still the default.
 
 ## Get started
