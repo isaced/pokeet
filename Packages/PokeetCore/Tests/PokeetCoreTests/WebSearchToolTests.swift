@@ -140,21 +140,25 @@ struct NetworkEndpointGuardTests {
         }
     }
 
-    @Test func refusesInsecureAndLocalEndpoints() {
-        let rejected = [
-            "http://api.search.brave.com",
+    @Test func refusesPlainHTTP() {
+        #expect(throws: NetworkEndpointError.self) {
+            try NetworkEndpointGuard.validate(URL(string: "http://api.search.brave.com")!)
+        }
+    }
+
+    /// A user pointing the app at their own SearXNG on the LAN is a normal thing to do,
+    /// so the guard no longer second-guesses the address — only the scheme.
+    @Test func acceptsLocalEndpoints() throws {
+        for raw in [
             "https://localhost:8080/search",
             "https://127.0.0.1/search",
             "https://10.0.0.5/search",
             "https://192.168.1.10/search",
             "https://[::1]/search",
-            "https://searx.local/search",
-            "https://metadata.google.internal/computeMetadata/v1"
-        ]
-        for raw in rejected {
-            let url = URL(string: raw)!
-            #expect(throws: NetworkEndpointError.self) {
-                try NetworkEndpointGuard.validate(url)
+            "https://searx.local/search"
+        ] {
+            #expect(throws: Never.self, "\(raw) should be accepted") {
+                try NetworkEndpointGuard.validate(URL(string: raw)!)
             }
         }
     }

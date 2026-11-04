@@ -68,17 +68,11 @@ public struct NetworkClient: Sendable {
     public static let allowedMethods: Set<String> = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"]
 
     private let session: URLSession
-    private let resolver: any HostResolving
     public let limits: Limits
     private let policy = NetworkPolicy()
 
     public init(session: URLSession? = nil, limits: Limits = Limits()) {
-        self.init(session: session, resolver: SystemHostResolver(), limits: limits)
-    }
-
-    public init(session: URLSession?, resolver: any HostResolving, limits: Limits) {
         self.session = session ?? Self.makeSession(limits: limits)
-        self.resolver = resolver
         self.limits = limits
     }
 
@@ -115,7 +109,7 @@ public struct NetworkClient: Sendable {
             maxCount: limits.maxHeaderCount,
             maxBytes: limits.maxHeaderBytes
         )
-        var current = try await policy.validate(url, resolver: resolver, access: access)
+        var current = try policy.validate(url, access: access)
         var currentMethod = method
         var currentBody = body
         var currentOffset = offset
@@ -161,7 +155,7 @@ public struct NetworkClient: Sendable {
                     hops: hops,
                     maxHops: limits.maxRedirects
                 )
-                current = try await policy.validate(target, resolver: resolver, access: access)
+                current = try policy.validate(target, access: access)
             } catch {
                 // Refusing a hop is not a transport failure: hand back the 3xx so the
                 // caller can say why it stopped.

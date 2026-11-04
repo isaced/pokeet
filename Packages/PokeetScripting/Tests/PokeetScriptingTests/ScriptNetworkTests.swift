@@ -51,21 +51,17 @@ struct ScriptNetworkTests {
         #expect(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "2")
     }
 
-    @Test("a blocked host fails the script instead of reaching it")
-    func blockedHost() async throws {
-        NetworkTestSupport.respond(body: "leak")
+    @Test("a local host is reachable, since the policy no longer refuses one")
+    func localHostIsAllowed() async throws {
+        NetworkTestSupport.respond(body: "local")
         defer { StubURLProtocol.handler = nil }
 
         let result = try await run("""
-        try {
-          http.get('https://localhost/admin');
-        } catch (error) {
-          console.log('blocked');
-        }
+        console.log(http.get('https://localhost/admin').text());
         """)
 
         #expect(result.termination == .exited, "\(result.stderr)")
-        #expect(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "blocked")
+        #expect(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "local")
     }
 
     @Test("a run without network access cannot reach out")
@@ -89,7 +85,6 @@ struct RunScriptNetworkTests {
         return RunScriptTool(
             network: NetworkClient(
                 session: URLSession(configuration: configuration),
-                resolver: NetworkTestSupport.Resolver(),
                 limits: NetworkClient.Limits()
             )
         )
@@ -118,14 +113,14 @@ struct RunScriptNetworkTests {
         #expect(output.content.contains("pong"), "\(output.content)")
     }
 
-    @Test("the tool's policy still applies inside a script")
+    @Test("the tool's allowlist still applies inside a script")
     func toolPolicyApplies() async throws {
         NetworkTestSupport.respondForTool(body: "leak")
         defer { ToolStubURLProtocol.handler = nil }
 
         let output = try await tool().execute(
-            arguments: Data(#"{"script":"try { http.get('https://localhost/admin'); } catch (e) { console.log('blocked'); }"}"#.utf8),
-            context: try context()
+            arguments: Data(#"{"script":"try { http.get('https://example.com/'); } catch (e) { console.log('blocked'); }"}"#.utf8),
+            context: try context(policy: NetworkAccessPolicy(allowedHosts: ["other.example"]))
         )
         #expect(output.content.contains("blocked"))
     }

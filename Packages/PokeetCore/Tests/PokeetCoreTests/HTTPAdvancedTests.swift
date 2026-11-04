@@ -4,21 +4,11 @@ import Testing
 
 @Suite(.serialized)
 struct HTTPAdvancedTests {
-    private struct StubResolver: HostResolving {
-        var addresses: [String: [String]] = [:]
-        var fallback: [String] = ["93.184.216.34"]
-
-        func resolve(host: String) async throws -> [String] {
-            addresses[host.lowercased()] ?? fallback
-        }
-    }
-
     private func makeTool() -> HTTPRequestTool {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [StubURLProtocol.self]
         return HTTPRequestTool(
             session: URLSession(configuration: configuration),
-            resolver: StubResolver(),
             limits: .init()
         )
     }
@@ -65,7 +55,7 @@ struct HTTPAdvancedTests {
             _ = try await execute(json, policy: policy)
             Issue.record("Expected a ToolError")
         } catch let error as ToolError {
-            #expect(error.errorDescription?.contains(text) == true)
+            #expect(error.errorDescription?.contains(text) == true, "\(error.errorDescription ?? "nil")")
         } catch {
             Issue.record("Unexpected error: \(error)")
         }
@@ -214,11 +204,6 @@ struct HTTPAdvancedTests {
             #"{"url":"https://other.example/"}"#,
             policy: policy,
             containing: "not in the allowed hosts list"
-        )
-        await expectToolError(
-            #"{"url":"https://127.0.0.1/"}"#,
-            policy: NetworkAccessPolicy(allowedHosts: ["127.0.0.1"]),
-            containing: "private or local"
         )
     }
 }

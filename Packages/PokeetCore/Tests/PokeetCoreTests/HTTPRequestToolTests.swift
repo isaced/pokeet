@@ -4,36 +4,11 @@ import Testing
 
 @Suite(.serialized)
 struct HTTPRequestToolTests {
-    private struct StubResolver: HostResolving {
-        var addresses: [String: [String]] = [:]
-        var fallback: [String] = ["93.184.216.34"]
-
-        func resolve(host: String) async throws -> [String] {
-            if let resolved = addresses[host.lowercased()] {
-                return resolved
-            }
-            return fallback
-        }
-    }
-
-    private actor FlippingResolver: HostResolving {
-        private var calls = 0
-
-        func resolve(host: String) async throws -> [String] {
-            calls += 1
-            return calls == 1 ? ["93.184.216.34"] : ["10.0.0.1"]
-        }
-    }
-
-    private func makeTool(
-        resolver: any HostResolving = StubResolver(),
-        limits: HTTPRequestTool.Limits = .init()
-    ) -> HTTPRequestTool {
+    private func makeTool(limits: HTTPRequestTool.Limits = .init()) -> HTTPRequestTool {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [StubURLProtocol.self]
         return HTTPRequestTool(
             session: URLSession(configuration: configuration),
-            resolver: resolver,
             limits: limits
         )
     }
@@ -218,7 +193,7 @@ struct HTTPRequestToolTests {
         )
     }
 
-    @Test func rejectsPrivateLiteralHostsWithoutRequesting() async {
+    @Test func reachesLocalHosts() async throws {
         let requests = LockedBox(0)
         StubURLProtocol.setHandler(forHost: "127.0.0.1") { request in
             requests.set(requests.get() + 1)
@@ -228,41 +203,13 @@ struct HTTPRequestToolTests {
                 httpVersion: "HTTP/1.1",
                 headerFields: [:]
             )!
-            return (response, Data())
+            return (response, Data("local".utf8))
         }
         defer { StubURLProtocol.setHandler(forHost: "127.0.0.1", nil) }
 
-        await expectToolError(
-            #"{"url":"https://127.0.0.1/"}"#,
-            tool: makeTool(),
-            containing: "blocked"
-        )
-        #expect(requests.get() == 0)
-    }
-
-    @Test func rejectsHostnamesThatResolveInternally() async {
-        let requests = LockedBox(0)
-        StubURLProtocol.setHandler(forHost: "example.com") { request in
-            requests.set(requests.get() + 1)
-            let response = HTTPURLResponse(
-                url: request.url!,
-                statusCode: 200,
-                httpVersion: "HTTP/1.1",
-                headerFields: [:]
-            )!
-            return (response, Data())
-        }
-        defer { StubURLProtocol.setHandler(forHost: "example.com", nil) }
-
-        let tool = makeTool(
-            resolver: StubResolver(addresses: ["example.com": ["10.0.0.1"]])
-        )
-        await expectToolError(
-            #"{"url":"https://example.com/"}"#,
-            tool: tool,
-            containing: "blocked"
-        )
-        #expect(requests.get() == 0)
+        let output = try await execute(#"{"url":"https://127.0.0.1/"}"#, tool: makeTool())
+        #expect(output.content.contains("HTTP 200"))
+        #expect(requests.get() == 1)
     }
 
     @Test func followsSameOriginRedirectsAndKeepsHeaders() async throws {
@@ -339,28 +286,29 @@ struct HTTPRequestToolTests {
         #expect(otherRequests.get() == 0)
     }
 
-    @Test func refusesRedirectsToInternalAddresses() async throws {
+    @Test func followsRedirectsWithinTheSameOrigin() async throws {
         let requests = LockedBox(0)
         StubURLProtocol.setHandler(forHost: "example.com") { request in
             requests.set(requests.get() + 1)
+            let isStart = request.url!.path == "/start"
             let response = HTTPURLResponse(
                 url: request.url!,
-                statusCode: 302,
+                statusCode: isStart ? 302 : 200,
                 httpVersion: "HTTP/1.1",
-                headerFields: ["Location": "/next"]
+                headerFields: isStart ? ["Location": "/next"] : [:]
             )!
-            return (response, Data())
+            return (response, Data(isStart ? Data() : Data("done".utf8)))
         }
         defer { StubURLProtocol.setHandler(forHost: "example.com", nil) }
 
         let output = try await execute(
             #"{"url":"https://example.com/start"}"#,
-            tool: makeTool(resolver: FlippingResolver())
+            tool: makeTool()
         )
 
-        #expect(output.content.contains("Redirect not followed"))
-        #expect(output.content.contains("blocked"))
-        #expect(requests.get() == 1)
+        #expect(output.content.contains("HTTP 200"))
+        #expect(output.content.contains("done"))
+        #expect(requests.get() == 2)
     }
 
     @Test func stopsAfterRedirectLimit() async throws {

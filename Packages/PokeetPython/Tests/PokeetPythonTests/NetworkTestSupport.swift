@@ -29,12 +29,6 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
 }
 
 enum NetworkTestSupport {
-    struct Resolver: HostResolving {
-        func resolve(host: String) async throws -> [String] {
-            host.lowercased() == "localhost" ? ["127.0.0.1"] : ["93.184.216.34"]
-        }
-    }
-
     static func access(
         policy: NetworkAccessPolicy = NetworkAccessPolicy()
     ) -> ScriptNetworkAccess {
@@ -43,7 +37,6 @@ enum NetworkTestSupport {
         return ScriptNetworkAccess(
             client: NetworkClient(
                 session: URLSession(configuration: configuration),
-                resolver: Resolver(),
                 limits: NetworkClient.Limits()
             ),
             policy: policy

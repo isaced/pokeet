@@ -3,26 +3,37 @@ import Testing
 @testable import PokeetCore
 
 struct NetworkPolicyTests {
-    private struct StubResolver: HostResolving {
-        var addresses: [String: [String]] = [:]
-        var fallback: [String] = ["93.184.216.34"]
+    @Test func allowsPublicHTTPSURL() throws {
+        let policy = NetworkPolicy()
+        let url = try policy.validate(URL(string: "https://example.com/path#fragment")!)
 
-        func resolve(host: String) async throws -> [String] {
-            if let resolved = addresses[host.lowercased()] {
-                return resolved
+        #expect(url.absoluteString == "https://example.com/path")
+    }
+
+    /// The policy no longer guesses about addresses. A phone behind a fake-IP proxy
+    /// resolves every domain to 198.18.0.0/15, and a developer's own services live on
+    /// 127.0.0.1 — blocking either broke real use.
+    @Test func allowsPrivateAndLocalHosts() throws {
+        let policy = NetworkPolicy()
+        for url in [
+            "https://127.0.0.1/", "https://10.0.0.1/", "https://192.168.1.1/",
+            "https://169.254.169.254/", "https://[::1]/", "https://[fe80::1]/",
+            "https://localhost/", "https://printer.local/", "https://router.home.arpa/"
+        ] {
+            #expect(throws: Never.self, "\(url) should be allowed") {
+                _ = try policy.validate(URL(string: url)!)
             }
-            return fallback
         }
     }
 
-    @Test func allowsPublicHTTPSURL() async throws {
-        let policy = NetworkPolicy()
-        let url = try await policy.validate(
-            URL(string: "https://example.com/path#fragment")!,
-            resolver: StubResolver()
-        )
-
-        #expect(url.absoluteString == "https://example.com/path")
+    /// The address that broke a phone behind Clash: fake-IP resolves every domain into
+    /// 198.18.0.0/15, and the policy used to call that private.
+    @Test func allowsFakeIPProxyAddresses() throws {
+        for url in ["https://198.18.0.114/", "https://198.19.0.7/"] {
+            #expect(throws: Never.self, "\(url) should be allowed") {
+                _ = try NetworkPolicy().validate(URL(string: url)!)
+            }
+        }
     }
 
     @Test func rejectsNonHTTPSAndCredentials() {
@@ -33,82 +44,6 @@ struct NetworkPolicyTests {
         }
         #expect(throws: NetworkPolicyError.self) {
             _ = try policy.normalize(URL(string: "https://user:pass@example.com")!)
-        }
-    }
-
-    @Test func rejectsLocalHostnames() {
-        for host in [
-            "localhost", "localhost.", "api.localhost", "printer.local",
-            "service.internal", "router.home.arpa", "foo.lan",
-            "metadata.google.internal", "instance-data"
-        ] {
-            #expect(NetworkPolicy.isDeniedHostname(host), "expected \(host) to be denied")
-        }
-        #expect(!NetworkPolicy.isDeniedHostname("example.com"))
-        #expect(!NetworkPolicy.isDeniedHostname("api.github.com"))
-    }
-
-    @Test func classifiesPrivateIPv4() {
-        for address in [
-            "0.0.0.0", "10.1.2.3", "100.64.0.1", "127.0.0.1",
-            "169.254.169.254", "172.16.0.1", "172.31.255.255", "192.168.1.1",
-            "192.0.0.1", "192.0.2.1", "198.18.0.1", "198.51.100.1",
-            "203.0.113.1", "224.0.0.1", "255.255.255.255"
-        ] {
-            #expect(NetworkPolicy.isPrivateAddress(address), "expected \(address) to be private")
-        }
-
-        for address in ["8.8.8.8", "1.1.1.1", "93.184.216.34", "172.32.0.1"] {
-            #expect(!NetworkPolicy.isPrivateAddress(address), "expected \(address) to be public")
-        }
-    }
-
-    @Test func classifiesPrivateIPv6() {
-        for address in [
-            "::", "::1", "fc00::1", "fd12:3456::1", "fe80::1", "ff02::1",
-            "::ffff:127.0.0.1", "::ffff:10.0.0.1"
-        ] {
-            #expect(NetworkPolicy.isPrivateAddress(address), "expected \(address) to be private")
-        }
-        #expect(!NetworkPolicy.isPrivateAddress("2606:4700:4700::1111"))
-    }
-
-    @Test func rejectsPrivateLiteralHosts() async {
-        let policy = NetworkPolicy()
-        for url in [
-            "https://127.0.0.1/", "https://10.0.0.1/", "https://169.254.169.254/",
-            "https://[::1]/", "https://[fe80::1]/"
-        ] {
-            await expectPolicyError {
-                _ = try await policy.validate(URL(string: url)!, resolver: StubResolver())
-            }
-        }
-    }
-
-    @Test func rejectsHostnamesResolvingToPrivateAddresses() async {
-        let resolver = StubResolver(addresses: [
-            "example.com": ["93.184.216.34", "10.0.0.1"]
-        ])
-        await expectPolicyError {
-            _ = try await NetworkPolicy().validate(
-                URL(string: "https://example.com/")!,
-                resolver: resolver
-            )
-        }
-    }
-
-    @Test func rejectsObfuscatedNumericHostsThatResolveInternally() async {
-        let resolver = StubResolver(addresses: [
-            "0x7f000001": ["127.0.0.1"],
-            "2130706433": ["127.0.0.1"]
-        ])
-        for host in ["0x7f000001", "2130706433"] {
-            await expectPolicyError {
-                _ = try await NetworkPolicy().validate(
-                    URL(string: "https://\(host)/")!,
-                    resolver: resolver
-                )
-            }
         }
     }
 
@@ -218,23 +153,13 @@ struct NetworkPolicyTests {
 }
 
 struct NetworkAccessTests {
-    private struct PublicResolver: HostResolving {
-        func resolve(host: String) async throws -> [String] {
-            ["93.184.216.34"]
-        }
-    }
-
     private func expectAccessError(
         _ url: String,
         policy: NetworkAccessPolicy,
         containing text: String
     ) async {
         do {
-            _ = try await NetworkPolicy().validate(
-                URL(string: url)!,
-                resolver: PublicResolver(),
-                access: policy
-            )
+            _ = try NetworkPolicy().validate(URL(string: url)!, access: policy)
             Issue.record("Expected a NetworkPolicyError")
         } catch let error as NetworkPolicyError {
             #expect(error.errorDescription?.contains(text) == true)
@@ -253,9 +178,8 @@ struct NetworkAccessTests {
 
     @Test func allowlistMatchesHostAndSubdomains() async throws {
         let policy = NetworkAccessPolicy(allowedHosts: ["example.com"])
-        let url = try await NetworkPolicy().validate(
+        let url = try NetworkPolicy().validate(
             URL(string: "https://api.example.com/")!,
-            resolver: PublicResolver(),
             access: policy
         )
         #expect(url.host == "api.example.com")
@@ -267,11 +191,17 @@ struct NetworkAccessTests {
         )
     }
 
-    @Test func allowlistNeverBypassesPrivateBlocking() async {
+    @Test func allowlistStillAppliesToLocalHosts() async throws {
+        let url = try NetworkPolicy().validate(
+            URL(string: "https://127.0.0.1:8080/")!,
+            access: NetworkAccessPolicy(allowedHosts: ["127.0.0.1"])
+        )
+        #expect(url.port == 8080)
+
         await expectAccessError(
-            "https://127.0.0.1/",
+            "https://192.168.1.1/",
             policy: NetworkAccessPolicy(allowedHosts: ["127.0.0.1"]),
-            containing: "private or local"
+            containing: "not in the allowed hosts list"
         )
     }
 }

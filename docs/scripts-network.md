@@ -54,12 +54,21 @@ one; anything else is compiled as a script. If that fails, the other shape is tr
 | | |
 |---|---|
 | Transport | HTTPS only — iOS ATS, not a rule of ours |
-| Hosts | private, loopback and link-local addresses refused; the optional allowlist applies |
+| Hosts | the optional allowlist applies; addresses themselves are not classified |
 | Redirects | followed by the client, and every hop is re-validated |
 | Body size | `maxRequestBodyBytes` for the request, `maxBodyBytes` for the response |
 | Response headers | a fixed allowlist — no `Set-Cookie`, no auth echoes |
 | Cookies | none; the session is ephemeral with no storage |
 | Clock | the run's deadline; a hung request is abandoned with the run |
+
+### Why addresses are not classified
+
+The policy used to refuse private, loopback and benchmarking ranges, on the theory that a
+model-generated request should never reach the user's own network. On a phone that theory
+fails twice over: fake-IP proxies (Clash, Surge) resolve *every* domain into
+198.18.0.0/15, and a developer's own services live on 127.0.0.1 or a LAN address. Blocking
+either broke ordinary use, and the first version of this shipped with a test that asserted
+the block — which is how a wrong assumption survives.
 
 ## What is not
 

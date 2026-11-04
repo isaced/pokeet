@@ -33,12 +33,6 @@ final class ScriptStubURLProtocol: URLProtocol, @unchecked Sendable {
 
 @Suite(.serialized)
 struct ScriptNetworkBridgeTests {
-    private struct StubResolver: HostResolving {
-        func resolve(host: String) async throws -> [String] {
-            host.lowercased() == "localhost" ? ["127.0.0.1"] : ["93.184.216.34"]
-        }
-    }
-
     private func makeBridge(
         limits: NetworkClient.Limits = .init(),
         policy: NetworkAccessPolicy = .init()
@@ -49,7 +43,6 @@ struct ScriptNetworkBridgeTests {
             access: ScriptNetworkAccess(
                 client: NetworkClient(
                     session: URLSession(configuration: configuration),
-                    resolver: StubResolver(),
                     limits: limits
                 ),
                 policy: policy
@@ -137,14 +130,16 @@ struct ScriptNetworkBridgeTests {
         #expect(decoded["body"] as? String == "hello")
     }
 
-    @Test("refuses a private host before any request is made")
-    func refusesPrivateHost() throws {
-        ScriptStubURLProtocol.setHandler(respond(status: 200, body: "leak"))
+    @Test("reaches a local host, which the policy no longer refuses")
+    func allowsLocalHost() throws {
+        ScriptStubURLProtocol.setHandler(respond(status: 200, body: "local"))
         defer { ScriptStubURLProtocol.setHandler(nil) }
 
-        #expect(throws: (any Error).self) {
-            try makeBridge().handle(try payload(["url": "https://localhost/admin"]))
-        }
+        let result = try makeBridge().handle(try payload(["url": "https://localhost/admin"]))
+        let decoded = try #require(
+            JSONSerialization.jsonObject(with: Data(result.utf8)) as? [String: Any]
+        )
+        #expect(decoded["body"] as? String == "local")
     }
 
     @Test("refuses plain HTTP")

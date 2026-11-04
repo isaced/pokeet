@@ -60,21 +60,18 @@ struct PythonNetworkTests {
         #expect(result.stdout.contains("201 hello"))
     }
 
-    @Test("a blocked host raises instead of reaching it")
-    func blockedHost() async throws {
-        NetworkTestSupport.respond(body: "leak")
+    @Test("a local host is reachable, since the policy no longer refuses one")
+    func localHostIsAllowed() async throws {
+        NetworkTestSupport.respond(body: "local")
         defer { StubURLProtocol.handler = nil }
 
         let result = try await run("""
         from urllib.request import urlopen
-        try:
-            urlopen('https://localhost/admin')
-        except OSError:
-            print('blocked')
+        print(urlopen('https://localhost/admin').read().decode())
         """)
 
         #expect(result.termination == .exited, "\(result.stderr)")
-        #expect(result.stdout.contains("blocked"))
+        #expect(result.stdout.contains("local"))
     }
 
     @Test("a run without network access cannot reach out")

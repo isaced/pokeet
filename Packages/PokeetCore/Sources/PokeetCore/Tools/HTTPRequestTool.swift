@@ -35,14 +35,9 @@ public struct HTTPRequestTool: AgentTool {
     private let client: NetworkClient
 
     public init(session: URLSession? = nil, limits: Limits = Limits()) {
-        self.init(session: session, resolver: SystemHostResolver(), limits: limits)
-    }
-
-    init(session: URLSession?, resolver: any HostResolving, limits: Limits) {
         self.limits = limits
         self.client = NetworkClient(
             session: session,
-            resolver: resolver,
             limits: NetworkClient.Limits(
                 maxBodyBytes: limits.maxBodyBytes,
                 maxRequestBodyBytes: limits.maxRequestBodyBytes,

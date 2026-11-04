@@ -27,6 +27,16 @@ struct MockModelClient: ModelClient {
                     finishReason: "stop"
                 )
             }
+            if lastTool.contains("JavaScript · exit 0"),
+               request.messages.contains(where: { $0.content?.lowercased().contains("net check") == true }) {
+                return ChatResponse(
+                    message: .assistant(
+                        "Both runtimes reached GitHub: Python with urllib, JavaScript with fetch. "
+                            + "No socket, no proxy."
+                    ),
+                    finishReason: "stop"
+                )
+            }
             if lastTool.contains("JavaScript · exit 0") {
                 if request.messages.contains(where: { $0.content?.lowercased().contains("fibonacci") == true }) {
                     return ChatResponse(
@@ -57,6 +67,36 @@ struct MockModelClient: ModelClient {
                         ]
                     ),
                     finishReason: "tool_calls"
+                )
+            }
+            if lastTool.contains("Python · exit 0"),
+               request.messages.contains(where: { $0.content?.lowercased().contains("net check") == true }),
+               !request.messages.contains(where: {
+                   $0.role == .tool && ($0.content?.contains("JavaScript · exit 0") ?? false)
+               }) {
+                let arguments = #"{"script":"const res = await fetch('https://api.github.com/repos/isaced/pokeet');\nconst data = await res.json();\nconsole.log(res.status, data.name, data.language);"}"#
+                return ChatResponse(
+                    message: .assistant(
+                        nil,
+                        toolCalls: [
+                            ToolCall(
+                                id: "mock-net-js-\(UUID().uuidString)",
+                                name: "run_script",
+                                arguments: arguments
+                            )
+                        ]
+                    ),
+                    finishReason: "tool_calls"
+                )
+            }
+            if lastTool.contains("JavaScript · exit 0"),
+               request.messages.contains(where: { $0.content?.lowercased().contains("net check") == true }) {
+                return ChatResponse(
+                    message: .assistant(
+                        "Both runtimes reached GitHub: Python with urllib, JavaScript with fetch. "
+                            + "No socket, no proxy."
+                    ),
+                    finishReason: "stop"
                 )
             }
             if lastTool.contains("Python · exit 0") {
@@ -137,6 +177,25 @@ struct MockModelClient: ModelClient {
                     toolCalls: [
                         ToolCall(
                             id: "mock-script-\(UUID().uuidString)",
+                            name: "run_script",
+                            arguments: arguments
+                        )
+                    ]
+                ),
+                finishReason: "tool_calls"
+            )
+        }
+
+        if lastMessage?.role == .user,
+           let text = lastMessage?.content?.lowercased(),
+           text.contains("net check") {
+            let arguments = #"{"runtime":"python","script":"from urllib.request import urlopen\nimport json\n\nwith urlopen('https://api.github.com/repos/isaced/pokeet', timeout=15) as response:\n    print('status', response.status)\n    payload = json.load(response)\n\nprint('stars', payload['stargazers_count'])\nprint('language', payload['language'])"}"#
+            return ChatResponse(
+                message: .assistant(
+                    nil,
+                    toolCalls: [
+                        ToolCall(
+                            id: "mock-net-\(UUID().uuidString)",
                             name: "run_script",
                             arguments: arguments
                         )

@@ -114,7 +114,7 @@ The tool set is the one a coding agent uses — files, search, git, web, scripts
 - **Scripts** — `run_script` (sandboxed JavaScript via QuickJS; see [docs/scripts.md](docs/scripts.md))
 - **Planning** — `submit_plan`, `todo_write` (a running checklist for multi-step work)
 
-Guardrails: the agent cannot run shell commands and cannot commit or push — those are UI actions. Network egress is HTTPS-only with private and local addresses blocked. Project instructions load from `AGENTS.md` or `CLAUDE.md` when a session starts.
+Guardrails: the agent cannot run shell commands and cannot commit or push — those are UI actions. Network egress is HTTPS-only. Addresses are not second-guessed: a phone behind a fake-IP proxy, or an agent pointed at a local service, should still work. Project instructions load from `AGENTS.md` or `CLAUDE.md` when a session starts.
 
 ### Scripts: JavaScript and Python, on the device
 
@@ -164,7 +164,7 @@ print(json.dumps({"checks": "passed"}))
 What does not change:
 
 - **Review still applies** — the sandbox has no direct write access. Script writes are buffered and surface as normal diff cards, so Ask mode reviews them like any other edit.
-- **No escape hatch** — no shell, no `pip`, no `npm`, no file access outside the project. Network goes through the app's policy (HTTPS only, private hosts blocked), never through a socket.
+- **No escape hatch** — no shell, no `pip`, no `npm`, no file access outside the project. Network goes through the app's policy (HTTPS only), never through a socket.
 - **The clock is enforced by the engine** — a runaway loop stops instead of pinning a thread. Python's is a watchdog rather than an interrupt handler, so a script stuck inside one long C call cannot be stopped; that gap is why JavaScript is still the default.
 
 ## Get started
