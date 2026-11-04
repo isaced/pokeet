@@ -71,11 +71,22 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-swift-
 
+      # `tee` keeps the output: Swift Testing writes its failure lines to stdout,
+      # which is block-buffered when piped, and they were lost when the runner
+      # exited. NSUnbufferedIO keeps them; the log is uploaded on failure.
       - name: swift test (PokeetCore)
-        run: swift test --package-path Packages/PokeetCore
+        env:
+          NSUnbufferedIO: YES
+        run: |
+          set -o pipefail
+          swift test --package-path Packages/PokeetCore 2>&1 | tee "$RUNNER_TEMP/core-tests.log"
 
       - name: swift test (PokeetScripting)
-        run: swift test --package-path Packages/PokeetScripting
+        env:
+          NSUnbufferedIO: YES
+        run: |
+          set -o pipefail
+          swift test --package-path Packages/PokeetScripting 2>&1 | tee "$RUNNER_TEMP/scripting-tests.log"
 
       # The app embeds CPython, which is too large to commit: the fetch script stages
       # Vendor/ with the framework and a trimmed stdlib. The archive alone is 32 MB, so
@@ -124,10 +135,16 @@ jobs:
             ONLY_ACTIVE_ARCH=YES \
             ENABLE_DEBUG_DYLIB=NO
 
-      - name: Upload the result bundle on failure
+      - name: Upload logs and the result bundle on failure
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: Pokeet-xcresult
-          path: ${{ runner.temp }}/Pokeet.xcresult
+          name: Pokeet-failure-logs
+          # Whichever step failed: the test logs, and the xcresult if the app
+          # tests got that far.
+          path: |
+            ${{ runner.temp }}/core-tests.log
+            ${{ runner.temp }}/scripting-tests.log
+            ${{ runner.temp }}/Pokeet.xcresult
+          if-no-files-found: ignore
           retention-days: 7

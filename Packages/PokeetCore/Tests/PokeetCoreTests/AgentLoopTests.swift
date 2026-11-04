@@ -1001,8 +1001,8 @@ struct ToolConcurrencyTests {
             client: client,
             workspace: FileWorkspace(root: directory.url),
             tools: ToolRegistry([
-                SleepyReadTool(name: "slow_a", delayMilliseconds: 300),
-                SleepyReadTool(name: "slow_b", delayMilliseconds: 300)
+                SleepyReadTool(name: "slow_a", delayMilliseconds: 400),
+                SleepyReadTool(name: "slow_b", delayMilliseconds: 400)
             ]),
             config: AgentConfiguration(
                 maxConcurrentReadTools: 2,
@@ -1019,7 +1019,9 @@ struct ToolConcurrencyTests {
         )
         let elapsed = Date().timeIntervalSince(start)
 
-        #expect(elapsed < 0.55)
+        // Running them one after another costs 800ms, so this still proves they
+        // overlapped — with room for a runner that is compiling something else.
+        #expect(elapsed < 0.72)
 
         let requests = await client.recordedRequests()
         let toolMessages = requests[1].messages
