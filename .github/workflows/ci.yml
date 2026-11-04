@@ -78,7 +78,14 @@ jobs:
         run: swift test --package-path Packages/PokeetScripting
 
       # The app embeds CPython, which is too large to commit: the fetch script stages
-      # Vendor/ with the framework and a trimmed stdlib.
+      # Vendor/ with the framework and a trimmed stdlib. The archive alone is 32 MB, so
+      # the staged tree is cached against the tag the script pins.
+      - name: Cache CPython
+        uses: actions/cache@v6
+        with:
+          path: Vendor
+          key: ${{ runner.os }}-${{ runner.arch }}-python-${{ hashFiles('scripts/fetch-python.sh') }}
+
       - name: Fetch CPython
         run: scripts/fetch-python.sh
 
