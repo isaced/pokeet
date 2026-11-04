@@ -7,10 +7,18 @@ import Foundation
 public struct ScriptNetworkAccess: Sendable {
     public var client: NetworkClient
     public var policy: NetworkAccessPolicy
+    /// Polled while a request is in flight, so cancelling the run cancels the request
+    /// instead of leaving it to finish against a script nobody is waiting for.
+    public var isCancelled: @Sendable () -> Bool
 
-    public init(client: NetworkClient, policy: NetworkAccessPolicy) {
+    public init(
+        client: NetworkClient,
+        policy: NetworkAccessPolicy,
+        isCancelled: @escaping @Sendable () -> Bool = { false }
+    ) {
         self.client = client
         self.policy = policy
+        self.isCancelled = isCancelled
     }
 }
 
@@ -76,7 +84,8 @@ public struct ScriptNetworkBridge: Sendable {
                 method: method,
                 headers: arguments.headers ?? [:],
                 body: body,
-                access: access.policy
+                access: access.policy,
+                isCancelled: access.isCancelled
             )
         } catch let error as NetworkPolicyError {
             throw ScriptRuntimeError.startup(error.localizedDescription)
@@ -107,11 +116,12 @@ extension NetworkClient {
         method: String,
         headers: [String: String],
         body: Data?,
-        access: NetworkAccessPolicy
+        access: NetworkAccessPolicy,
+        isCancelled: @Sendable () -> Bool = { false }
     ) throws -> NetworkResponse {
         let semaphore = DispatchSemaphore(value: 0)
         let box = ResultBox()
-        Task.detached {
+        let request = Task.detached {
             do {
                 let response = try await fetch(
                     url: url,
@@ -126,10 +136,18 @@ extension NetworkClient {
             }
             semaphore.signal()
         }
-        // Bounded: the script's own deadline is enforced elsewhere, but a hung request
-        // must not hold the interpreter thread forever.
-        if semaphore.wait(timeout: .now() + limits.resourceTimeout + 5) == .timedOut {
-            throw NetworkClientError.transport("request timed out")
+        // Wait in slices so cancellation and the deadline are noticed while the request
+        // is still in flight; the script's own clock is enforced elsewhere.
+        let deadline = Date().addingTimeInterval(limits.resourceTimeout + 5)
+        while semaphore.wait(timeout: .now() + 0.1) == .timedOut {
+            if isCancelled() {
+                request.cancel()
+                throw CancellationError()
+            }
+            if Date() >= deadline {
+                request.cancel()
+                throw NetworkClientError.transport("request timed out")
+            }
         }
         switch box.value {
         case .success(let response): return response

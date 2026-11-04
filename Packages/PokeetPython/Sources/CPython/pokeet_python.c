@@ -67,6 +67,10 @@ static void *cap_realloc(void *ctx, void *ptr, size_t size) {
 
 static unsigned long g_run_ident;   // OS thread id of the thread running Python
 
+int pokeet_py_interrupted(void) {
+    return g_interrupt;
+}
+
 void pokeet_py_interrupt(void) {
     if (!g_started || g_run_ident == 0) return;
     g_interrupt = 1;

@@ -15,12 +15,17 @@ public final class QuickJSRuntime: ScriptRuntime {
     public init() {}
 
     public func run(_ request: ScriptRequest, files: any ScriptFileSystem) async throws -> ScriptResult {
+        var network = request.network
         let state = HostState(
             files: files,
             limits: request.limits,
             arguments: request.arguments,
-            network: request.network
+            network: network
         )
+        if network != nil {
+            network?.isCancelled = { state.isCancelled }
+            state.network = network
+        }
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 Self.queue.async {
@@ -213,7 +218,7 @@ private final class HostState: @unchecked Sendable {
     let files: any ScriptFileSystem
     let limits: ScriptLimits
     let arguments: [String]
-    let network: ScriptNetworkAccess?
+    var network: ScriptNetworkAccess?
 
     private var stdoutBuffer = ""
     private var stderrBuffer = ""

@@ -37,6 +37,9 @@ int pokeet_py_run(
     char **out_errorMessage
 );
 
+/// Non-zero once the watchdog has asked the run to stop.
+int pokeet_py_interrupted(void);
+
 /// Raises KeyboardInterrupt at the interpreter's next bytecode boundary.
 /// Safe to call from another thread: the watchdog uses it to enforce the
 /// wall-clock budget, because CPython has no interrupt handler like QuickJS.
