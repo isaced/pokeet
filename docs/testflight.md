@@ -48,6 +48,18 @@ Internal testers need only an App Store Connect role; external testers need **Be
 - `ITSAppUsesNonExemptEncryption` is already `false` in `project.yml`, so the export-compliance question does not block processing.
 - The reviewers cannot use the app without a model key. App Review notes carry a throwaway key that is revoked after the beta; it must never be committed or shipped in the binary.
 
+### The notes reviewers get
+
+Written in App Store Connect, not in the repository, because step 2 is the key:
+
+1. Settings → Model → Manage providers → Add provider.
+2. API format `OpenAI Responses`, Base URL `https://opencode.ai/zen/go/v1`, the beta key.
+3. Fetch models from provider → `opencode-go/deepseek-v4.1-flash`.
+4. Projects → New project → create (no remote needed).
+5. Ask for `hello.py`, approve the diff, open Changes, commit.
+
+Plus the 2.5.2 paragraph: interpreters are in the binary, nothing is downloaded, writes are confined to the app's Documents workspace and surface as diffs.
+
 ```bash
 asc testflight groups list --app APP_ID
 asc builds add-groups --app APP_ID --latest --group "External" --submit --confirm
