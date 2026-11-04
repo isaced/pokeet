@@ -28,17 +28,32 @@ One workflow, `TestFlight`:
 
 - **Start condition**: tag changes matching `v*`. A branch trigger would upload a build on every push and burn compute minutes; a tag is the release act.
 - **Environment**: latest Xcode with iOS 18 support.
-- **Actions**: Build → Test (`Pokeet` scheme, `PokeetTests`) → Archive (Release) → TestFlight (Internal Testing), plus External Testing once a group exists.
-- **Post-action**: notify testers, so the group does not sit on an unannounced build.
+- **Actions**: Build → Test (`Pokeet` scheme, `PokeetTests`) → Archive (Release).
+- **Post-actions**: TestFlight Internal Testing and External Testing. This is the step that actually puts the archive in TestFlight — without it the build stays in Xcode Cloud. Post-actions are not in App Store Connect's public API, so they are added in Xcode's workflow editor, not by `asc`.
 
 Rolling a release:
 
 ```bash
 # bump the version in project.yml, regenerate, commit, tag
 git tag v0.1.0-beta.2 && git push origin v0.1.0-beta.2
-asc xcode-cloud run --app APP_ID --workflow TestFlight --branch main --wait
+asc xcode-cloud run --app APP_ID --workflow "Publish TestFlight" --branch main --wait
 asc builds wait --app APP_ID --latest
 ```
+
+## What to Test
+
+Per build, in the build's language:
+
+```bash
+asc builds test-notes create --app APP_ID --latest --locale en-US --whats-new "..."
+```
+
+The first build says what to poke at and what is known to be rough:
+
+> Bring a key first — Settings → Model → Manage providers. Everything the agent does depends on it.
+> Then the golden path: New project → ask for a change → read the diff → Changes → Commit & push.
+> Most useful feedback: diff cards that are hard to read, a tool call that stalls, a script that should have run and did not, git against a repo with real history.
+> Known gaps: HTTPS tokens only (no SSH remotes), a Python watchdog cannot interrupt one long C call, iOS 18+.
 
 ## External testing
 
