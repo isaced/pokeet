@@ -147,17 +147,20 @@ struct PythonFilesystemTests {
         #expect(fixture.files.proposals().first?.newContent == "y\n")
     }
 
-    @Test("binary mode is refused with a clear error")
-    func binaryModeRefused() async throws {
-        let fixture = try makeFixture(["a.bin": "x"])
+    @Test("binary mode is the UTF-8 bytes of the stored text")
+    func binaryMode() async throws {
+        let fixture = try makeFixture(["a.txt": "héllo\n"])
         let result = try await fixture.run("""
-        try:
-            open('a.bin', 'rb')
-        except NotImplementedError as error:
-            print('refused')
+        data = open('a.txt', 'rb').read()
+        print(type(data).__name__, data[:1], len(data))
+        with open('b.bin', 'wb') as handle:
+            handle.write(data)
+        print(open('b.bin').read().strip())
         """)
         #expect(result.termination == .exited, "stderr: \(result.stderr)")
-        #expect(result.stdout == "refused\n")
+        #expect(result.stdout.contains("bytes b'h' 7"))
+        #expect(result.stdout.contains("héllo"))
+        #expect(fixture.files.proposals().first { $0.path == "b.bin" }?.newContent == "héllo\n")
     }
 
     // MARK: containment
@@ -376,6 +379,17 @@ struct PythonOSSurfaceTests {
         #expect(lines[0] == "['a.py', 'b.py']")
         #expect(lines[1] == "['a.py', 'b.py']", "stdout=\(result.stdout)")
         #expect(lines[2] == "4 True")
+    }
+
+    @Test("shutil.copyfile copies inside the workspace")
+    func shutilCopy() async throws {
+        let result = try await run("""
+        import shutil
+        shutil.copyfile('a.txt', 'b.txt')
+        print(open('b.txt').read().strip())
+        """, files: ["a.txt": "hello\n"])
+        #expect(result.termination == .exited, "stdout=\(result.stdout) stderr=\(result.stderr)")
+        #expect(result.stdout == "hello\n")
     }
 
     @Test("a missing path raises FileNotFoundError, like the real os")

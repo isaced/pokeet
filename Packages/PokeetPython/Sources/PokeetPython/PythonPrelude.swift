@@ -1,10 +1,6 @@
 import Foundation
 
 /// Runs once in the interpreter, before any script.
-///
-/// `builtins.open` and `io.open` are redirected so a script reads and writes the
-/// project, not the container. Everything else is left alone on purpose: patching
-/// `os` would break the import machinery, which needs to see the real stdlib on disk.
 enum PythonPrelude {
     static let source = #"""
 import builtins as _builtins
@@ -27,11 +23,11 @@ class SandboxFile:
     """
 
     def __init__(self, path, mode="r"):
-        if "b" in mode:
-            raise NotImplementedError(
-                "binary mode is not available in the sandbox; use text mode"
-            )
-        mode = mode.replace("t", "").replace("+", "") or "r"
+        # The workspace stores text, so binary mode is the UTF-8 bytes of it. That is
+        # enough for shutil.copyfile and friends on source files, and a genuinely
+        # binary file fails on decode rather than being silently mangled.
+        self._binary = "b" in mode
+        mode = mode.replace("t", "").replace("b", "").replace("+", "") or "r"
         if mode not in ("r", "w", "a"):
             raise ValueError("unsupported mode %r" % mode)
 
@@ -60,7 +56,7 @@ class SandboxFile:
         if size is not None and size >= 0:
             text = text[:size]
         self._position += len(text)
-        return text
+        return text.encode("utf-8") if self._binary else text
 
     def readline(self, size=-1):
         self._assert_open()
@@ -70,7 +66,7 @@ class SandboxFile:
         if size is not None and size >= 0:
             text = text[:size]
         self._position += len(text)
-        return text
+        return text.encode("utf-8") if self._binary else text
 
     def readlines(self, hint=-1):
         lines, total = [], 0
@@ -98,7 +94,10 @@ class SandboxFile:
         self._assert_open()
         if not self._writable:
             raise _io.UnsupportedOperation("not writable")
-        text = str(text)
+        if isinstance(text, (bytes, bytearray)):
+            text = bytes(text).decode("utf-8")
+        else:
+            text = str(text)
         self._buffer += text
         return len(text)
 

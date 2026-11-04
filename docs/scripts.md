@@ -127,6 +127,10 @@ shimmed: `stat`/`lstat`, `scandir`, `walk`, `listdir`, `path.exists/isfile/isdir
 getmtime/abspath/realpath`, and `getcwd` returning `/`. `glob` and `pathlib.Path.glob` work
 because they are built on `scandir`.
 
+Binary mode is the UTF-8 bytes of the stored text, which is enough for
+`shutil.copyfile` on source files and honest about the rest: a genuinely binary file fails
+on decode instead of being silently mangled.
+
 The write side is deliberately narrower: no `remove`, `rename`, `mkdir` or `rmdir`. A script
 that could delete files would be a different feature, not a bigger shim.
 
@@ -172,7 +176,7 @@ Packages/PokeetPython/Sources/CPython/           // embedding glue + _pokeet mod
 Packages/PokeetPython/Sources/PokeetPython/
   PythonRuntime.swift        // ScriptRuntime, watchdog, termination classification
   PythonHost.swift           // filesystem dispatcher
-  PythonPrelude.swift        // open() redirect, pokeet helpers
+  PythonPrelude.swift        // open() redirect, os shims, urllib.request, pokeet helpers
 scripts/fetch-python.sh      // stages Vendor/: xcframework, headers, trimmed stdlib
 ```
 

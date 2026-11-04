@@ -99,7 +99,7 @@ works and `pathlib` comes along for free (`Path.read_text` goes through `io.open
 | `open(path)` | reads through `ScriptFileSystem.read`, so `maxReadBytes` applies |
 | `open(path, 'w')` | buffers, hands over on `close`/`flush` → one `FileProposal` |
 | `open(path, 'a')` | read-then-write, so staged content of the same run is visible |
-| `open(path, 'rb')` | `NotImplementedError` — binary is not modelled |
+| `open(path, 'rb')` | the UTF-8 bytes of the stored text, so `shutil.copyfile` works on source files |
 | `import pokeet` | `read`, `write`, `append`, `listdir`, `walk`, `exists`, `info` |
 
 Files are always relative to the project root; `../x` and absolute paths are rejected
