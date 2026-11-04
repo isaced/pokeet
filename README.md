@@ -188,9 +188,11 @@ What does not change:
 
 All four support streaming, tool calling and image input. Provider templates include OpenAI, Anthropic, Gemini and a generic OpenAI-compatible option. API keys are stored per provider in the iOS Keychain; provider and model settings live in `UserDefaults`.
 
+**Privacy**: there is no Pokeet server and no telemetry — requests go straight from your phone to the provider you configured. The full text is [docs/privacy.md](docs/privacy.md).
+
 ## Development
 
-Requirements: Xcode 27+, iOS 18+, Swift 6, and [XcodeGen](https://github.com/yonaskolb/XcodeGen). The generated project isn't checked in.
+Requirements: Xcode 27+, iOS 18+, Swift 6, and [XcodeGen](https://github.com/yonaskolb/XcodeGen). The generated project is committed (Xcode Cloud needs a project in the repository) but `project.yml` is the source of truth — regenerate and commit the project whenever you add, rename or remove a file.
 
 ```sh
 scripts/fetch-python.sh   # stages Vendor/: CPython xcframework + trimmed stdlib (gitignored)

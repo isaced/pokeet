@@ -1,0 +1,10 @@
+title: Pokeet
+description: An agent that runs on your phone, not on a computer you connect to.
+theme: jekyll-theme-minimal
+markdown: GFM
+# docs/ is the Pages source, so every markdown file here is published. privacy.md is the
+# page App Store Connect points at for external TestFlight; the rest are design docs that
+# are public in the repository anyway.
+exclude:
+  - ".DS_Store"
+  - "images/thumbs"
