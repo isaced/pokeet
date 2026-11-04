@@ -32,6 +32,27 @@ settings:
     SWIFT_STRICT_CONCURRENCY: complete
     TARGETED_DEVICE_FAMILY: "1"
 
+# Xcode Cloud picks its workflow scheme from the repository, so the scheme has to be a
+# shared file; Xcode's auto-created schemes live in xcuserdata and are invisible to CI.
+schemes:
+  Pokeet:
+    build:
+      targets:
+        Pokeet: all
+        PokeetTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - PokeetTests
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
+
 targets:
   Pokeet:
     type: application

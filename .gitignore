@@ -64,6 +64,8 @@ fastlane/test_output
 # Pokeet
 Pokeet.xcodeproj/
 Pokeet/Info.plist
+# Both are generated, but they are force-added anyway (`git add -f`): Xcode Cloud needs a
+# project to attach a workflow to, and ci_scripts/ci_post_clone.sh regenerates them.
 DerivedData/
 *.xcresult
 .swiftpm/

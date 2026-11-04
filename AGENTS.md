@@ -17,13 +17,14 @@ scripts/run-on-device.sh          # xcodegen → device build → install → la
 
 ## Project layout
 
-- `project.yml` → `Pokeet.xcodeproj`, which is **generated and gitignored**. After adding, renaming or deleting a file, run `xcodegen generate` or the new file silently stays out of the build.
+- `project.yml` → `Pokeet.xcodeproj`, which is generated but **tracked** (Xcode Cloud can only attach a workflow to a project that exists in the repository). After adding, renaming or deleting a file, run `xcodegen generate` and commit the project with it, or the new file silently stays out of the build.
 - `Pokeet/` — the app (SwiftUI + services). `Pokeet/Features/<Area>/`, `Pokeet/Services/`.
 - `Packages/PokeetCore` — dependency-free kernel: agent loop, tools, providers, workspace. No UIKit/SwiftUI here.
 - `Packages/PokeetScripting` — QuickJS runtime wrapper.
 - `Packages/PokeetPython` — embedded CPython, same `ScriptRuntime` contract. Links nothing itself: the app embeds `Vendor/Python.xcframework`, and the package's macOS tests take the host dylib with `-Xlinker`. The Python half of the sandbox is `Sources/PokeetPython/Resources/python-prelude.py`.
 - `PokeetTests/` — XCTest, runs against the app target. `Packages/*/Tests` — Swift Testing.
 - `docs/` — design docs per subsystem; update the matching doc when behaviour changes.
+- `ci_scripts/ci_post_clone.sh` — Xcode Cloud hook: stages `Vendor/` and regenerates the project before every build. See `docs/testflight.md`.
 
 ## CPython is staged, not committed
 
