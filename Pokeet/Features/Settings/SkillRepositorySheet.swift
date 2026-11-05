@@ -76,7 +76,18 @@ struct SkillRepositorySheet: View {
                             }
                         }
                     } header: {
-                        Text("\(repository.skills.count) skills found")
+                        HStack {
+                            Text("\(repository.skills.count) skills found")
+                            Spacer()
+                            if !repository.skills.isEmpty {
+                                Button(allSelected(in: repository) ? "Deselect All" : "Select All") {
+                                    toggleAll(in: repository)
+                                }
+                                .font(.footnote)
+                                .textCase(nil)
+                                .disabled(isImporting)
+                            }
+                        }
                     } footer: {
                         Text(provenanceLine(for: repository))
                     }
@@ -174,6 +185,14 @@ struct SkillRepositorySheet: View {
         } else {
             selected.insert(skill.name)
         }
+    }
+
+    private func allSelected(in repository: RemoteSkillRepository) -> Bool {
+        repository.skills.allSatisfy { selected.contains($0.name) }
+    }
+
+    private func toggleAll(in repository: RemoteSkillRepository) {
+        selected = allSelected(in: repository) ? [] : Set(repository.skills.map(\.name))
     }
 
     private func importSelection() async {
