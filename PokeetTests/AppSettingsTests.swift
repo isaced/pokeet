@@ -54,6 +54,20 @@ final class AppSettingsTests: XCTestCase {
         return provider
     }
 
+    func testNetworkPolicyMirrorsTheSettings() {
+        let settings = AppSettings(defaults: defaults, secrets: MemorySecretStore())
+
+        settings.networkEnabled = false
+        XCTAssertFalse(settings.networkAccessPolicy.isEnabled)
+
+        settings.networkEnabled = true
+        settings.networkAllowedHosts = " GitHub.com, api.example.com\n\n  gitlab.com "
+        XCTAssertEqual(
+            settings.networkAccessPolicy.allowedHosts,
+            ["github.com", "api.example.com", "gitlab.com"]
+        )
+    }
+
     func testStartsEmptyAndPersistsEmptyList() {
         let secrets = MemorySecretStore()
         let settings = AppSettings(defaults: defaults, secrets: secrets)

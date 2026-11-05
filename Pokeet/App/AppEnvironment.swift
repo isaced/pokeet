@@ -47,7 +47,9 @@ final class AppEnvironment {
         self.skillsDirectory = skillsDirectory
         self.skills = SkillsStore(
             directory: skillsDirectory,
-            projects: { [projects] in projects.projects }
+            projects: { [projects] in projects.projects },
+            token: { [settings] in settings.gitToken },
+            policy: { [settings] in settings.networkAccessPolicy }
         )
 
         // Taps arrive through the shared delegate, so wire it before anything can run.

@@ -97,7 +97,10 @@ struct SkillsView: View {
             }
             ToolbarItem(placement: .secondaryAction) {
                 Button("Reload") {
-                    Task { await environment.skills.refresh() }
+                    Task {
+                        await environment.skills.refresh()
+                        environment.reloadSkillsInOpenChats()
+                    }
                 }
             }
         }

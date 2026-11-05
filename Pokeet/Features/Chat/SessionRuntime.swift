@@ -173,10 +173,7 @@ final class SessionRuntime {
             sessionID: sessionID.uuidString,
             tools: ToolRegistry.standard(scriptRuntimes: environment.scripting.names),
             mode: initialMode,
-            networkPolicy: NetworkAccessPolicy(
-                isEnabled: environment.settings.networkEnabled,
-                allowedHosts: Self.parseHosts(environment.settings.networkAllowedHosts)
-            ),
+            networkPolicy: environment.settings.networkAccessPolicy,
             scripting: environment.scripting,
             webSearch: environment.settings.makeWebSearchProvider(),
             skills: SkillLocations(
@@ -285,18 +282,7 @@ final class SessionRuntime {
     }
 
     private var currentNetworkPolicy: NetworkAccessPolicy {
-        NetworkAccessPolicy(
-            isEnabled: environment.settings.networkEnabled,
-            allowedHosts: Self.parseHosts(environment.settings.networkAllowedHosts)
-        )
-    }
-
-    private static func parseHosts(_ text: String) -> Set<String> {
-        Set(
-            text.split(whereSeparator: { $0 == "," || $0 == "\n" })
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-                .filter { !$0.isEmpty }
-        )
+        environment.settings.networkAccessPolicy
     }
 
     // MARK: - Derived state

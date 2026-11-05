@@ -186,6 +186,20 @@ final class AppSettings {
         return hasWebSearchCredential(for: webSearchProviderKind)
     }
 
+    /// Everything that leaves the device goes through this: the agent's tools, web search and
+    /// skill imports all read the same switch and allow-list.
+    var networkAccessPolicy: NetworkAccessPolicy {
+        NetworkAccessPolicy(
+            isEnabled: networkEnabled,
+            allowedHosts: Set(
+                networkAllowedHosts
+                    .split(whereSeparator: { $0 == "," || $0 == "\n" })
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+                    .filter { !$0.isEmpty }
+            )
+        )
+    }
+
     /// Built per session; the credential is read per request, so editing it
     /// applies immediately. Returns nil while the feature is off.
     func makeWebSearchProvider() -> (any WebSearchProviding)? {
