@@ -348,4 +348,43 @@ final class SessionRuntimeTests: XCTestCase {
         XCTAssertTrue(user.contains("STEP ONE"))
         XCTAssertTrue(user.hasSuffix("extract report.pdf"))
     }
+
+    /// The composer reads the session's skill list; this is the wiring that keeps it fresh.
+    func testComposerOffersProjectSkills() async throws {
+        let skillDirectory = project.directory.appendingPathComponent(
+            ".agents/skills/pdf-tools",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
+        try """
+        ---
+        name: pdf-tools
+        description: Extract text from PDFs.
+        ---
+        """.write(
+            to: skillDirectory.appendingPathComponent("SKILL.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let session = SessionMetadata(id: UUID(), title: "New chat")
+        let runtime = environment.runs.runtime(
+            for: project,
+            session: session,
+            environment: environment
+        )
+        await runtime.loadInitialState()
+
+        XCTAssertEqual(runtime.loadedSkills.map(\.name), ["pdf-tools"])
+
+        let model = ChatViewModel(project: project, environment: environment, session: session)
+        XCTAssertTrue(model.runtime === runtime)
+
+        model.input = "/skill:pdf"
+        XCTAssertEqual(model.skillSuggestions.map(\.name), ["pdf-tools"])
+
+        model.insertSkill(try XCTUnwrap(model.skillSuggestions.first))
+        XCTAssertEqual(model.input, "/skill:pdf-tools ")
+    }
+
 }

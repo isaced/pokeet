@@ -161,6 +161,11 @@ no skill named "pdf". Available skills: pdf-tools, release.
 
 Hidden skills (`disable-model-invocation`) are invocable here — that is the whole point of the flag.
 
+The composer helps while the command is being typed: once the first token starts with `/`, it
+offers the session's skills, filtered by what follows `skill:`, and inserts `/skill:<name> ` while
+keeping any arguments already typed. Suggestions stop at the first space — only a leading command
+means anything to the agent, so offering a list next to prose would be noise.
+
 ## Rollout
 
 - **Phase 1 — shipped.** `SkillCatalog.swift` (catalog, frontmatter, loader), `read_file` dispatch, `/skill:` expansion.
@@ -177,6 +182,10 @@ Hidden skills (`disable-model-invocation`) are invocable here — that is the wh
 
 `PokeetTests`:
 
+- `SkillCommandTests` — what counts as a command prefix, prefix filtering and its cap, insertion
+  keeping typed arguments.
+- `SessionRuntimeTests.testComposerOffersProjectSkills` — the composer's list comes from the live
+  session and stays a single runtime.
 - `SessionRuntimeTests.testProjectSkillsReachTheSession` — a project skill reaches the real `AgentSession` and the `/skill:` body lands in the request.
 - `GlobalSkillsTests` — app-level skills on the simulator's real filesystem: the directory is created at init, a skill dropped into it is discovered, it reaches the system prompt through `SessionRuntime`, `read_file` returns its body as a tool result, `/skill:<name>` expands it, and the default container path is writable.
 

@@ -453,6 +453,10 @@ struct ChatView: View {
                 continuationBar
             }
 
+            if !model.skillSuggestions.isEmpty {
+                skillSuggestionStrip
+            }
+
             if let plan = model.currentPlan, model.showsPlanBar {
                 PlanProgressView(plan: plan, phase: model.planPhase ?? .reviewing) {
                     model.showPlan()
@@ -465,6 +469,39 @@ struct ChatView: View {
             composer(bindable: bindable)
         }
         .animation(.snappy(duration: 0.24), value: model.showsPlanBar)
+    }
+
+    private var skillSuggestionStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(model.skillSuggestions) { skill in
+                    Button {
+                        model.insertSkill(skill)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("/skill:\(skill.name)")
+                                .font(.caption.monospaced().weight(.medium))
+                            Text(skill.description)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .frame(maxWidth: 260, alignment: .leading)
+                        .background(
+                            Color(.secondarySystemBackground),
+                            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Load \(skill.name)")
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 6)
+        }
+        .transition(.opacity)
     }
 
     private func composer(bindable: Bindable<ChatViewModel>) -> some View {

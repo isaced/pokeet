@@ -38,6 +38,16 @@ final class ChatViewModel {
     let runtime: SessionRuntime
 
     var input = ""
+
+    /// Skills the session can load, offered while the composer holds a `/skill` command.
+    var skillSuggestions: [Skill] {
+        guard !isRunning, let query = SkillCommand.query(in: input) else { return [] }
+        return SkillCommand.matching(runtime.loadedSkills, query: query)
+    }
+
+    func insertSkill(_ skill: Skill) {
+        input = SkillCommand.apply(skill, to: input)
+    }
     var pendingImages: [ChatImage] = []
     var pendingFiles: [ContextFile] = []
     var commitMessage = ""

@@ -137,6 +137,10 @@ final class SessionRuntime {
     private var toolBubbleIDs: [String: UUID] = [:]
     private var todoBubbleID: UUID?
     private var streamBuffer = StreamBuffer()
+    /// What the session can load on demand. Kept as plain values so the composer can offer
+    /// names without awaiting the agent actor on every keystroke.
+    private(set) var loadedSkills: [Skill] = []
+
     private var streamFlushTask: Task<Void, Never>?
     private var checkpointTask: Task<Void, Never>?
     private var didLoadSession = false
@@ -204,9 +208,14 @@ final class SessionRuntime {
         _ = applyActiveConfiguration(reportErrors: false)
     }
 
-    /// Picks up a skill that was imported or deleted while this chat was open.
+    /// Picks up a skill that was imported, edited or deleted while this chat was open.
     func reloadSkills() async {
         await session.reloadSkills()
+        await refreshLoadedSkills()
+    }
+
+    private func refreshLoadedSkills() async {
+        loadedSkills = await session.loadedSkills.skills
     }
 
     // MARK: - Observation
@@ -375,6 +384,7 @@ final class SessionRuntime {
             await restoreSession()
         }
         isRestoringSession = false
+        await refreshLoadedSkills()
         await refreshStatus()
     }
 
