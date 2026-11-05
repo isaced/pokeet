@@ -407,6 +407,82 @@ struct SkillCatalogTests {
         #expect(inspection.issues.count == 1)
     }
 
+    // MARK: - Frontmatter shapes
+
+    @Test func foldedDescriptionJoinsLines() throws {
+        let project = try TestDirectory()
+        defer { project.cleanup() }
+        try project.write(".agents/skills/folded/SKILL.md", """
+        ---
+        name: folded
+        description: >
+          Extract text and tables from PDF files.
+
+          Use when reading PDFs.
+        ---
+
+        BODY
+        """)
+
+        let catalog = SkillCatalog.load(projectRoot: project.url, userSkillsDirectory: nil)
+
+        #expect(catalog.skills.first?.description == "Extract text and tables from PDF files.\nUse when reading PDFs.")
+    }
+
+    @Test func literalDescriptionKeepsLineBreaks() throws {
+        let project = try TestDirectory()
+        defer { project.cleanup() }
+        try project.write(".agents/skills/literal/SKILL.md", """
+        ---
+        name: literal
+        description: |
+          First line.
+          Second line.
+        ---
+        """)
+
+        let catalog = SkillCatalog.load(projectRoot: project.url, userSkillsDirectory: nil)
+
+        #expect(catalog.skills.first?.description == "First line.\nSecond line.")
+    }
+
+    @Test func aBlockScalarWithoutContentIsAMissingDescription() throws {
+        let project = try TestDirectory()
+        defer { project.cleanup() }
+        try project.write(".agents/skills/empty-block/SKILL.md", """
+        ---
+        name: empty-block
+        description: >
+        ---
+        """)
+
+        let catalog = SkillCatalog.load(projectRoot: project.url, userSkillsDirectory: nil)
+
+        #expect(catalog.skills.isEmpty)
+        #expect(catalog.issues.contains { $0.message.contains("description") })
+    }
+
+    @Test func otherFieldsStillParseAroundABlockScalar() throws {
+        let project = try TestDirectory()
+        defer { project.cleanup() }
+        try project.write(".agents/skills/mixed/SKILL.md", """
+        ---
+        name: mixed
+        description: >
+          Folded
+          text.
+        disable-model-invocation: true
+        allowed-tools: [bash]
+        ---
+        """)
+
+        let catalog = SkillCatalog.load(projectRoot: project.url, userSkillsDirectory: nil)
+
+        let skill = try #require(catalog.skills.first)
+        #expect(skill.description == "Folded text.")
+        #expect(skill.disablesModelInvocation)
+    }
+
     // MARK: - Repository scan (remote import)
 
     @Test func scansARepositoryForEverySkillFile() throws {

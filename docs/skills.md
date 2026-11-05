@@ -88,7 +88,7 @@ The body is never held in the catalog: one `String` copy per skill is wasted mem
 
 Discovery reads the filesystem with `FileManager`, not through `Workspace`: the app-level root is outside the repo, and the wall we must not breach is the *tool* sandbox, not the loader. `Workspace` still supplies `IgnoreRules` for the project roots.
 
-Frontmatter: `PokeetCore` stays dependency-free, so no Yams. `Frontmatter.parse` handles top-level `key: value` scalars, quoted strings and `true`/`false` — enough for `name`, `description`, `disable-model-invocation`. Other spec fields (`license`, `compatibility`, `metadata`, `allowed-tools`) parse and are ignored. Multi-line YAML values are not supported; a folded description would read as its own marker.
+Frontmatter: `PokeetCore` stays dependency-free, so no Yams. `Frontmatter.parse` handles top-level `key: value` scalars, quoted strings, `true`/`false`, and the two block scalars real skills use — `>` folds wrapped lines into one, `|` keeps the line breaks, and a blank line inside a folded value becomes a paragraph break. Other spec fields (`license`, `compatibility`, `metadata`, `allowed-tools`) parse and are ignored. Nested YAML (`metadata:` with sub-keys) is skipped rather than interpreted.
 
 ## Prompt section
 
@@ -307,9 +307,7 @@ Verified on an iPhone 18 Pro simulator: `vercel-labs/skills` clones in ~2.5 s, t
 1. `.pokeet/skills` or `.agents/skills` only? Both are read today.
 2. Skill-local scripts: there is no shell, so a bundled `extract.sh` cannot run. Document "use
    `run_script`" or add a skill-aware hint to the prompt?
-3. Multi-line YAML values in frontmatter (`description: >`) read as their own marker; either reject
-   them with an issue or implement folding.
-4. The global folder stays in `Library/Application Support`, so Files.app cannot reach it. Import is
+3. The global folder stays in `Library/Application Support`, so Files.app cannot reach it. Import is
    the entry point now; is "reveal in Files" or an export action still wanted?
-5. Refs that are tags or SHAs. `checkout_branch` covers branches; anything else needs a fetch plus a
+4. Refs that are tags or SHAs. `checkout_branch` covers branches; anything else needs a fetch plus a
    detached checkout.

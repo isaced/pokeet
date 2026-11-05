@@ -567,25 +567,96 @@ enum Frontmatter {
         else { return [:] }
 
         var fields: [String: String] = [:]
-        for line in lines.dropFirst() {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
+        var index = 1
+
+        while index < lines.count {
+            let trimmed = lines[index].trimmingCharacters(in: .whitespaces)
             if trimmed == "---" { return fields }
-            guard !trimmed.isEmpty, !trimmed.hasPrefix("#") else { continue }
-            guard let separator = trimmed.firstIndex(of: ":") else { continue }
+            guard !trimmed.isEmpty, !trimmed.hasPrefix("#"),
+                  let separator = trimmed.firstIndex(of: ":")
+            else {
+                index += 1
+                continue
+            }
 
             let key = trimmed[..<separator].trimmingCharacters(in: .whitespaces).lowercased()
             var value = trimmed[trimmed.index(after: separator)...]
                 .trimmingCharacters(in: .whitespaces)
+            index += 1
 
-            if value.count >= 2, let first = value.first, let last = value.last,
-               (first == "\"" && last == "\"") || (first == "'" && last == "'") {
+            // `description: >` and `|` are how most real skills wrap a long description.
+            if value.hasPrefix(">") || value.hasPrefix("|") {
+                let isFolded = value.hasPrefix(">")
+                let (block, next) = blockScalar(in: lines, from: index, folded: isFolded)
+                value = block
+                index = next
+            } else if value.count >= 2, let first = value.first, let last = value.last,
+                      (first == "\"" && last == "\"") || (first == "'" && last == "'") {
                 value = String(value.dropFirst().dropLast())
             }
+
             guard !key.isEmpty else { continue }
             fields[key] = value
         }
 
         // Unterminated frontmatter is a broken file, not a file with fields.
         return [:]
+    }
+
+    /// Reads the indented lines under a block scalar and returns the value plus the index of
+    /// the first line that is not part of it.
+    private static func blockScalar(
+        in lines: [String],
+        from start: Int,
+        folded: Bool
+    ) -> (String, Int) {
+        var collected: [String] = []
+        var index = start
+
+        while index < lines.count {
+            let line = lines[index]
+            if line.trimmingCharacters(in: .whitespaces).isEmpty {
+                collected.append("")
+                index += 1
+                continue
+            }
+            guard line.first == " " || line.first == "\t" else { break }
+            collected.append(line)
+            index += 1
+        }
+
+        while let last = collected.last, last.trimmingCharacters(in: .whitespaces).isEmpty {
+            collected.removeLast()
+        }
+
+        let indent = collected
+            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+            .map { line in line.prefix { $0 == " " || $0 == "\t" }.count }
+            .min() ?? 0
+
+        let dedented = collected.map { line in
+            line.count >= indent ? String(line.dropFirst(indent)) : line
+        }
+
+        let value: String
+        if folded {
+            // A blank line becomes a paragraph break; other line breaks become a space.
+            var output = ""
+            for line in dedented {
+                if line.isEmpty {
+                    output += "\n"
+                    continue
+                }
+                if !output.isEmpty, !output.hasSuffix("\n") {
+                    output += " "
+                }
+                output += line
+            }
+            value = output
+        } else {
+            value = dedented.joined(separator: "\n")
+        }
+
+        return (value.trimmingCharacters(in: .whitespacesAndNewlines), index)
     }
 }
