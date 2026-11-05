@@ -94,6 +94,11 @@ struct SettingsView: View {
                     Text("Git operations use HTTPS with a personal access token. SSH is not supported yet.")
                 }
             }
+            .task {
+                // The index shows how many skills are installed; without this it said "None"
+                // until the Skills screen had been opened once.
+                await environment.skills.refresh()
+            }
             .navigationTitle("Settings")
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {

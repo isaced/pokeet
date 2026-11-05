@@ -112,7 +112,10 @@ final class SessionRuntimeTests: XCTestCase {
             projects: ProjectStore(documentsURL: root),
             sessions: SessionStore(directory: root.appendingPathComponent("Sessions", isDirectory: true)),
             git: SwiftGitXGitService(),
-            scripting: .empty
+            scripting: .empty,
+            // The real container is shared with whatever the simulator has installed; keep
+            // these tests independent of a global skill someone imported while trying things.
+            skillsDirectory: root.appendingPathComponent("AppSkills", isDirectory: true)
         )
     }
 

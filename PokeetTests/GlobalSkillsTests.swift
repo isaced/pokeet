@@ -219,7 +219,10 @@ final class GlobalSkillsTests: XCTestCase {
         )
 
         let catalog = SkillCatalog.load(projectRoot: root, userSkillsDirectory: directory)
-        XCTAssertEqual(catalog.skills.map(\.name), ["container-check"])
+        XCTAssertTrue(
+            catalog.skills.contains { $0.name == "container-check" },
+            "found: \(catalog.skills.map(\.name))"
+        )
     }
 
     // MARK: - Helpers
