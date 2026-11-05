@@ -164,8 +164,8 @@ Hidden skills (`disable-model-invocation`) are invocable here — that is the wh
 ## Rollout
 
 - **Phase 1 — shipped.** `SkillCatalog.swift` (catalog, frontmatter, loader), `read_file` dispatch, `/skill:` expansion.
-- **Phase 2 — shipped.** Settings → Skills, folder / single-file import, delete, reload fan-out, repository import (shallow clone, picker, provenance).
-- **Not built.** zip import, opening a global `SKILL.md` in the editor, per-skill enable, "update available" checks, top-level `*.md` skills in a project, `/skill` autocomplete.
+- **Phase 2 — shipped.** Settings → Skills, folder / single-file import, editing, delete, reload fan-out, repository import (shallow clone, picker, provenance), update checks.
+- **Not built.** zip import, per-skill enable, top-level `*.md` skills in a project, `/skill` autocomplete.
 
 ## Tests
 
@@ -210,7 +210,7 @@ Two traps when reproducing it:
 
 ### What the screen shows
 
-- **This app** — global skills, deletable by swipe. Issues are surfaced first, in orange, so a
+- **This app** — global skills, editable and deletable. Issues are surfaced first, in orange, so a
   skipped `SKILL.md` is never silent.
 - **Per project** — read-only, so the answer to "why is my global skill not the one being loaded"
   is on the same screen as the global one.
@@ -225,6 +225,18 @@ check → swap. Rejected: no `SKILL.md`, missing description, more than 200 file
 any symlink. A failure removes the staging copy and leaves the live tree untouched; a replace moves
 the old folder aside, moves the new one in, and only then deletes the old one. The installed folder
 is always renamed to the skill's `name`, so `skill://<name>/` and the folder cannot disagree.
+
+### Editing
+
+The detail view opens the whole `SKILL.md` — frontmatter included, because `name` and `description`
+are what decide when the model loads it, and hiding them behind fields would turn an edit into a
+guess. Saving copies the skill folder to a temporary directory, writes the new text, validates it
+with `SkillCatalog.inspect`, and only then swaps it in: an edit that drops the description or
+renames the skill is refused with the reason and the live file is untouched. Bundled references
+travel with the copy.
+
+Only skills in the app's own folder are editable; a project skill answers `notEditable`, because a
+repository is the thing that should own those files.
 
 ### Import from a repository
 
@@ -276,7 +288,8 @@ provenance, so `update` refuses them with `notImported` instead of doing somethi
 path filter).
 `Pokeet`: `SkillsStoreTests` (folder and file import, symlink / size / file-count rejection,
 collision, replace, rollback, delete, provenance, project listing, staging leftovers, update
-detection, one handshake per repository, update installs the new commit, failed checks reported),
+detection, one handshake per repository, update installs the new commit, failed checks reported,
+editing keeps bundled files, refuses a missing description / rename / project skill),
 `GitSkillRepositoryFetcherTests` (live, gated by `POKEET_LIVE_SKILL_REPO=1`: real shallow clone of
 `vercel-labs/skills`, `.git/shallow` present, `find-skills` found, import works).
 
@@ -286,7 +299,6 @@ Verified on an iPhone 18 Pro simulator: `vercel-labs/skills` clones in ~2.5 s, t
 ### Deliberately not done
 
 - zip import (iOS has no zip reader; the folder path covers the same flow)
-- editing a global `SKILL.md` in the app — it lives outside the workspace sandbox
 - per-skill enable
 - checking more than the recorded branch/SHA (no tag or commit-pinned imports yet)
 

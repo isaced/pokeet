@@ -7,6 +7,7 @@ public enum SkillImportError: Error, Equatable, LocalizedError {
     case nameTaken(String)
     case nameMismatch(expected: String, found: String)
     case notImported(String)
+    case notEditable(String)
     case notRemovable(String)
     case failed(String)
 
@@ -20,6 +21,8 @@ public enum SkillImportError: Error, Equatable, LocalizedError {
             "The picked skill is named \"\(found)\", not \"\(expected)\". Open it and check the name in its SKILL.md."
         case .notImported(let name):
             "\"\(name)\" was not imported from a repository, so there is nothing to update."
+        case .notEditable(let name):
+            "\"\(name)\" is not one Pokeet can edit. Only skills in the app's own folder are writable."
         case .notRemovable(let location):
             "\"\(location)\" lives in a repository, so Pokeet will not delete it. Remove it from the project instead."
         case .failed(let message):
@@ -464,6 +467,48 @@ final class SkillsStore {
 
     private static func sourceKey(_ entry: Provenance) -> String {
         "\(entry.repository)#\(entry.ref ?? "")"
+    }
+
+    /// Replaces a global skill's `SKILL.md` with edited text. The whole folder is copied first,
+    /// so bundled references survive, and the copy is validated before the live folder is
+    /// swapped — an edit that would break the skill cannot land.
+    @discardableResult
+    func saveSkill(_ name: String, text: String) async throws -> Skill {
+        guard let existing = global.skill(named: name), existing.source == .user else {
+            throw SkillImportError.notEditable(name)
+        }
+
+        let directory = self.directory
+        let source = directory.appendingPathComponent(name, isDirectory: true)
+        let staged = try await Task.detached(priority: .userInitiated) {
+            let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+                .appendingPathComponent("skill-edit-\(UUID().uuidString)", isDirectory: true)
+            let copy = root.appendingPathComponent(name, isDirectory: true)
+            do {
+                try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+                try FileManager.default.copyItem(at: source, to: copy)
+                try text.write(
+                    to: copy.appendingPathComponent("SKILL.md"),
+                    atomically: true,
+                    encoding: .utf8
+                )
+            } catch {
+                try? FileManager.default.removeItem(at: root)
+                throw SkillImportError.failed("Could not stage the edit: \(error.localizedDescription)")
+            }
+            return copy
+        }.value
+        defer { try? FileManager.default.removeItem(at: staged.deletingLastPathComponent()) }
+
+        let inspection = SkillCatalog.inspect(staged, source: .user)
+        guard let skill = inspection.skill else {
+            throw SkillImportError.invalid(inspection.issues)
+        }
+        guard skill.name == name else {
+            throw SkillImportError.nameMismatch(expected: name, found: skill.name)
+        }
+
+        return try await importSkill(from: staged, replacing: name)
     }
 
     // MARK: - Delete

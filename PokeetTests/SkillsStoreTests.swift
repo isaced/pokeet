@@ -445,6 +445,122 @@ extension SkillsStoreTests {
     }
 }
 
+extension SkillsStoreTests {
+    func testSavingASkillRewritesItsFile() async throws {
+        _ = try await store.importSkill(from: try makeFolderSkill(
+            folder: "edit",
+            name: "edit-me",
+            description: "Before."
+        ))
+        let before = try String(
+            contentsOf: skillsDirectory.appendingPathComponent("edit-me/SKILL.md"),
+            encoding: .utf8
+        )
+
+        let updated = try await store.saveSkill("edit-me", text: """
+        ---
+        name: edit-me
+        description: After.
+        ---
+
+        NEW BODY
+        """)
+
+        XCTAssertEqual(updated.description, "After.")
+        XCTAssertEqual(store.global.skills.first?.description, "After.")
+        let after = try String(
+            contentsOf: skillsDirectory.appendingPathComponent("edit-me/SKILL.md"),
+            encoding: .utf8
+        )
+        XCTAssertNotEqual(before, after)
+        XCTAssertTrue(after.contains("NEW BODY"))
+    }
+
+    func testSavingKeepsBundledFiles() async throws {
+        let source = try makeFolderSkill(folder: "bundled", name: "bundled", description: "Before.")
+        try write("references/formats.md", to: source, content: "formats")
+        _ = try await store.importSkill(from: source)
+
+        _ = try await store.saveSkill("bundled", text: """
+        ---
+        name: bundled
+        description: After.
+        ---
+        """)
+
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: skillsDirectory.appendingPathComponent("bundled/references/formats.md").path
+            )
+        )
+    }
+
+    func testSavingWithoutADescriptionIsRefusedAndLeavesTheFileAlone() async throws {
+        _ = try await store.importSkill(from: try makeFolderSkill(
+            folder: "edit",
+            name: "edit-me",
+            description: "Before."
+        ))
+        let path = skillsDirectory.appendingPathComponent("edit-me/SKILL.md")
+        let original = try String(contentsOf: path, encoding: .utf8)
+
+        await XCTAssertThrowsErrorAsync(try await store.saveSkill("edit-me", text: "no frontmatter")) { error in
+            guard case .invalid = error as? SkillImportError else {
+                return XCTFail("unexpected error: \(error)")
+            }
+        }
+
+        XCTAssertEqual(try String(contentsOf: path, encoding: .utf8), original)
+        XCTAssertEqual(store.global.skills.first?.description, "Before.")
+    }
+
+    func testSavingUnderADifferentNameIsRefused() async throws {
+        _ = try await store.importSkill(from: try makeFolderSkill(
+            folder: "edit",
+            name: "edit-me",
+            description: "Before."
+        ))
+
+        await XCTAssertThrowsErrorAsync(try await store.saveSkill("edit-me", text: """
+        ---
+        name: renamed
+        description: After.
+        ---
+        """)) { error in
+            XCTAssertEqual(error as? SkillImportError, .nameMismatch(expected: "edit-me", found: "renamed"))
+        }
+        XCTAssertEqual(store.global.skills.map(\.name), ["edit-me"])
+    }
+
+    func testSavingAnUnknownSkillIsRefused() async throws {
+        await XCTAssertThrowsErrorAsync(try await store.saveSkill("ghost", text: "x")) { error in
+            XCTAssertEqual(error as? SkillImportError, .notEditable("ghost"))
+        }
+    }
+
+    func testSavingAProjectSkillIsRefused() async throws {
+        let project = try makeProject(named: "Demo")
+        let skillDirectory = project.directory.appendingPathComponent(".agents/skills/local")
+        try FileManager.default.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
+        try """
+        ---
+        name: local
+        description: In the repo.
+        ---
+        """.write(
+            to: skillDirectory.appendingPathComponent("SKILL.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let store = SkillsStore(directory: skillsDirectory, projects: { [project] })
+        await store.refresh()
+
+        await XCTAssertThrowsErrorAsync(try await store.saveSkill("local", text: "x")) { error in
+            XCTAssertEqual(error as? SkillImportError, .notEditable("local"))
+        }
+    }
+}
+
 /// A fake that can move its remote HEAD between calls, and counts handshakes — the
 /// "one check per repository" rule needs something to observe.
 private actor MutableRepositoryFetcher: SkillRepositoryFetching {

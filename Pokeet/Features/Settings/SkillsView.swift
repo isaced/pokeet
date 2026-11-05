@@ -356,6 +356,9 @@ private struct SkillDetailView: View {
     let update: SkillsStore.Update?
 
     @Environment(AppEnvironment.self) private var environment
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var isEditing = false
 
     var body: some View {
         List {
@@ -406,5 +409,82 @@ private struct SkillDetailView: View {
         }
         .navigationTitle(skill.name)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if skill.source == .user {
+                ToolbarItem(placement: .primaryAction) {
+                    Button("Edit") { isEditing = true }
+                }
+            }
+        }
+        .sheet(isPresented: $isEditing) {
+            SkillEditorSheet(
+                name: skill.name,
+                initialText: (try? catalog.read(skill.location, maxBytes: 100_000)) ?? ""
+            ) { text in
+                try await environment.skills.saveSkill(skill.name, text: text)
+                environment.reloadSkillsInOpenChats()
+                isEditing = false
+                dismiss()
+            }
+        }
+    }
+}
+
+/// The whole `SKILL.md`, frontmatter included: the name and description in there decide when
+/// the model loads the skill, so hiding them behind fields would make the edit a guess.
+private struct SkillEditorSheet: View {
+    let name: String
+    let initialText: String
+    let onSave: (String) async throws -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var text: String = ""
+    @State private var errorMessage: String?
+    @State private var isSaving = false
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 0) {
+                TextEditor(text: $text)
+                    .font(.callout.monospaced())
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .scrollContentBackground(.hidden)
+                    .padding(12)
+
+                if let errorMessage {
+                    Text(errorMessage)
+                        .font(.callout)
+                        .foregroundStyle(.orange)
+                        .padding([.horizontal, .bottom], 12)
+                }
+            }
+            .background(Color(.secondarySystemBackground))
+            .navigationTitle(name)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        Task {
+                            isSaving = true
+                            defer { isSaving = false }
+                            do {
+                                try await onSave(text)
+                            } catch {
+                                errorMessage = error.localizedDescription
+                            }
+                        }
+                    }
+                    .disabled(isSaving || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
+        .onAppear {
+            if text.isEmpty { text = initialText }
+        }
     }
 }
