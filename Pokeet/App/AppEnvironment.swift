@@ -16,6 +16,10 @@ final class AppEnvironment {
     let sessions: SessionStore
     let git: any GitServicing & GitInspecting
     let scripting: ScriptRuntimes
+    /// App-level skills shared by every project. Project skills live in the repo;
+    /// this directory is the one the user keeps across clones. It is inside the
+    /// container, so nothing outside the app can drop files here yet.
+    let skillsDirectory: URL
     let runs = AgentRunRegistry()
     let notifier = SessionNotifier.shared
     /// Set when a notification is tapped; the session list consumes it and pushes the chat.
@@ -26,13 +30,20 @@ final class AppEnvironment {
         projects: ProjectStore = ProjectStore(),
         sessions: SessionStore? = nil,
         git: (any GitServicing & GitInspecting)? = nil,
-        scripting: ScriptRuntimes? = nil
+        scripting: ScriptRuntimes? = nil,
+        skillsDirectory: URL? = nil
     ) {
         self.settings = settings
         self.projects = projects
         self.sessions = sessions ?? SessionStore(directory: Self.defaultSessionsDirectory)
         self.git = git ?? SwiftGitXGitService()
         self.scripting = scripting ?? Self.makeScriptRuntimes()
+
+        // Discovery treats a missing root as "no skills", which would make the global
+        // folder impossible to find and impossible to fill: create it up front.
+        let skillsDirectory = skillsDirectory ?? Self.defaultSkillsDirectory
+        try? FileManager.default.createDirectory(at: skillsDirectory, withIntermediateDirectories: true)
+        self.skillsDirectory = skillsDirectory
 
         // Taps arrive through the shared delegate, so wire it before anything can run.
         notifier.configure()
@@ -50,6 +61,14 @@ final class AppEnvironment {
         }
         pendingSessionLink = nil
         return link.sessionID
+    }
+
+    static var defaultSkillsDirectory: URL {
+        FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        )[0]
+        .appendingPathComponent("Pokeet/Skills", isDirectory: true)
     }
 
     private static var defaultSessionsDirectory: URL {

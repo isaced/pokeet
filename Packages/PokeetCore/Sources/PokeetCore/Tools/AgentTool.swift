@@ -30,6 +30,9 @@ public struct ToolContext: Sendable {
     public let scripting: ScriptRuntimes?
     public let webSearch: (any WebSearchProviding)?
     public let webSearchBudget: WebSearchBudget?
+    /// Resolves `skill://` paths for `read_file`. Read-only and name-checked, so
+    /// app-level skills stay reachable without widening the workspace sandbox.
+    public let skills: SkillCatalog?
 
     public init(
         workspace: any Workspace,
@@ -37,7 +40,8 @@ public struct ToolContext: Sendable {
         networkPolicy: NetworkAccessPolicy = .init(),
         scripting: ScriptRuntimes? = nil,
         webSearch: (any WebSearchProviding)? = nil,
-        webSearchBudget: WebSearchBudget? = nil
+        webSearchBudget: WebSearchBudget? = nil,
+        skills: SkillCatalog? = nil
     ) {
         self.workspace = workspace
         self.git = git
@@ -45,6 +49,7 @@ public struct ToolContext: Sendable {
         self.scripting = scripting
         self.webSearch = webSearch
         self.webSearchBudget = webSearchBudget
+        self.skills = skills
     }
 }
 

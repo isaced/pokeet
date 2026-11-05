@@ -10,6 +10,8 @@ public actor AgentSession {
     private let compactor: ContextCompactor
     private let summarizer: any ContextSummarizer
     private let instructions: ProjectInstructions
+    private let skillLocations: SkillLocations?
+    private var skills: SkillCatalog
     private let scripting: ScriptRuntimes?
     private let webSearch: (any WebSearchProviding)?
     private let webSearchBudget = WebSearchBudget()
@@ -32,7 +34,8 @@ public actor AgentSession {
         scripting: ScriptRuntimes? = nil,
         webSearch: (any WebSearchProviding)? = nil,
         config: AgentConfiguration = AgentConfiguration(),
-        summarizer: (any ContextSummarizer)? = nil
+        summarizer: (any ContextSummarizer)? = nil,
+        skills: SkillLocations? = nil
     ) {
         self.client = client
         self.registry = tools
@@ -50,12 +53,21 @@ public actor AgentSession {
             sessionID: sessionID
         )
         self.instructions = ProjectInstructions.load(from: workspace)
+        self.skillLocations = skills
+        self.skills = skills.map {
+            SkillCatalog.load(
+                projectRoot: $0.projectRoot,
+                userSkillsDirectory: $0.userSkillsDirectory
+            )
+        } ?? SkillCatalog(skills: [])
         self.baseSystemPrompt = systemPrompt
         self.mode = mode
         self.networkPolicy = networkPolicy
         self.scripting = scripting
         self.webSearch = webSearch
-        self.messages = [.system(instructions.compose(with: systemPrompt + mode.promptGuidance))]
+        self.messages = [.system(self.skills.compose(
+            with: instructions.compose(with: systemPrompt + mode.promptGuidance)
+        ))]
     }
 
     public var history: [ChatMessage] {
@@ -64,6 +76,21 @@ public actor AgentSession {
 
     public var loadedInstructions: ProjectInstructions {
         instructions
+    }
+
+    public var loadedSkills: SkillCatalog {
+        skills
+    }
+
+    /// Rescans the skill roots. Called when a session is opened and whenever the
+    /// user asks; there is no file watcher, so a skill added mid-session needs one.
+    public func reloadSkills() {
+        guard let skillLocations else { return }
+        skills = SkillCatalog.load(
+            projectRoot: skillLocations.projectRoot,
+            userSkillsDirectory: skillLocations.userSkillsDirectory
+        )
+        refreshSystemMessage()
     }
 
     public var taskList: [TaskItem] {
@@ -82,6 +109,10 @@ public actor AgentSession {
     public func setMode(_ mode: AgentMode) {
         guard self.mode != mode else { return }
         self.mode = mode
+        refreshSystemMessage()
+    }
+
+    private func refreshSystemMessage() {
         if messages.isEmpty {
             messages = [systemMessage]
         } else {
@@ -123,7 +154,7 @@ public actor AgentSession {
     }
 
     private var systemMessage: ChatMessage {
-        .system(instructions.compose(with: baseSystemPrompt + mode.promptGuidance))
+        .system(skills.compose(with: instructions.compose(with: baseSystemPrompt + mode.promptGuidance)))
     }
 
     public func send(
@@ -135,7 +166,7 @@ public actor AgentSession {
     ) async throws {
         do {
             try await runTurn(
-                text,
+                expandSkillCommand(text),
                 images: images,
                 approval: approval,
                 actionApproval: actionApproval,
@@ -147,6 +178,42 @@ public actor AgentSession {
             repairHistory()
             throw error
         }
+    }
+
+    /// `/skill:<name> [args]` becomes the skill's body plus the args, wrapped so the model can see
+    /// which skill it is following. A model that skips a matching skill is the common failure, and
+    /// typing the command is the cheapest correction. Skills with `disable-model-invocation` are
+    /// reachable only this way, which is the point of the flag.
+    private func expandSkillCommand(_ text: String) -> String {
+        let prefix = "/skill:"
+        guard text.hasPrefix(prefix) else { return text }
+
+        let remainder = text.dropFirst(prefix.count)
+        let parts = remainder.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true)
+        guard let rawName = parts.first else { return text }
+
+        let name = String(rawName)
+        let arguments = parts.count > 1
+            ? String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
+            : ""
+
+        guard let skill = skills.skill(named: name) else {
+            let available = skills.skills.map(\.name).joined(separator: ", ")
+            let note = available.isEmpty
+                ? "no skill named \"\(name)\". This project has no skills; add one as .agents/skills/<name>/SKILL.md."
+                : "no skill named \"\(name)\". Available skills: \(available)."
+            return "\(note)\n\n\(text)"
+        }
+
+        let body = (try? skills.read(skill.location, maxBytes: 100_000)) ?? ""
+        let block = """
+        <skill name="\(skill.name)" location="\(skill.location)">
+        References are relative to \(skill.directory).
+
+        \(body)
+        </skill>
+        """
+        return arguments.isEmpty ? block : "\(block)\n\n\(arguments)"
     }
 
     /// Answers tool calls that never reported back, so the transcript stays valid. A cancelled
@@ -489,7 +556,8 @@ public actor AgentSession {
             networkPolicy: networkPolicy,
             scripting: scripting,
             webSearch: webSearch,
-            webSearchBudget: webSearchBudget
+            webSearchBudget: webSearchBudget,
+            skills: skills
         )
         let timeout = config.toolTimeoutMilliseconds
         var actions = [ActionRequest?](repeating: nil, count: calls.count)

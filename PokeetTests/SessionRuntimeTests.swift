@@ -75,6 +75,21 @@ private struct StubModelClient: ModelClient {
     }
 }
 
+/// Records what the agent actually sent, so wiring tests can assert on the prompt.
+/// Only `complete` is implemented; the protocol's default `stream` wraps it.
+private actor RecordingModelClient: ModelClient {
+    private(set) var requests: [ChatRequest] = []
+
+    func complete(_ request: ChatRequest) async throws -> ChatResponse {
+        requests.append(request)
+        return ChatResponse(message: .assistant("Done."), finishReason: "stop")
+    }
+
+    func recordedRequests() -> [ChatRequest] {
+        requests
+    }
+}
+
 @MainActor
 final class SessionRuntimeTests: XCTestCase {
     private var root: URL!
@@ -295,5 +310,42 @@ final class SessionRuntimeTests: XCTestCase {
         XCTAssertFalse(runtime.needsContinuation)
         XCTAssertNil(runtime.errorMessage)
         XCTAssertFalse(runtime.isAwaitingApproval)
+    }
+
+    /// The project's `.agents/skills` directory has to reach the real session: the
+    /// catalog tests prove discovery, this proves the wiring.
+    func testProjectSkillsReachTheSession() async throws {
+        let skillDirectory = project.directory.appendingPathComponent(
+            ".agents/skills/pdf-tools",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
+        try """
+        ---
+        name: pdf-tools
+        description: Extract text from PDFs.
+        ---
+
+        STEP ONE
+        """.write(
+            to: skillDirectory.appendingPathComponent("SKILL.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let client = RecordingModelClient()
+        let runtime = makeRuntime(client: client)
+        await runtime.loadInitialState()
+        _ = runtime.attach()
+        runtime.send(text: "/skill:pdf-tools extract report.pdf")
+        await waitUntil { !(await client.recordedRequests().isEmpty) }
+
+        let requests = await client.recordedRequests()
+        let request = try XCTUnwrap(requests.first)
+        let system = request.messages.first?.content ?? ""
+        XCTAssertTrue(system.contains("<name>pdf-tools</name>"))
+        let user = try XCTUnwrap(request.messages.first { $0.role == .user }?.content)
+        XCTAssertTrue(user.contains("STEP ONE"))
+        XCTAssertTrue(user.hasSuffix("extract report.pdf"))
     }
 }

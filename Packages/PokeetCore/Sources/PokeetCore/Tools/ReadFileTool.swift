@@ -14,7 +14,10 @@ public struct ReadFileTool: AgentTool {
                 "properties": .object([
                     "path": .object([
                         "type": .string("string"),
-                        "description": .string("File path relative to the repository root.")
+                        "description": .string(
+                            "File path relative to the repository root, or a skill location exactly as "
+                                + "listed in <available_skills> (e.g. skill://pdf-tools/SKILL.md)."
+                        )
                     ]),
                     "max_bytes": .object([
                         "type": .string("integer"),
@@ -50,10 +53,24 @@ public struct ReadFileTool: AgentTool {
 
         let maxBytes = min(max(1, arguments.max_bytes ?? WorkspaceLimits.defaultReadBytes), 100_000)
         let text: String
-        do {
-            text = try context.workspace.read(arguments.path, maxBytes: maxBytes)
-        } catch {
-            throw ToolError.workspace((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
+        if arguments.path.hasPrefix(SkillCatalog.pseudoPrefix) {
+            guard let skills = context.skills, let skillURL = skills.resolve(arguments.path) else {
+                throw ToolError.workspace(
+                    "No skill file at \(arguments.path). Skills are loaded from .agents/skills, "
+                        + ".pokeet/skills and the app's own skills folder; check the location in <available_skills>."
+                )
+            }
+            do {
+                text = try TextFileReader.read(at: skillURL, maxBytes: maxBytes, displayPath: arguments.path)
+            } catch {
+                throw ToolError.workspace((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
+            }
+        } else {
+            do {
+                text = try context.workspace.read(arguments.path, maxBytes: maxBytes)
+            } catch {
+                throw ToolError.workspace((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
+            }
         }
 
         guard !text.isEmpty else {

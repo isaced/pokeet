@@ -178,7 +178,11 @@ final class SessionRuntime {
                 allowedHosts: Self.parseHosts(environment.settings.networkAllowedHosts)
             ),
             scripting: environment.scripting,
-            webSearch: environment.settings.makeWebSearchProvider()
+            webSearch: environment.settings.makeWebSearchProvider(),
+            skills: SkillLocations(
+                projectRoot: project.directory,
+                userSkillsDirectory: environment.skillsDirectory
+            )
         )
 
         coordinator.onPending = { [weak self] proposals in

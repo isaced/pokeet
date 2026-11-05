@@ -19,50 +19,7 @@ public struct FileWorkspace: Workspace {
 
     public func read(_ relativePath: String, maxBytes: Int) throws -> String {
         let url = try sandbox.resolve(relativePath)
-        let fileManager = FileManager.default
-
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
-            throw WorkspaceError.notFound(relativePath)
-        }
-        guard !isDirectory.boolValue else {
-            throw WorkspaceError.notAFile(relativePath)
-        }
-
-        let values = try? url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
-        if values?.isRegularFile == false {
-            throw WorkspaceError.notAFile(relativePath)
-        }
-        if let size = values?.fileSize, size > WorkspaceLimits.maxReadBytes {
-            throw WorkspaceError.fileTooLarge(path: relativePath, limit: WorkspaceLimits.maxReadBytes)
-        }
-
-        let data: Data
-        do {
-            data = try Data(contentsOf: url, options: [.mappedIfSafe])
-        } catch {
-            throw WorkspaceError.io(error.localizedDescription)
-        }
-
-        guard !data.isEmpty else { return "" }
-        guard !data.contains(0) else {
-            throw WorkspaceError.binaryFile(relativePath)
-        }
-
-        let limit = max(1, maxBytes)
-        if data.count > limit {
-            let prefix = data.prefix(limit)
-            var text = String(decoding: prefix, as: UTF8.self)
-            if let lastNewline = text.lastIndex(of: "\n") {
-                text = String(text[...lastNewline])
-            }
-            return text + "\n[truncated at \(limit) bytes]\n"
-        }
-
-        guard let text = String(data: data, encoding: .utf8) else {
-            throw WorkspaceError.binaryFile(relativePath)
-        }
-        return text
+        return try TextFileReader.read(at: url, maxBytes: maxBytes, displayPath: relativePath)
     }
 
     public func list(_ relativePath: String, recursive: Bool, maxEntries: Int) throws -> [WorkspaceEntry] {
@@ -222,5 +179,56 @@ public struct FileWorkspace: Workspace {
             return url.lastPathComponent
         }
         return String(resolved.path.dropFirst(root.path.count + 1))
+    }
+}
+
+/// Reads a UTF-8 text file with the same guards and the same truncation marker
+/// whether it came from the repository or from a skill outside it.
+enum TextFileReader {
+    static func read(at url: URL, maxBytes: Int, displayPath: String) throws -> String {
+        let fileManager = FileManager.default
+
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+            throw WorkspaceError.notFound(displayPath)
+        }
+        guard !isDirectory.boolValue else {
+            throw WorkspaceError.notAFile(displayPath)
+        }
+
+        let values = try? url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
+        if values?.isRegularFile == false {
+            throw WorkspaceError.notAFile(displayPath)
+        }
+        if let size = values?.fileSize, size > WorkspaceLimits.maxReadBytes {
+            throw WorkspaceError.fileTooLarge(path: displayPath, limit: WorkspaceLimits.maxReadBytes)
+        }
+
+        let data: Data
+        do {
+            data = try Data(contentsOf: url, options: [.mappedIfSafe])
+        } catch {
+            throw WorkspaceError.io(error.localizedDescription)
+        }
+
+        guard !data.isEmpty else { return "" }
+        guard !data.contains(0) else {
+            throw WorkspaceError.binaryFile(displayPath)
+        }
+
+        let limit = max(1, maxBytes)
+        if data.count > limit {
+            let prefix = data.prefix(limit)
+            var text = String(decoding: prefix, as: UTF8.self)
+            if let lastNewline = text.lastIndex(of: "\n") {
+                text = String(text[...lastNewline])
+            }
+            return text + "\n[truncated at \(limit) bytes]\n"
+        }
+
+        guard let text = String(data: data, encoding: .utf8) else {
+            throw WorkspaceError.binaryFile(displayPath)
+        }
+        return text
     }
 }
