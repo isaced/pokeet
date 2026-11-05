@@ -48,7 +48,11 @@ struct SkillsView: View {
                                 update: environment.skills.updates[skill.name]
                             )
                         } label: {
-                            SkillRow(skill: skill, update: environment.skills.updates[skill.name])
+                            SkillRow(
+                                skill: skill,
+                                update: environment.skills.updates[skill.name],
+                                note: nil
+                            )
                         }
                         .swipeActions {
                             if environment.skills.updates[skill.name] != nil {
@@ -87,7 +91,13 @@ struct SkillsView: View {
                                     update: nil
                                 )
                             } label: {
-                                SkillRow(skill: skill, update: nil)
+                                SkillRow(
+                                    skill: skill,
+                                    update: nil,
+                                    note: entry.shadowsGlobal.contains(skill.name)
+                                        ? "The app copy of this skill is not used in this project."
+                                        : nil
+                                )
                             }
                         }
                     } header: {
@@ -259,6 +269,7 @@ struct SkillsView: View {
 private struct SkillRow: View {
     let skill: Skill
     let update: SkillsStore.Update?
+    var note: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -283,6 +294,11 @@ private struct SkillRow: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
+            if let note {
+                Text(note)
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+            }
         }
     }
 }

@@ -243,6 +243,54 @@ final class SkillsStoreTests: XCTestCase {
         XCTAssertTrue(store.global.isEmpty)
     }
 
+    func testProjectSkillsThatShadowAGlobalSkillAreMarked() async throws {
+        _ = try await store.importSkill(from: try makeFolderSkill(
+            folder: "global",
+            name: "shared",
+            description: "Global copy."
+        ))
+        let project = try makeProject(named: "Demo")
+        let skillDirectory = project.directory.appendingPathComponent(".agents/skills/shared")
+        try FileManager.default.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
+        try """
+        ---
+        name: shared
+        description: Project copy.
+        ---
+        """.write(
+            to: skillDirectory.appendingPathComponent("SKILL.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let store = SkillsStore(directory: skillsDirectory, projects: { [project] })
+
+        await store.refresh()
+
+        XCTAssertEqual(store.projects.first?.shadowsGlobal, ["shared"])
+        XCTAssertEqual(store.global.skills.map(\.name), ["shared"])
+    }
+
+    func testProjectSkillsWithoutAClashShadowNothing() async throws {
+        let project = try makeProject(named: "Demo")
+        let skillDirectory = project.directory.appendingPathComponent(".agents/skills/local")
+        try FileManager.default.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
+        try """
+        ---
+        name: local
+        description: Only here.
+        ---
+        """.write(
+            to: skillDirectory.appendingPathComponent("SKILL.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let store = SkillsStore(directory: skillsDirectory, projects: { [project] })
+
+        await store.refresh()
+
+        XCTAssertEqual(store.projects.first?.shadowsGlobal, [])
+    }
+
     func testRefreshIgnoresStagingLeftovers() async throws {
         try FileManager.default.createDirectory(
             at: skillsDirectory.appendingPathComponent(".staging-1/ghost", isDirectory: true),

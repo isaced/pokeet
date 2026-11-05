@@ -63,6 +63,9 @@ final class SkillsStore {
     struct ProjectSkills: Identifiable {
         let project: Project
         let catalog: SkillCatalog
+        /// Names this project also has in the app folder. The project copy is the one the
+        /// model sees, so the screen has to say so rather than list both as equals.
+        let shadowsGlobal: Set<String>
 
         var id: URL { project.directory }
     }
@@ -121,7 +124,14 @@ final class SkillsStore {
         }.value
 
         global = scanned.global
-        projects = scanned.projects.map { ProjectSkills(project: $0.project, catalog: $0.catalog) }
+        let globalNames = Set(scanned.global.skills.map(\.name))
+        projects = scanned.projects.map { entry in
+            ProjectSkills(
+                project: entry.project,
+                catalog: entry.catalog,
+                shadowsGlobal: Set(entry.catalog.skills.map(\.name)).intersection(globalNames)
+            )
+        }
         provenance = scanned.provenance
         lastRefreshed = Date()
     }

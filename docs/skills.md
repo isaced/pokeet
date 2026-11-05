@@ -213,7 +213,8 @@ Two traps when reproducing it:
 - **This app** — global skills, editable and deletable. Issues are surfaced first, in orange, so a
   skipped `SKILL.md` is never silent.
 - **Per project** — read-only, so the answer to "why is my global skill not the one being loaded"
-  is on the same screen as the global one.
+  is on the same screen as the global one. A project skill that shares its name with an app skill
+  says so in orange: within that project the repository copy is the one the model sees.
 - `+` opens a menu: **Import from Files…** (folder or single `.md`) and **Import from Repository…**.
   A **Reload** button rescans; importing or deleting also reloads every open chat through
   `AgentRunRegistry.reloadSkills()`.
@@ -289,7 +290,8 @@ path filter).
 `Pokeet`: `SkillsStoreTests` (folder and file import, symlink / size / file-count rejection,
 collision, replace, rollback, delete, provenance, project listing, staging leftovers, update
 detection, one handshake per repository, update installs the new commit, failed checks reported,
-editing keeps bundled files, refuses a missing description / rename / project skill),
+editing keeps bundled files, refuses a missing description / rename / project skill, shadowed
+global skills are marked),
 `GitSkillRepositoryFetcherTests` (live, gated by `POKEET_LIVE_SKILL_REPO=1`: real shallow clone of
 `vercel-labs/skills`, `.git/shallow` present, `find-skills` found, import works).
 
