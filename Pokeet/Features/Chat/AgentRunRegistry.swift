@@ -42,6 +42,15 @@ final class AgentRunRegistry {
         runtimes[SessionKey(project: project.directory, sessionID: sessionID)]
     }
 
+    /// Skills changed on disk: rescan in every live session, so an open chat sees a new
+    /// skill without being recreated.
+    func reloadSkills() {
+        let live = runtimes.values
+        for runtime in live {
+            Task { await runtime.reloadSkills() }
+        }
+    }
+
     func discard(for project: Project, sessionID: UUID) {
         let key = SessionKey(project: project.directory, sessionID: sessionID)
         guard let runtime = runtimes.removeValue(forKey: key) else { return }

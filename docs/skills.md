@@ -47,8 +47,8 @@ One loader, three roots, project first so a repo can pin its own copy of a share
 The app-level directory is created on launch (`AppEnvironment.init`). A missing root means "no
 skills", and discovery never creates directories, so without that `mkdir` the global folder could
 be neither found nor filled. It is *not* reachable from Files.app: `UIFileSharingEnabled` exposes
-`Documents/` only, and this lives in `Library/Application Support/`. Nothing in the app writes it
-yet, so a global skill currently has to be dropped in through `simctl` or the container path.
+`Documents/` only, and this lives in `Library/Application Support/`. Settings → Skills is the entry
+point instead (see Phase 2); `simctl` is only useful for seeding a test.
 
 Rules, all in `SkillCatalog`:
 
@@ -163,9 +163,9 @@ Hidden skills (`disable-model-invocation`) are invocable here — that is the wh
 
 ## Rollout
 
-- **Phase 1 — shipped.** `SkillCatalog.swift` (catalog, frontmatter, loader), `frontmatter + prompt` tests, `read_file` dispatch, `/skill:` expansion, docs.
-- **Phase 2 — not built.** Settings → Skills: name, description, source, `SkillIssue` list, Reload button; skill name as a chip in the transcript instead of the raw path; a Files.app hint for `<App Support>/Pokeet/Skills`.
-- **Phase 3 — only if asked for.** Top-level `*.md` skills, `/skill` autocomplete, per-skill enable, relative script resolution.
+- **Phase 1 — shipped.** `SkillCatalog.swift` (catalog, frontmatter, loader), `read_file` dispatch, `/skill:` expansion.
+- **Phase 2 — shipped.** Settings → Skills, folder / single-file import, delete, reload fan-out, repository import (shallow clone, picker, provenance).
+- **Not built.** zip import, opening a global `SKILL.md` in the editor, per-skill enable, "update available" checks, top-level `*.md` skills in a project, `/skill` autocomplete.
 
 ## Tests
 
@@ -203,10 +203,88 @@ Two traps when reproducing it:
 - `xcodebuild test`-driven tests therefore assert against a temporary directory (`AppEnvironment`
   takes a `skillsDirectory` override) or against the container the test host itself was given.
 
+## Phase 2 — Skills screen, import, repositories
+
+**Status: shipped.** `Pokeet/Features/Settings/SkillsView.swift`, `SkillsStore`, `SkillRepositorySheet`,
+`GitSkillRepositoryFetcher`, `SkillSourceURL`, `SkillRepositoryImport`.
+
+### What the screen shows
+
+- **This app** — global skills, deletable by swipe. Issues are surfaced first, in orange, so a
+  skipped `SKILL.md` is never silent.
+- **Per project** — read-only, so the answer to "why is my global skill not the one being loaded"
+  is on the same screen as the global one.
+- `+` opens a menu: **Import from Files…** (folder or single `.md`) and **Import from Repository…**.
+  A **Reload** button rescans; importing or deleting also reloads every open chat through
+  `AgentRunRegistry.reloadSkills()`.
+
+### Import from Files
+
+Security-scoped read → copy into a `.staging-<uuid>` folder → `SkillCatalog.inspect` → collision
+check → swap. Rejected: no `SKILL.md`, missing description, more than 200 files, more than 2 MB,
+any symlink. A failure removes the staging copy and leaves the live tree untouched; a replace moves
+the old folder aside, moves the new one in, and only then deletes the old one. The installed folder
+is always renamed to the skill's `name`, so `skill://<name>/` and the folder cannot disagree.
+
+### Import from a repository
+
+```
+owner/repo · https://… · …/tree/<ref>/<path> · #ref
+        │  policy check (NetworkAccessPolicy, HTTPS only) → shallow clone (depth 1)
+        ▼
+picker: every SKILL.md in the tree (depth ≤ 4), checked by default when the link named a folder
+        │
+        ▼
+same import path as a picked folder, plus provenance
+```
+
+Decisions that mattered:
+
+- **Shallow clone through libgit2**, not a tarball: the only host-agnostic option that works with
+  the token already in Settings → Git. SwiftGitX's `CloneOptions` has no depth, so
+  `GitSkillRepositoryFetcher` calls `git_clone` with `fetch_opts.depth = 1` and its own transfer
+  callback — which is also where cancellation lands, so a 90-second timeout actually aborts
+  instead of waiting for the download.
+- **Policy before network.** `SkillRepositoryImport.validate` refuses when network access is off or
+  the host is outside the allow-list, with the same wording the rest of the app uses.
+- **A clone without a `SKILL.md` is an error that names the fix**: paste the link to the skill
+  folder, because the scan stops at depth 4.
+- **All-or-nothing batches.** A collision anywhere in the selection refuses the whole import, and a
+  failure mid-batch rolls back what it already installed.
+- **Provenance in `<Skills>/.sources.json`** (repository, ref, commit, path, imported at). A
+  dot-file, so discovery ignores it; deleting a skill forgets its entry. This is the hook for a
+  future "update available" badge.
+
+Refs are treated as branch names (`checkout_branch`); a tag or raw SHA is not resolved yet.
+
+### Tests
+
+`PokeetCore`: `SkillCatalogTests` (inspect, repository scan, depth and heavy-directory rules,
+`SkillSourceURL` parsing), `SkillRepositoryImportTests` (policy, timeout, empty repository, cleanup,
+path filter).
+`Pokeet`: `SkillsStoreTests` (folder and file import, symlink / size / file-count rejection,
+collision, replace, rollback, delete, provenance, project listing, staging leftovers),
+`GitSkillRepositoryFetcherTests` (live, gated by `POKEET_LIVE_SKILL_REPO=1`: real shallow clone of
+`vercel-labs/skills`, `.git/shallow` present, `find-skills` found, import works).
+
+Verified on an iPhone 18 Pro simulator: `vercel-labs/skills` clones in ~2.5 s, the picker lists
+`find-skills`, and the imported skill lands under the app's own skills folder.
+
+### Deliberately not done
+
+- zip import (iOS has no zip reader; the folder path covers the same flow)
+- editing a global `SKILL.md` in the app — it lives outside the workspace sandbox
+- per-skill enable, and "update available" for repository imports
+- update checks against the recorded commit
+
 ## Open questions
 
-1. `.pokeet/skills` or `.agents/skills` only? The former is our namespace, the latter is portable — currently both, at the cost of one more thing to document.
-2. Skill-local scripts: pi tells the model to run `scripts/extract.sh`; Pokeet has no shell. Do we document "put JS/Python in the skill and call `run_script`", or does the prompt need a line saying so?
-3. Multi-line YAML values in frontmatter. A folded `description: >` currently reads as `>`, which is silently wrong. Either reject `>`/`|` with an issue or implement folding.
-4. Where should the global directory live? `Library/Application Support` is conventional but invisible: neither Files.app nor a document picker reaches it, so there is no user-facing way to add a skill. Moving it to `Documents/Skills` (next to the repositories) would make it drag-and-drop, at the cost of teaching `ProjectStore.scan` to skip it.
-5. How does a skill added mid-session become visible? `reloadSkills()` exists but nothing calls it — reopening the session is the only refresh.
+1. `.pokeet/skills` or `.agents/skills` only? Both are read today.
+2. Skill-local scripts: there is no shell, so a bundled `extract.sh` cannot run. Document "use
+   `run_script`" or add a skill-aware hint to the prompt?
+3. Multi-line YAML values in frontmatter (`description: >`) read as their own marker; either reject
+   them with an issue or implement folding.
+4. The global folder stays in `Library/Application Support`, so Files.app cannot reach it. Import is
+   the entry point now; is "reveal in Files" or an export action still wanted?
+5. Refs that are tags or SHAs. `checkout_branch` covers branches; anything else needs a fetch plus a
+   detached checkout.

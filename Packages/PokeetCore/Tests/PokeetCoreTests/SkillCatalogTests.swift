@@ -307,6 +307,205 @@ struct SkillCatalogTests {
         #expect(catalog.skill(named: "skill-39") != nil)
     }
 
+    @Test func loadsUserSkillsWithoutAProject() throws {
+        let user = try TestDirectory()
+        defer { user.cleanup() }
+        try user.write("skills/commit/SKILL.md", markdown(name: "commit", description: "Write messages."))
+        try user.write("skills/.staging-1/ghost/SKILL.md", markdown(name: "ghost"))
+
+        let catalog = SkillCatalog.load(
+            userSkillsDirectory: user.url.appending(path: "skills")
+        )
+
+        #expect(catalog.skills.map(\.name) == ["commit"])
+        #expect(catalog.skills.first?.location == "skill://commit/SKILL.md")
+        #expect(catalog.skills.first?.source == .user)
+    }
+
+    // MARK: - Inspection (import path)
+
+    @Test func inspectsAValidSkillFolder() throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+        try directory.write("pdf-tools/SKILL.md", markdown(name: "pdf-tools", description: "Extract text."))
+
+        let inspection = SkillCatalog.inspect(
+            directory.url.appending(path: "pdf-tools"),
+            source: .user
+        )
+
+        #expect(inspection.issues.isEmpty)
+        let skill = try #require(inspection.skill)
+        #expect(skill.name == "pdf-tools")
+        #expect(skill.description == "Extract text.")
+        #expect(skill.source == .user)
+    }
+
+    @Test func inspectsASingleMarkdownFile() throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+        try directory.write("standalone.md", markdown(name: "standalone", description: "One file."))
+
+        let inspection = SkillCatalog.inspect(
+            directory.url.appending(path: "standalone.md"),
+            source: .user
+        )
+
+        #expect(inspection.issues.isEmpty)
+        #expect(inspection.skill?.name == "standalone")
+    }
+
+    @Test func inspectionReportsAStandaloneFileWithoutDescription() throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+        try directory.write("bare.md", "just prose\n")
+
+        let inspection = SkillCatalog.inspect(
+            directory.url.appending(path: "bare.md"),
+            source: .user
+        )
+
+        #expect(inspection.skill == nil)
+        #expect(inspection.issues.contains { $0.message.contains("description") })
+    }
+
+    @Test func inspectionRejectsAFolderWithoutSkillFile() throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+        try directory.write("empty/notes.md", "nothing here\n")
+
+        let inspection = SkillCatalog.inspect(
+            directory.url.appending(path: "empty"),
+            source: .user
+        )
+
+        #expect(inspection.skill == nil)
+        #expect(inspection.issues.contains { $0.message.contains("SKILL.md") })
+    }
+
+    @Test func inspectionKeepsWarningsTheSkillWouldStillLoadWith() throws {
+        let directory = try TestDirectory()
+        defer { directory.cleanup() }
+        try directory.write("loud/SKILL.md", markdown(name: "Loud Name", description: "Yelling."))
+
+        let inspection = SkillCatalog.inspect(
+            directory.url.appending(path: "loud"),
+            source: .user
+        )
+
+        #expect(inspection.skill != nil)
+        #expect(inspection.issues.contains { $0.message.contains("name") })
+    }
+
+    @Test func inspectionReportsAMissingPath() {
+        let missing = FileManager.default.temporaryDirectory
+            .appending(path: "pokeet-missing-\(UUID().uuidString)/SKILL.md")
+
+        let inspection = SkillCatalog.inspect(missing, source: .user)
+
+        #expect(inspection.skill == nil)
+        #expect(inspection.issues.count == 1)
+    }
+
+    // MARK: - Repository scan (remote import)
+
+    @Test func scansARepositoryForEverySkillFile() throws {
+        let repo = try TestDirectory()
+        defer { repo.cleanup() }
+        try repo.write("skills/find-skills/SKILL.md", markdown(name: "find-skills", description: "Find them."))
+        try repo.write("skills/pdf-tools/SKILL.md", markdown(name: "pdf-tools", description: "Read PDFs."))
+        try repo.write(".agents/skills/nested/SKILL.md", markdown(name: "nested", description: "Also here."))
+        try repo.write("README.md", "# repo\n")
+
+        let catalog = SkillCatalog.scanRepository(at: repo.url)
+
+        #expect(catalog.skills.map(\.name) == ["find-skills", "nested", "pdf-tools"])
+        #expect(catalog.skills.map(\.location) == [
+            "skills/find-skills/SKILL.md",
+            ".agents/skills/nested/SKILL.md",
+            "skills/pdf-tools/SKILL.md"
+        ])
+        #expect(catalog.issues.isEmpty)
+    }
+
+    @Test func repositoryScanSkipsGitAndHeavyDirectories() throws {
+        let repo = try TestDirectory()
+        defer { repo.cleanup() }
+        try repo.write(".git/skills/x/SKILL.md", markdown(name: "x"))
+        try repo.write("node_modules/pkg/SKILL.md", markdown(name: "pkg"))
+        try repo.write("skills/real/SKILL.md", markdown(name: "real"))
+
+        let catalog = SkillCatalog.scanRepository(at: repo.url)
+
+        #expect(catalog.skills.map(\.name) == ["real"])
+    }
+
+    @Test func repositoryScanRespectsTheDepthCap() throws {
+        let repo = try TestDirectory()
+        defer { repo.cleanup() }
+        try repo.write("a/b/c/d/SKILL.md", markdown(name: "shallow"))
+        try repo.write("a/b/c/d/e/SKILL.md", markdown(name: "too-deep"))
+
+        let catalog = SkillCatalog.scanRepository(at: repo.url)
+
+        #expect(catalog.skills.map(\.name) == ["shallow"])
+    }
+
+    // MARK: - Source URL parsing
+
+    @Test func parsesOwnerRepoShorthand() throws {
+        let source = try SkillSourceURL.parse("vercel-labs/skills")
+
+        #expect(source.url.absoluteString == "https://github.com/vercel-labs/skills")
+        #expect(source.ref == nil)
+        #expect(source.pathPrefix == nil)
+    }
+
+    @Test func parsesAFullRepositoryURL() throws {
+        let source = try SkillSourceURL.parse("https://github.com/anthropics/skills.git")
+
+        #expect(source.url.absoluteString == "https://github.com/anthropics/skills")
+        #expect(source.ref == nil)
+    }
+
+    @Test func parsesATreeURLIntoRefAndPath() throws {
+        let source = try SkillSourceURL.parse("https://github.com/vercel-labs/skills/tree/main/skills/find-skills")
+
+        #expect(source.url.absoluteString == "https://github.com/vercel-labs/skills")
+        #expect(source.ref == "main")
+        #expect(source.pathPrefix == "skills/find-skills")
+    }
+
+    @Test func parsesAGitLabTreeURL() throws {
+        let source = try SkillSourceURL.parse("https://gitlab.com/group/repo/-/tree/develop/skills/one")
+
+        #expect(source.url.absoluteString == "https://gitlab.com/group/repo")
+        #expect(source.ref == "develop")
+        #expect(source.pathPrefix == "skills/one")
+    }
+
+    @Test func parsesAHashRef() throws {
+        let source = try SkillSourceURL.parse("https://github.com/owner/repo#v1.2.0")
+
+        #expect(source.ref == "v1.2.0")
+        #expect(source.url.absoluteString == "https://github.com/owner/repo")
+    }
+
+    @Test func rejectsWhatIsNotARepository() {
+        #expect(throws: SkillSourceError.self) { try SkillSourceURL.parse("") }
+        #expect(throws: SkillSourceError.self) { try SkillSourceURL.parse("not a repo") }
+        #expect(throws: SkillSourceError.self) { try SkillSourceURL.parse("ftp://example.com/x") }
+        #expect(throws: SkillSourceError.self) { try SkillSourceURL.parse("https://github.com/owner") }
+    }
+
+    @Test func suggestsTheSkillFolderWhenThePathIsTooDeep() throws {
+        let source = try SkillSourceURL.parse("https://github.com/vercel-labs/skills")
+        let catalog = SkillCatalog(skills: [])
+
+        #expect(catalog.skills.isEmpty)
+        #expect(source.pathPrefix == nil)
+    }
+
     // MARK: - Resolution
 
     @Test func resolvesUserSkillFiles() throws {

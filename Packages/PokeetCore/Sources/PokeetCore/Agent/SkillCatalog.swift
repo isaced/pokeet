@@ -99,6 +99,80 @@ public struct SkillCatalog: Sendable, Equatable {
         skills.isEmpty
     }
 
+    public struct Inspection: Sendable, Equatable {
+        public let skill: Skill?
+        public let issues: [SkillIssue]
+
+        public init(skill: Skill?, issues: [SkillIssue]) {
+            self.skill = skill
+            self.issues = issues
+        }
+    }
+
+    /// Validates one folder (or one Markdown file) with the same rules discovery uses.
+    /// Import runs this twice: once on the copy the user picked, once after it is staged,
+    /// so what the preview promised is what the next scan will see.
+    public static func inspect(_ url: URL, source: Skill.Source) -> Inspection {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+            return Inspection(
+                skill: nil,
+                issues: [SkillIssue(path: url.lastPathComponent, message: "Nothing at this path")]
+            )
+        }
+
+        let skillFile: URL
+        let skillDirectory: URL
+        if isDirectory.boolValue {
+            let candidate = url.appending(path: "SKILL.md")
+            guard FileManager.default.fileExists(atPath: candidate.path) else {
+                return Inspection(
+                    skill: nil,
+                    issues: [SkillIssue(
+                        path: url.lastPathComponent,
+                        message: "No SKILL.md in this folder — a skill is a folder with a SKILL.md inside"
+                    )]
+                )
+            }
+            skillFile = candidate
+            skillDirectory = url
+        } else if url.pathExtension.lowercased() == "md" {
+            skillFile = url
+            skillDirectory = url.deletingLastPathComponent()
+        } else {
+            return Inspection(
+                skill: nil,
+                issues: [SkillIssue(
+                    path: url.lastPathComponent,
+                    message: "Only a folder with a SKILL.md, or a single .md file, can be imported"
+                )]
+            )
+        }
+
+        let result = SkillLoader.makeSkill(
+            file: skillFile,
+            source: source,
+            baseRoot: skillDirectory.deletingLastPathComponent(),
+            pseudoNames: source == .user,
+            skillDirectory: skillDirectory
+        )
+        return Inspection(skill: result.skill, issues: result.issues)
+    }
+
+    /// Every `SKILL.md` anywhere in a tree, for a repository that has not settled on a
+    /// skills folder. Same loader, same validation, no fixed roots: `.git`, `node_modules`
+    /// and friends are skipped, and the depth cap keeps a monorepo from turning into a walk.
+    public static func scanRepository(at directory: URL) -> SkillCatalog {
+        var loader = SkillLoader()
+        loader.loadRoot(
+            directory.standardizedFileURL.resolvingSymlinksInPath(),
+            source: .user,
+            baseRoot: directory.standardizedFileURL.resolvingSymlinksInPath(),
+            pseudoNames: false
+        )
+        return loader.finish(reportPromptCap: false)
+    }
+
     // MARK: - Loading
 
     public static func load(projectRoot: URL, userSkillsDirectory: URL?) -> SkillCatalog {
@@ -115,6 +189,14 @@ public struct SkillCatalog: Sendable, Equatable {
             loader.loadRoot(directory, source: .user, baseRoot: directory, pseudoNames: true)
         }
 
+        return loader.finish()
+    }
+
+    /// The app-level folder on its own, for readers that have no project in hand.
+    public static func load(userSkillsDirectory: URL) -> SkillCatalog {
+        var loader = SkillLoader()
+        let directory = userSkillsDirectory.standardizedFileURL.resolvingSymlinksInPath()
+        loader.loadRoot(directory, source: .user, baseRoot: directory, pseudoNames: true)
         return loader.finish()
     }
 
@@ -235,6 +317,10 @@ private struct SkillLoader {
         ".build", ".git", ".swiftpm", "deriveddata", "node_modules", "pods", "vendor"
     ]
 
+    /// Dot-directories are skipped, except the two conventions a repository scan has to
+    /// look inside — otherwise `.agents/skills` would be invisible from the repo root.
+    private static let allowedDotDirectories: Set<String> = [".agents", ".pokeet"]
+
     private(set) var skills: [Skill] = []
     private(set) var issues: [SkillIssue] = []
     private var seenPaths: Set<String> = []
@@ -291,7 +377,8 @@ private struct SkillLoader {
 
         for entry in sorted {
             let name = entry.lastPathComponent
-            guard !name.hasPrefix(".") else { continue }
+            let isDotDirectory = name.hasPrefix(".")
+            guard !isDotDirectory || Self.allowedDotDirectories.contains(name) else { continue }
             guard !Self.skippedDirectories.contains(name.lowercased()) else { continue }
 
             var isDirectory: ObjCBool = false
@@ -323,68 +410,82 @@ private struct SkillLoader {
         let realPath = file.resolvingSymlinksInPath().path
         guard !seenPaths.contains(realPath) else { return }
 
-        let size = (try? file.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
-        guard size <= SkillCatalog.maxSkillBytes else {
+        let result = Self.makeSkill(
+            file: file,
+            source: source,
+            baseRoot: baseRoot,
+            pseudoNames: pseudoNames,
+            skillDirectory: skillDirectory
+        )
+        issues.append(contentsOf: result.issues)
+
+        guard let skill = result.skill else { return }
+        if let existing = skills.first(where: { $0.name == skill.name }) {
             issues.append(SkillIssue(
-                path: relativePath(of: file, from: baseRoot),
-                message: "SKILL.md is larger than \(SkillCatalog.maxSkillBytes) bytes"
+                path: skill.location,
+                message: "name \"\(skill.name)\" collision with \(existing.location); keeping the first one"
             ))
             return
+        }
+
+        seenPaths.insert(realPath)
+        skills.append(skill)
+    }
+
+    /// Reads and validates one `SKILL.md`. Pure: no dedupe, no collision handling, so the
+    /// import preview and the discovery walk can share it.
+    static func makeSkill(
+        file: URL,
+        source: Skill.Source,
+        baseRoot: URL,
+        pseudoNames: Bool,
+        skillDirectory: URL
+    ) -> (skill: Skill?, issues: [SkillIssue]) {
+        let displayPath = relativePath(of: file, from: baseRoot)
+
+        let size = (try? file.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+        guard size <= SkillCatalog.maxSkillBytes else {
+            return (nil, [SkillIssue(
+                path: displayPath,
+                message: "SKILL.md is larger than \(SkillCatalog.maxSkillBytes) bytes"
+            )])
         }
 
         guard let text = try? TextFileReader.read(
             at: file,
             maxBytes: SkillCatalog.maxSkillBytes,
-            displayPath: relativePath(of: file, from: baseRoot)
+            displayPath: displayPath
         ) else {
-            issues.append(SkillIssue(
-                path: relativePath(of: file, from: baseRoot),
-                message: "SKILL.md could not be read"
-            ))
-            return
+            return (nil, [SkillIssue(path: displayPath, message: "SKILL.md could not be read")])
         }
 
-        let displayPath = relativePath(of: file, from: baseRoot)
         let fields = Frontmatter.parse(text)
         let description = (fields["description"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !description.isEmpty else {
-            issues.append(SkillIssue(
+            return (nil, [SkillIssue(
                 path: displayPath,
                 message: fields.isEmpty
                     ? "SKILL.md has no readable frontmatter, so it has no description and can never be picked"
                     : "SKILL.md has no description, so the model can never pick it"
-            ))
-            return
+            )])
         }
 
         let declaredName = (fields["name"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let name = declaredName.isEmpty ? skillDirectory.lastPathComponent : declaredName
-
-        for warning in Self.validationWarnings(name: name, description: description) {
-            issues.append(SkillIssue(path: displayPath, message: warning))
-        }
-
-        if let existing = skills.first(where: { $0.name == name }) {
-            issues.append(SkillIssue(
-                path: displayPath,
-                message: "name \"\(name)\" collision with \(existing.location); keeping the first one"
-            ))
-            return
-        }
+        let warnings = validationWarnings(name: name, description: description)
+            .map { SkillIssue(path: displayPath, message: $0) }
 
         let directory: String
         let location: String
         if pseudoNames {
-            let inner = relativePath(of: file, from: skillDirectory)
-            location = "\(SkillCatalog.pseudoPrefix)\(name)/\(inner)"
+            location = "\(SkillCatalog.pseudoPrefix)\(name)/\(relativePath(of: file, from: skillDirectory))"
             directory = "\(SkillCatalog.pseudoPrefix)\(name)"
         } else {
             location = displayPath
             directory = relativePath(of: skillDirectory, from: baseRoot)
         }
 
-        seenPaths.insert(realPath)
-        skills.append(Skill(
+        return (Skill(
             name: name,
             description: description,
             location: location,
@@ -392,7 +493,7 @@ private struct SkillLoader {
             source: source,
             disablesModelInvocation: fields["disable-model-invocation"] == "true",
             fileURL: file
-        ))
+        ), warnings)
     }
 
     private static func validationWarnings(name: String, description: String) -> [String] {
@@ -413,13 +514,13 @@ private struct SkillLoader {
         return warnings
     }
 
-    mutating func finish() -> SkillCatalog {
+    mutating func finish(reportPromptCap: Bool = true) -> SkillCatalog {
         let ordered = skills.sorted { first, second in
             if first.source != second.source { return first.source == .project }
             return first.name < second.name
         }
         var catalog = SkillCatalog(skills: ordered, issues: issues)
-        if catalog.promptSection().isTruncated {
+        if reportPromptCap, catalog.promptSection().isTruncated {
             let visible = ordered.filter { !$0.disablesModelInvocation }.count
             catalog = SkillCatalog(
                 skills: ordered,
@@ -434,7 +535,7 @@ private struct SkillLoader {
     }
 
     private func isIgnored(_ url: URL, isDirectory: Bool, baseRoot: URL, ignore: IgnoreRules) -> Bool {
-        ignore.isIgnored(relativePath(of: url, from: baseRoot), isDirectory: isDirectory)
+        ignore.isIgnored(Self.relativePath(of: url, from: baseRoot), isDirectory: isDirectory)
     }
 
     private func isSymbolicLink(_ url: URL) -> Bool {
@@ -442,7 +543,7 @@ private struct SkillLoader {
     }
 
     /// Paths in prompts and issues use `/`, whatever the platform separator is.
-    private func relativePath(of url: URL, from root: URL) -> String {
+    static func relativePath(of url: URL, from root: URL) -> String {
         let base = root.standardizedFileURL.path
         let full = url.standardizedFileURL.path
         guard full.hasPrefix(base + "/") else { return url.lastPathComponent }

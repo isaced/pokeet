@@ -20,6 +20,7 @@ final class AppEnvironment {
     /// this directory is the one the user keeps across clones. It is inside the
     /// container, so nothing outside the app can drop files here yet.
     let skillsDirectory: URL
+    let skills: SkillsStore
     let runs = AgentRunRegistry()
     let notifier = SessionNotifier.shared
     /// Set when a notification is tapped; the session list consumes it and pushes the chat.
@@ -44,12 +45,22 @@ final class AppEnvironment {
         let skillsDirectory = skillsDirectory ?? Self.defaultSkillsDirectory
         try? FileManager.default.createDirectory(at: skillsDirectory, withIntermediateDirectories: true)
         self.skillsDirectory = skillsDirectory
+        self.skills = SkillsStore(
+            directory: skillsDirectory,
+            projects: { [projects] in projects.projects }
+        )
 
         // Taps arrive through the shared delegate, so wire it before anything can run.
         notifier.configure()
         notifier.onOpen = { [weak self] link in
             self?.pendingSessionLink = link
         }
+    }
+
+    /// Called after a skill is imported or deleted, so open chats rescan instead of waiting
+    /// for the next session.
+    func reloadSkillsInOpenChats() {
+        runs.reloadSkills()
     }
 
     func consumeSessionLink(for project: Project) -> UUID? {

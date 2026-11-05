@@ -48,10 +48,21 @@ struct SettingsView: View {
                             Label("Web Search", systemImage: "magnifyingglass")
                         }
                     }
+
+                    NavigationLink {
+                        SkillsView()
+                    } label: {
+                        LabeledContent {
+                            Text(skillsSummary)
+                                .foregroundStyle(environment.skills.globalIssues.isEmpty ? Color.secondary : Color.orange)
+                        } label: {
+                            Label("Skills", systemImage: "book.closed")
+                        }
+                    }
                 } header: {
                     Text("Tools")
                 } footer: {
-                    Text("A search backend the agent can query. Search results are snippets; pages are read with the guarded fetch tool.")
+                    Text("A search backend the agent can query, and the skills it can load on demand. Search results are snippets; pages are read with the guarded fetch tool.")
                 }
 
                 Section {
@@ -96,6 +107,13 @@ struct SettingsView: View {
         guard let provider = settings.activeProvider else { return "Not configured" }
         guard let model = provider.effectiveModelID else { return provider.name }
         return "\(provider.name) · \(model)"
+    }
+
+    private var skillsSummary: String {
+        let count = environment.skills.global.skills.count
+        if count == 0 { return "None" }
+        let issues = environment.skills.globalIssues.count
+        return issues == 0 ? "\(count) installed" : "\(count) installed · \(issues) skipped"
     }
 
     private func webSearchSummary(_ settings: AppSettings) -> String {

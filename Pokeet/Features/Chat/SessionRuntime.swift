@@ -207,6 +207,11 @@ final class SessionRuntime {
         _ = applyActiveConfiguration(reportErrors: false)
     }
 
+    /// Picks up a skill that was imported or deleted while this chat was open.
+    func reloadSkills() async {
+        await session.reloadSkills()
+    }
+
     // MARK: - Observation
 
     /// Views call this while they are on screen; the registry only releases runtimes nobody
