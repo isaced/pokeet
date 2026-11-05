@@ -329,6 +329,10 @@ private struct FakeRepositoryFetcher: SkillRepositoryFetching {
     func commitSHA(at directory: URL) async throws -> String? {
         commit
     }
+
+    func latestCommit(_ source: SkillSourceURL, token: String?) async throws -> String? {
+        commit
+    }
 }
 
 private func repositorySkill(_ name: String, description: String = "From a repo.") -> String {
@@ -438,6 +442,190 @@ extension SkillsStoreTests {
         await XCTAssertThrowsErrorAsync(try await store.fetchRepository("vercel-labs/skills")) { error in
             XCTAssertEqual(error as? SkillFetchError, .networkDisabled)
         }
+    }
+}
+
+/// A fake that can move its remote HEAD between calls, and counts handshakes — the
+/// "one check per repository" rule needs something to observe.
+private actor MutableRepositoryFetcher: SkillRepositoryFetching {
+    private var files: [String: String]
+    private var commit: String?
+    private var latest: String?
+    private(set) var latestCalls: [String] = []
+    private var latestFailure: SkillFetchError?
+
+    func setLatestFailureForTesting(_ error: SkillFetchError?) {
+        latestFailure = error
+    }
+
+    init(files: [String: String], commit: String? = "abc123") {
+        self.files = files
+        self.commit = commit
+        self.latest = commit
+    }
+
+    /// A clone taken now would land on the new HEAD, so both move together.
+    func setLatest(_ value: String?) {
+        latest = value
+        commit = value
+    }
+
+    func setFiles(_ value: [String: String]) {
+        files = value
+    }
+
+    func clone(
+        _ source: SkillSourceURL,
+        token: String?,
+        into directory: URL,
+        progress: @escaping @Sendable (Double) -> Void
+    ) async throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        for (path, content) in files {
+            let url = directory.appending(path: path)
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try content.write(to: url, atomically: true, encoding: .utf8)
+        }
+        progress(1)
+    }
+
+    func commitSHA(at directory: URL) async throws -> String? {
+        commit
+    }
+
+    func latestCommit(_ source: SkillSourceURL, token: String?) async throws -> String? {
+        latestCalls.append(source.url.absoluteString)
+        if let latestFailure { throw latestFailure }
+        return latest
+    }
+
+    func recordedLatestCalls() -> [String] {
+        latestCalls
+    }
+}
+
+extension SkillsStoreTests {
+    private func makeUpdateStore(fetcher: MutableRepositoryFetcher) -> SkillsStore {
+        SkillsStore(
+            directory: skillsDirectory,
+            fetcher: fetcher,
+            workingRoot: root.appendingPathComponent("Fetches", isDirectory: true)
+        )
+    }
+
+    private func importFindSkills(_ store: SkillsStore) async throws {
+        let repository = try await store.fetchRepository("vercel-labs/skills")
+        try await store.importSkills(from: repository, names: ["find-skills"])
+        repository.remove()
+    }
+
+    func testCheckForUpdatesFindsANewerCommit() async throws {
+        let fetcher = MutableRepositoryFetcher(files: [
+            "skills/find-skills/SKILL.md": repositorySkill("find-skills")
+        ])
+        let store = makeUpdateStore(fetcher: fetcher)
+        try await importFindSkills(store)
+        await fetcher.setLatest("def456")
+
+        await store.checkForUpdates()
+
+        XCTAssertEqual(store.updates["find-skills"]?.latestCommit, "def456")
+        XCTAssertEqual(store.updates["find-skills"]?.currentCommit, "abc123")
+        XCTAssertTrue(store.updateErrors.isEmpty)
+    }
+
+    func testCheckForUpdatesIsQuietWhenNothingMoved() async throws {
+        let fetcher = MutableRepositoryFetcher(files: [
+            "skills/find-skills/SKILL.md": repositorySkill("find-skills")
+        ])
+        let store = makeUpdateStore(fetcher: fetcher)
+        try await importFindSkills(store)
+
+        await store.checkForUpdates()
+
+        XCTAssertTrue(store.updates.isEmpty)
+    }
+
+    func testOneCheckPerRepository() async throws {
+        let fetcher = MutableRepositoryFetcher(files: [
+            "skills/find-skills/SKILL.md": repositorySkill("find-skills"),
+            "skills/pdf-tools/SKILL.md": repositorySkill("pdf-tools")
+        ])
+        let store = makeUpdateStore(fetcher: fetcher)
+        let repository = try await store.fetchRepository("vercel-labs/skills")
+        try await store.importSkills(from: repository, names: ["find-skills", "pdf-tools"])
+        repository.remove()
+        await fetcher.setLatest("def456")
+
+        await store.checkForUpdates()
+
+        let calls = await fetcher.recordedLatestCalls()
+        XCTAssertEqual(calls, ["https://github.com/vercel-labs/skills"])
+        XCTAssertEqual(Set(store.updates.keys), ["find-skills", "pdf-tools"])
+    }
+
+    func testUpdateInstallsTheNewContentAndCommit() async throws {
+        let fetcher = MutableRepositoryFetcher(files: [
+            "skills/find-skills/SKILL.md": repositorySkill("find-skills")
+        ])
+        let store = makeUpdateStore(fetcher: fetcher)
+        try await importFindSkills(store)
+        await fetcher.setLatest("def456")
+        await fetcher.setFiles([
+            "skills/find-skills/SKILL.md": """
+            ---
+            name: find-skills
+            description: From a repo, v2.
+            ---
+
+            NEW BODY
+            """
+        ])
+        await store.checkForUpdates()
+
+        let updated = try await store.update("find-skills")
+
+        XCTAssertEqual(updated.description, "From a repo, v2.")
+        let installed = try String(
+            contentsOf: skillsDirectory.appendingPathComponent("find-skills/SKILL.md"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(installed.contains("NEW BODY"))
+        XCTAssertEqual(store.provenance(for: "find-skills")?.commit, "def456")
+        XCTAssertTrue(store.updates.isEmpty)
+    }
+
+    func testUpdateRefusesASkillWithNoProvenance() async throws {
+        let fetcher = MutableRepositoryFetcher(files: [:])
+        let store = makeUpdateStore(fetcher: fetcher)
+        _ = try await store.importSkill(from: try makeFolderSkill(
+            folder: "local",
+            name: "local",
+            description: "Not from a repo."
+        ))
+
+        await XCTAssertThrowsErrorAsync(try await store.update("local")) { error in
+            XCTAssertEqual(error as? SkillImportError, .notImported("local"))
+        }
+    }
+
+    func testAFailedCheckIsReportedButDoesNotThrow() async throws {
+        let fetcher = MutableRepositoryFetcher(files: [
+            "skills/find-skills/SKILL.md": repositorySkill("find-skills")
+        ])
+        let store = makeUpdateStore(fetcher: fetcher)
+        try await importFindSkills(store)
+        await fetcher.setLatest(nil)
+        await fetcher.setLatestFailureForTesting(.cloneFailed("offline"))
+
+        await store.checkForUpdates()
+
+        XCTAssertTrue(store.updates.isEmpty)
+        XCTAssertEqual(store.updateErrors.count, 1)
+        XCTAssertNotNil(store.lastUpdateCheck)
     }
 }
 

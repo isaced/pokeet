@@ -63,6 +63,18 @@ actor GitSkillRepositoryFetcher: SkillRepositoryFetching {
         return String(cString: buffer)
     }
 
+    /// `git ls-remote`: one connect, no objects downloaded, so a "check for updates" on ten
+    /// imported skills costs ten handshakes instead of ten clones.
+    func latestCommit(_ source: SkillSourceURL, token: String?) async throws -> String? {
+        _ = Self.libgit2Ready
+        let remote = Self.authenticatedURL(source.url, token: token)
+        let ref = source.ref
+
+        return try await Task.detached(priority: .utility) {
+            try Self.performRemoteHead(remote: remote, ref: ref)
+        }.value
+    }
+
     // MARK: - libgit2
 
     private static func performClone(
@@ -95,6 +107,74 @@ actor GitSkillRepositoryFetcher: SkillRepositoryFetching {
         guard status == GIT_OK.rawValue else {
             throw error(for: status, remote: remote)
         }
+    }
+
+    private static func performRemoteHead(remote: URL, ref: String?) throws -> String? {
+        var pointer: OpaquePointer?
+        guard git_remote_create_detached(&pointer, remote.absoluteString) == GIT_OK.rawValue,
+              let pointer
+        else {
+            throw SkillFetchError.cloneFailed("Could not create a remote for that URL.")
+        }
+        defer { git_remote_free(pointer) }
+
+        var callbacks = git_remote_callbacks()
+        git_remote_init_callbacks(&callbacks, UInt32(GIT_REMOTE_CALLBACKS_VERSION))
+
+        let connectStatus = git_remote_connect(pointer, GIT_DIRECTION_FETCH, &callbacks, nil, nil)
+        guard connectStatus == GIT_OK.rawValue else {
+            throw error(for: connectStatus, remote: remote)
+        }
+        defer { git_remote_disconnect(pointer) }
+
+        var heads: UnsafeMutablePointer<UnsafePointer<git_remote_head>?>?
+        var count = 0
+        guard git_remote_ls(&heads, &count, pointer) == GIT_OK.rawValue, let heads else {
+            return nil
+        }
+
+        // The array belongs to the remote; `git_remote_free` above releases it.
+        var head: (sha: String, symref: String?)?
+        var named: String?
+        let wanted = ref.map { $0.hasPrefix("refs/") ? $0 : "refs/heads/\($0)" }
+
+        for index in 0..<count {
+            guard let entry = heads[index]?.pointee else { continue }
+            guard let namePointer = entry.name else { continue }
+            let name = String(cString: namePointer)
+
+            if name == wanted || (ref.map { name == "refs/tags/\($0)" } ?? false) {
+                named = oidString(entry.oid)
+            }
+            if name == "HEAD" {
+                head = (
+                    oidString(entry.oid),
+                    entry.symref_target.map { String(cString: $0) }
+                )
+            }
+        }
+
+        if ref != nil { return named }
+        guard let head else { return nil }
+
+        // HEAD is usually a symref; resolve it so a moved default branch still compares right.
+        if let symref = head.symref {
+            for index in 0..<count {
+                guard let entry = heads[index]?.pointee,
+                      let namePointer = entry.name,
+                      String(cString: namePointer) == symref
+                else { continue }
+                return oidString(entry.oid)
+            }
+        }
+        return head.sha
+    }
+
+    private static func oidString(_ oid: git_oid) -> String {
+        var oid = oid
+        var buffer = [CChar](repeating: 0, count: 41)
+        git_oid_tostr(&buffer, 41, &oid)
+        return String(cString: buffer)
     }
 
     private static let transferProgressCallback: git_indexer_progress_cb = { stats, payload in

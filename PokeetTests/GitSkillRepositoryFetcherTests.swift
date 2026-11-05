@@ -79,4 +79,28 @@ final class GitSkillRepositoryFetcherTests: XCTestCase {
         XCTAssertEqual(repository.source.ref, "main")
         XCTAssertFalse(repository.skills.isEmpty)
     }
+
+    func testRemoteHeadMatchesAFreshClone() async throws {
+        try requireLive()
+
+        let fetcher = GitSkillRepositoryFetcher()
+        let source = try SkillSourceURL.parse("vercel-labs/skills")
+        let latest = try await SkillRepositoryImport.latestCommit(
+            source,
+            policy: NetworkAccessPolicy(),
+            using: fetcher,
+            token: nil
+        )
+        XCTAssertEqual(latest?.count, 40)
+
+        let repository = try await SkillRepositoryImport.fetch(
+            "vercel-labs/skills",
+            policy: NetworkAccessPolicy(),
+            using: fetcher,
+            token: nil,
+            in: root
+        )
+        defer { repository.remove() }
+        XCTAssertEqual(latest, repository.commit, "ls-remote and a clone must agree on HEAD")
+    }
 }

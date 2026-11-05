@@ -257,13 +257,26 @@ Decisions that mattered:
 
 Refs are treated as branch names (`checkout_branch`); a tag or raw SHA is not resolved yet.
 
+### Updates
+
+`… → Check for Updates` asks every repository named in `.sources.json` for its current HEAD and
+compares the recorded commit. One `git ls-remote` per repository, not per skill: no objects are
+downloaded, and a repository that ships five skills is asked once. Differences show as an **Update**
+badge on the row, a swipe action, and a button in the detail view; `update(name)` re-fetches the
+repository, replaces that one skill, and rewrites its provenance so the next check is quiet.
+
+A failed check is collected per repository and shown in the footer — it never throws, because a
+check is a nicety, not an action. Skills that were not imported from a repository have no
+provenance, so `update` refuses them with `notImported` instead of doing something surprising.
+
 ### Tests
 
 `PokeetCore`: `SkillCatalogTests` (inspect, repository scan, depth and heavy-directory rules,
 `SkillSourceURL` parsing), `SkillRepositoryImportTests` (policy, timeout, empty repository, cleanup,
 path filter).
 `Pokeet`: `SkillsStoreTests` (folder and file import, symlink / size / file-count rejection,
-collision, replace, rollback, delete, provenance, project listing, staging leftovers),
+collision, replace, rollback, delete, provenance, project listing, staging leftovers, update
+detection, one handshake per repository, update installs the new commit, failed checks reported),
 `GitSkillRepositoryFetcherTests` (live, gated by `POKEET_LIVE_SKILL_REPO=1`: real shallow clone of
 `vercel-labs/skills`, `.git/shallow` present, `find-skills` found, import works).
 
@@ -274,8 +287,8 @@ Verified on an iPhone 18 Pro simulator: `vercel-labs/skills` clones in ~2.5 s, t
 
 - zip import (iOS has no zip reader; the folder path covers the same flow)
 - editing a global `SKILL.md` in the app — it lives outside the workspace sandbox
-- per-skill enable, and "update available" for repository imports
-- update checks against the recorded commit
+- per-skill enable
+- checking more than the recorded branch/SHA (no tag or commit-pinned imports yet)
 
 ## Open questions
 

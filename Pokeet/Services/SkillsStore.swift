@@ -6,6 +6,7 @@ public enum SkillImportError: Error, Equatable, LocalizedError {
     case invalid([SkillIssue])
     case nameTaken(String)
     case nameMismatch(expected: String, found: String)
+    case notImported(String)
     case notRemovable(String)
     case failed(String)
 
@@ -17,6 +18,8 @@ public enum SkillImportError: Error, Equatable, LocalizedError {
             "There is already a skill named \"\(name)\". Delete it first, or import under a different name."
         case .nameMismatch(let expected, let found):
             "The picked skill is named \"\(found)\", not \"\(expected)\". Open it and check the name in its SKILL.md."
+        case .notImported(let name):
+            "\"\(name)\" was not imported from a repository, so there is nothing to update."
         case .notRemovable(let location):
             "\"\(location)\" lives in a repository, so Pokeet will not delete it. Remove it from the project instead."
         case .failed(let message):
@@ -46,6 +49,14 @@ final class SkillsStore {
         var importedAt: Date
     }
 
+    struct Update: Identifiable, Equatable, Sendable {
+        let name: String
+        let currentCommit: String?
+        let latestCommit: String
+
+        var id: String { name }
+    }
+
     struct ProjectSkills: Identifiable {
         let project: Project
         let catalog: SkillCatalog
@@ -63,7 +74,10 @@ final class SkillsStore {
     private(set) var global: SkillCatalog
     private(set) var projects: [ProjectSkills] = []
     private(set) var provenance: [String: Provenance] = [:]
+    private(set) var updates: [String: Update] = [:]
+    private(set) var updateErrors: [String: String] = [:]
     private(set) var lastRefreshed: Date?
+    private(set) var lastUpdateCheck: Date?
 
     init(
         directory: URL,
@@ -310,26 +324,32 @@ final class SkillsStore {
     @discardableResult
     func importSkills(
         from repository: RemoteSkillRepository,
-        names: [String]
+        names: [String],
+        replacingExisting: Bool = false
     ) async throws -> [Skill] {
         let selected = names.compactMap { repository.skill(named: $0) }
         guard !selected.isEmpty else {
             throw SkillImportError.failed("Pick at least one skill to import.")
         }
 
-        let existing = Set(global.skills.map(\.name))
-        let clash = selected.first { skill in
-            existing.contains(skill.name)
-                || FileManager.default.fileExists(atPath: directory.appendingPathComponent(skill.name).path)
-        }
-        if let clash {
-            throw SkillImportError.nameTaken(clash.name)
+        if !replacingExisting {
+            let existing = Set(global.skills.map(\.name))
+            let clash = selected.first { skill in
+                existing.contains(skill.name)
+                    || FileManager.default.fileExists(atPath: directory.appendingPathComponent(skill.name).path)
+            }
+            if let clash {
+                throw SkillImportError.nameTaken(clash.name)
+            }
         }
 
         var installed: [Skill] = []
         do {
             for skill in selected {
-                let copy = try await importSkill(from: skill.fileURL.deletingLastPathComponent())
+                let copy = try await importSkill(
+                    from: skill.fileURL.deletingLastPathComponent(),
+                    replacing: replacingExisting ? skill.name : nil
+                )
                 installed.append(copy)
                 var updated = provenance
                 updated[copy.name] = Provenance(
@@ -360,6 +380,90 @@ final class SkillsStore {
 
     func provenance(for name: String) -> Provenance? {
         provenance[name]
+    }
+
+    // MARK: - Updates
+
+    /// One remote handshake per repository, not per skill: a repo that ships five skills is
+    /// asked once. Failures are collected, never thrown — a check is a nicety, not an action.
+    func checkForUpdates() async {
+        guard !provenance.isEmpty else {
+            updates = [:]
+            updateErrors = [:]
+            lastUpdateCheck = Date()
+            return
+        }
+
+        let groups = Dictionary(grouping: provenance) { name, entry in
+            Self.sourceKey(entry)
+        }
+
+        var found: [String: Update] = [:]
+        var failures: [String: String] = [:]
+        for (key, entries) in groups {
+            guard let entry = entries.first?.value else { continue }
+            do {
+                let source = try SkillSourceURL.parse(Self.rawSource(entry))
+                let latest = try await SkillRepositoryImport.latestCommit(
+                    source,
+                    policy: policyProvider(),
+                    using: fetcher,
+                    token: tokenProvider()
+                )
+                guard let latest else { continue }
+                for (name, provenance) in entries where provenance.commit != latest {
+                    found[name] = Update(
+                        name: name,
+                        currentCommit: provenance.commit,
+                        latestCommit: latest
+                    )
+                }
+            } catch {
+                failures[key] = error.localizedDescription
+            }
+        }
+
+        updates = found
+        updateErrors = failures
+        lastUpdateCheck = Date()
+    }
+
+    /// Re-fetches the repository and installs just this skill again, keeping its provenance
+    /// current so the next check is quiet.
+    @discardableResult
+    func update(_ name: String) async throws -> Skill {
+        guard let entry = provenance[name] else {
+            throw SkillImportError.notImported(name)
+        }
+
+        let repository = try await fetchRepository(Self.rawSource(entry))
+        defer { repository.remove() }
+
+        guard repository.skill(named: name) != nil else {
+            throw SkillImportError.failed(
+                "The repository no longer contains \"\(name)\". Delete the local copy if it is gone for good."
+            )
+        }
+
+        let imported = try await importSkills(
+            from: repository,
+            names: [name],
+            replacingExisting: true
+        )
+        updates.removeValue(forKey: name)
+        guard let skill = imported.first else {
+            throw SkillImportError.failed("Could not install the update.")
+        }
+        return skill
+    }
+
+    private static func rawSource(_ entry: Provenance) -> String {
+        guard let ref = entry.ref, !ref.isEmpty else { return entry.repository }
+        return "\(entry.repository)#\(ref)"
+    }
+
+    private static func sourceKey(_ entry: Provenance) -> String {
+        "\(entry.repository)#\(entry.ref ?? "")"
     }
 
     // MARK: - Delete

@@ -9,17 +9,23 @@ private struct FakeRepositoryFetcher: SkillRepositoryFetching {
     let commit: String?
     let delay: Duration?
     let failure: SkillFetchError?
+    let latest: String?
+    let latestFailure: SkillFetchError?
 
     init(
         files: [String: String],
         commit: String? = "abc123",
         delay: Duration? = nil,
-        failure: SkillFetchError? = nil
+        failure: SkillFetchError? = nil,
+        latest: String? = nil,
+        latestFailure: SkillFetchError? = nil
     ) {
         self.files = files
         self.commit = commit
         self.delay = delay
         self.failure = failure
+        self.latest = latest
+        self.latestFailure = latestFailure
     }
 
     func clone(
@@ -44,6 +50,11 @@ private struct FakeRepositoryFetcher: SkillRepositoryFetching {
 
     func commitSHA(at directory: URL) async throws -> String? {
         commit
+    }
+
+    func latestCommit(_ source: SkillSourceURL, token: String?) async throws -> String? {
+        if let latestFailure { throw latestFailure }
+        return latest
     }
 }
 
@@ -196,6 +207,34 @@ struct SkillRepositoryImportTests {
                 using: fetcher,
                 token: nil,
                 in: root.url
+            )
+        }
+    }
+
+    @Test func readsTheRemoteHeadWithoutCloning() async throws {
+        let fetcher = FakeRepositoryFetcher(files: [:], latest: "def456")
+        let source = try SkillSourceURL.parse("owner/repo")
+
+        let latest = try await SkillRepositoryImport.latestCommit(
+            source,
+            policy: NetworkAccessPolicy(),
+            using: fetcher,
+            token: nil
+        )
+
+        #expect(latest == "def456")
+    }
+
+    @Test func theHeadCheckObeysTheNetworkPolicy() async throws {
+        let fetcher = FakeRepositoryFetcher(files: [:], latest: "def456")
+        let source = try SkillSourceURL.parse("owner/repo")
+
+        await #expect(throws: SkillFetchError.networkDisabled) {
+            try await SkillRepositoryImport.latestCommit(
+                source,
+                policy: NetworkAccessPolicy(isEnabled: false),
+                using: fetcher,
+                token: nil
             )
         }
     }

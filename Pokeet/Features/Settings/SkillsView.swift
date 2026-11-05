@@ -41,11 +41,22 @@ struct SkillsView: View {
                 } else {
                     ForEach(environment.skills.global.skills) { skill in
                         NavigationLink {
-                            SkillDetailView(skill: skill, catalog: environment.skills.global)
+                            SkillDetailView(
+                                skill: skill,
+                                catalog: environment.skills.global,
+                                provenance: environment.skills.provenance(for: skill.name),
+                                update: environment.skills.updates[skill.name]
+                            )
                         } label: {
-                            SkillRow(skill: skill)
+                            SkillRow(skill: skill, update: environment.skills.updates[skill.name])
                         }
                         .swipeActions {
+                            if environment.skills.updates[skill.name] != nil {
+                                Button("Update") {
+                                    Task { await update(skill) }
+                                }
+                                .tint(.blue)
+                            }
                             Button("Delete", role: .destructive) {
                                 Task { await delete(skill) }
                             }
@@ -55,7 +66,13 @@ struct SkillsView: View {
             } header: {
                 Text("This app")
             } footer: {
-                Text("Shared by every project. \(environment.skills.global.skills.count) loaded.")
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Shared by every project. \(environment.skills.global.skills.count) loaded.")
+                    if !environment.skills.updateErrors.isEmpty {
+                        Text("Update check failed for \(environment.skills.updateErrors.count) repository. Network access or the token may be missing.")
+                            .foregroundStyle(.orange)
+                    }
+                }
             }
 
             ForEach(environment.skills.projects) { entry in
@@ -63,9 +80,14 @@ struct SkillsView: View {
                     Section {
                         ForEach(entry.catalog.skills) { skill in
                             NavigationLink {
-                                SkillDetailView(skill: skill, catalog: entry.catalog)
+                                SkillDetailView(
+                                    skill: skill,
+                                    catalog: entry.catalog,
+                                    provenance: nil,
+                                    update: nil
+                                )
                             } label: {
-                                SkillRow(skill: skill)
+                                SkillRow(skill: skill, update: nil)
                             }
                         }
                     } header: {
@@ -96,11 +118,18 @@ struct SkillsView: View {
                 .disabled(isWorking)
             }
             ToolbarItem(placement: .secondaryAction) {
-                Button("Reload") {
-                    Task {
-                        await environment.skills.refresh()
-                        environment.reloadSkillsInOpenChats()
+                Menu {
+                    Button("Reload", systemImage: "arrow.clockwise") {
+                        Task {
+                            await environment.skills.refresh()
+                            environment.reloadSkillsInOpenChats()
+                        }
                     }
+                    Button("Check for Updates", systemImage: "arrow.down.circle") {
+                        Task { await checkForUpdates() }
+                    }
+                } label: {
+                    Label("More", systemImage: "ellipsis.circle")
                 }
             }
         }
@@ -193,6 +222,22 @@ struct SkillsView: View {
         }
     }
 
+    private func checkForUpdates() async {
+        await environment.skills.refresh()
+        await environment.skills.checkForUpdates()
+    }
+
+    private func update(_ skill: Skill) async {
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            try await environment.skills.update(skill.name)
+            environment.reloadSkillsInOpenChats()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     private func delete(_ skill: Skill) async {
         do {
             try await environment.skills.delete(skill)
@@ -213,6 +258,7 @@ struct SkillsView: View {
 
 private struct SkillRow: View {
     let skill: Skill
+    let update: SkillsStore.Update?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -223,6 +269,14 @@ private struct SkillRow: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .accessibilityLabel("Only loads when asked for")
+                }
+                if update != nil {
+                    Text("Update")
+                        .font(.caption2.weight(.semibold))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1)
+                        .background(Color.accentColor.opacity(0.15), in: Capsule())
+                        .foregroundStyle(Color.accentColor)
                 }
             }
             Text(skill.description)
@@ -298,6 +352,10 @@ private struct SkillImportPreview: View {
 private struct SkillDetailView: View {
     let skill: Skill
     let catalog: SkillCatalog
+    let provenance: SkillsStore.Provenance?
+    let update: SkillsStore.Update?
+
+    @Environment(AppEnvironment.self) private var environment
 
     var body: some View {
         List {
@@ -305,6 +363,32 @@ private struct SkillDetailView: View {
                 Text(skill.description)
             } header: {
                 Text("When it applies")
+            }
+
+            if let provenance {
+                Section {
+                    if let update {
+                        Button {
+                            Task {
+                                try? await environment.skills.update(skill.name)
+                                environment.reloadSkillsInOpenChats()
+                            }
+                        } label: {
+                            Label(
+                                "Update to \(String(update.latestCommit.prefix(7)))",
+                                systemImage: "arrow.down.circle"
+                            )
+                        }
+                    }
+                    LabeledContent("Repository", value: provenance.repository)
+                    if let ref = provenance.ref {
+                        LabeledContent("Ref", value: ref)
+                    }
+                    LabeledContent("Commit", value: String((update?.latestCommit ?? provenance.commit ?? "").prefix(7)))
+                    LabeledContent("Imported", value: provenance.importedAt.formatted(date: .abbreviated, time: .shortened))
+                } header: {
+                    Text("Source")
+                }
             }
 
             Section {

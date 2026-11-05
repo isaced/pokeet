@@ -39,6 +39,9 @@ public protocol SkillRepositoryFetching: Sendable {
         progress: @escaping @Sendable (Double) -> Void
     ) async throws
     func commitSHA(at directory: URL) async throws -> String?
+    /// The commit HEAD points at on the remote, without cloning. Used to tell whether an
+    /// imported skill has moved on.
+    func latestCommit(_ source: SkillSourceURL, token: String?) async throws -> String?
 }
 
 /// A clone that has been scanned but not yet imported. It owns its temporary directory:
@@ -124,6 +127,19 @@ public enum SkillRepositoryImport {
             )
         }
         return repository
+    }
+
+    /// Asks the remote for the commit it would hand out now, under the same policy as a clone.
+    public static func latestCommit(
+        _ source: SkillSourceURL,
+        policy: NetworkAccessPolicy,
+        using fetcher: any SkillRepositoryFetching,
+        token: String?
+    ) async throws -> String? {
+        try validate(source, policy: policy)
+        return try await withTimeout(.seconds(30)) {
+            try await fetcher.latestCommit(source, token: token)
+        }
     }
 
     public static func validate(_ source: SkillSourceURL, policy: NetworkAccessPolicy) throws {
