@@ -183,7 +183,8 @@ final class SessionRuntime {
             skills: SkillLocations(
                 projectRoot: project.directory,
                 userSkillsDirectory: environment.skillsDirectory
-            )
+            ),
+            excludedSkills: environment.settings.disabledSkillNames
         )
 
         coordinator.onPending = { [weak self] proposals in
@@ -210,12 +211,16 @@ final class SessionRuntime {
 
     /// Picks up a skill that was imported, edited or deleted while this chat was open.
     func reloadSkills() async {
+        // Settings can have changed since the last scan; a skill turned off must not be
+        // offered again just because its file is still there.
+        await session.setExcludedSkills(environment.settings.disabledSkillNames)
         await session.reloadSkills()
         await refreshLoadedSkills()
     }
 
     private func refreshLoadedSkills() async {
-        loadedSkills = await session.loadedSkills.skills
+        let disabled = environment.settings.disabledSkillNames
+        loadedSkills = await session.loadedSkills.skills.filter { !disabled.contains($0.name) }
     }
 
     // MARK: - Observation

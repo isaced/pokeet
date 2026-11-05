@@ -68,6 +68,21 @@ final class AppSettingsTests: XCTestCase {
         )
     }
 
+    func testDisabledSkillsPersistAndToggle() {
+        let settings = AppSettings(defaults: defaults, secrets: MemorySecretStore())
+
+        XCTAssertTrue(settings.isSkillEnabled("pdf-tools"))
+        settings.setSkillEnabled(false, for: "pdf-tools")
+        XCTAssertFalse(settings.isSkillEnabled("pdf-tools"))
+        XCTAssertEqual(settings.disabledSkillNames, ["pdf-tools"])
+
+        let reloaded = AppSettings(defaults: defaults, secrets: MemorySecretStore())
+        XCTAssertEqual(reloaded.disabledSkillNames, ["pdf-tools"])
+
+        reloaded.setSkillEnabled(true, for: "pdf-tools")
+        XCTAssertTrue(reloaded.disabledSkillNames.isEmpty)
+    }
+
     func testStartsEmptyAndPersistsEmptyList() {
         let secrets = MemorySecretStore()
         let settings = AppSettings(defaults: defaults, secrets: secrets)

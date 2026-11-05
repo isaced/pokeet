@@ -387,4 +387,45 @@ final class SessionRuntimeTests: XCTestCase {
         XCTAssertEqual(model.input, "/skill:pdf-tools ")
     }
 
+
+    /// A skill turned off disappears from the prompt and the composer, but `/skill:<name>`
+    /// still loads it — the file is not touched, only the offer.
+    func testTurningASkillOffHidesItFromTheModel() async throws {
+        let skillDirectory = project.directory.appendingPathComponent(
+            ".agents/skills/pdf-tools",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
+        try """
+        ---
+        name: pdf-tools
+        description: Extract text from PDFs.
+        ---
+
+        STEP ONE
+        """.write(
+            to: skillDirectory.appendingPathComponent("SKILL.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let client = RecordingModelClient()
+        let runtime = makeRuntime(client: client)
+        _ = runtime.attach()
+        await runtime.loadInitialState()
+        XCTAssertEqual(runtime.loadedSkills.map(\.name), ["pdf-tools"])
+
+        environment.settings.setSkillEnabled(false, for: "pdf-tools")
+        await runtime.reloadSkills()
+        XCTAssertTrue(runtime.loadedSkills.isEmpty)
+
+        XCTAssertTrue(runtime.send(text: "/skill:pdf-tools go"))
+        await waitUntil { !(await client.recordedRequests().isEmpty) }
+
+        let requests = await client.recordedRequests()
+        let system = requests.first?.messages.first?.content ?? ""
+        XCTAssertFalse(system.contains("<name>pdf-tools</name>"))
+        let user = try XCTUnwrap(requests.first?.messages.last { $0.role == .user }?.content)
+        XCTAssertTrue(user.contains("STEP ONE"))
+    }
 }

@@ -16,6 +16,7 @@ final class AppSettings {
         static let webSearchEnabled = "settings.websearch.enabled.v1"
         static let webSearchProvider = "settings.websearch.provider.v1"
         static let gitToken = "secret.git.token"
+        static let disabledSkills = "settings.skills.disabled.v1"
         static func apiKey(_ providerID: UUID) -> String {
             "secret.llm.\(providerID.uuidString).apiKey"
         }
@@ -66,6 +67,24 @@ final class AppSettings {
         didSet { defaults.set(webSearchEnabled, forKey: Key.webSearchEnabled) }
     }
 
+    /// Skills the user turned off. The files stay where they are; the model just stops being
+    /// offered them, and `/skill:<name>` still works.
+    private(set) var disabledSkillNames: Set<String> {
+        didSet { defaults.set(Array(disabledSkillNames).sorted(), forKey: Key.disabledSkills) }
+    }
+
+    func isSkillEnabled(_ name: String) -> Bool {
+        !disabledSkillNames.contains(name)
+    }
+
+    func setSkillEnabled(_ enabled: Bool, for name: String) {
+        if enabled {
+            disabledSkillNames.remove(name)
+        } else {
+            disabledSkillNames.insert(name)
+        }
+    }
+
     /// Raw `WebSearchProviderKind` id. Kept as a string so a removed provider
     /// degrades to `WebSearchProviderKind.fallback` instead of crashing.
     private(set) var webSearchProviderID: String {
@@ -111,6 +130,7 @@ final class AppSettings {
         networkEnabled = defaults.object(forKey: Key.networkEnabled) as? Bool ?? true
         networkAllowedHosts = defaults.string(forKey: Key.networkAllowedHosts) ?? ""
         webSearchEnabled = defaults.object(forKey: Key.webSearchEnabled) as? Bool ?? false
+        disabledSkillNames = Set(defaults.stringArray(forKey: Key.disabledSkills) ?? [])
         webSearchProviderID = WebSearchProviderKind
             .resolve(defaults.string(forKey: Key.webSearchProvider))
             .rawValue

@@ -582,6 +582,22 @@ struct SkillCatalogTests {
         #expect(source.pathPrefix == nil)
     }
 
+    @Test func excludingRemovesSkillsFromThePromptButKeepsIssues() throws {
+        let project = try TestDirectory()
+        defer { project.cleanup() }
+        try project.write(".agents/skills/pdf-tools/SKILL.md", markdown(name: "pdf-tools", body: "BODY"))
+        try project.write(".agents/skills/release/SKILL.md", markdown(name: "release", body: "BODY"))
+        let catalog = SkillCatalog.load(projectRoot: project.url, userSkillsDirectory: nil)
+
+        let narrowed = catalog.excluding(["pdf-tools"])
+
+        let prompt = narrowed.compose(with: "Base.")
+        #expect(prompt.contains("<name>release</name>"))
+        #expect(prompt.contains("<name>pdf-tools</name>") == false)
+        #expect(narrowed.skills.count == 1)
+        #expect(catalog.excluding([]).skills.count == 2, "an empty set is the whole catalog")
+    }
+
     // MARK: - Resolution
 
     @Test func resolvesUserSkillFiles() throws {

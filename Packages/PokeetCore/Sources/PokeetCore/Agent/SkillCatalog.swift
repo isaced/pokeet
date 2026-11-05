@@ -200,6 +200,17 @@ public struct SkillCatalog: Sendable, Equatable {
         return loader.finish()
     }
 
+    /// The skills the model may pick from. A user can turn one off without touching the file,
+    /// so the prompt is composed from a narrowed catalog while lookups keep the full one —
+    /// an explicit `/skill:<name>` still loads a skill the model would not have offered.
+    public func excluding(_ names: Set<String>) -> SkillCatalog {
+        guard !names.isEmpty else { return self }
+        return SkillCatalog(
+            skills: skills.filter { !names.contains($0.name) },
+            issues: issues
+        )
+    }
+
     // MARK: - Lookup
 
     public func skill(named name: String) -> Skill? {

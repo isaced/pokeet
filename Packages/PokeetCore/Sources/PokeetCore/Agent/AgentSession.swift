@@ -12,6 +12,7 @@ public actor AgentSession {
     private let instructions: ProjectInstructions
     private let skillLocations: SkillLocations?
     private var skills: SkillCatalog
+    private var excludedSkillNames: Set<String>
     private let scripting: ScriptRuntimes?
     private let webSearch: (any WebSearchProviding)?
     private let webSearchBudget = WebSearchBudget()
@@ -35,7 +36,8 @@ public actor AgentSession {
         webSearch: (any WebSearchProviding)? = nil,
         config: AgentConfiguration = AgentConfiguration(),
         summarizer: (any ContextSummarizer)? = nil,
-        skills: SkillLocations? = nil
+        skills: SkillLocations? = nil,
+        excludedSkills: Set<String> = []
     ) {
         self.client = client
         self.registry = tools
@@ -54,6 +56,7 @@ public actor AgentSession {
         )
         self.instructions = ProjectInstructions.load(from: workspace)
         self.skillLocations = skills
+        self.excludedSkillNames = excludedSkills
         self.skills = skills.map {
             SkillCatalog.load(
                 projectRoot: $0.projectRoot,
@@ -65,7 +68,7 @@ public actor AgentSession {
         self.networkPolicy = networkPolicy
         self.scripting = scripting
         self.webSearch = webSearch
-        self.messages = [.system(self.skills.compose(
+        self.messages = [.system(self.skills.excluding(excludedSkills).compose(
             with: instructions.compose(with: systemPrompt + mode.promptGuidance)
         ))]
     }
@@ -80,6 +83,17 @@ public actor AgentSession {
 
     public var loadedSkills: SkillCatalog {
         skills
+    }
+
+    public var loadedExcludedSkills: Set<String> {
+        excludedSkillNames
+    }
+
+    /// Turning a skill off hides it from the prompt; it stays loadable through `/skill:<name>`.
+    public func setExcludedSkills(_ names: Set<String>) {
+        guard excludedSkillNames != names else { return }
+        excludedSkillNames = names
+        refreshSystemMessage()
     }
 
     /// Rescans the skill roots. Called when a session is opened and whenever the
@@ -154,7 +168,11 @@ public actor AgentSession {
     }
 
     private var systemMessage: ChatMessage {
-        .system(skills.compose(with: instructions.compose(with: baseSystemPrompt + mode.promptGuidance)))
+        .system(
+            skills
+                .excluding(excludedSkillNames)
+                .compose(with: instructions.compose(with: baseSystemPrompt + mode.promptGuidance))
+        )
     }
 
     public func send(

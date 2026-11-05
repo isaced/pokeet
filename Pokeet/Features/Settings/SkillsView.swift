@@ -51,10 +51,15 @@ struct SkillsView: View {
                             SkillRow(
                                 skill: skill,
                                 update: environment.skills.updates[skill.name],
-                                note: nil
+                                note: nil,
+                                isEnabled: environment.settings.isSkillEnabled(skill.name)
                             )
                         }
                         .swipeActions {
+                            Button(environment.settings.isSkillEnabled(skill.name) ? "Turn Off" : "Turn On") {
+                                toggle(skill)
+                            }
+                            .tint(.gray)
                             if environment.skills.updates[skill.name] != nil {
                                 Button("Update") {
                                     Task { await update(skill) }
@@ -96,7 +101,8 @@ struct SkillsView: View {
                                     update: nil,
                                     note: entry.shadowsGlobal.contains(skill.name)
                                         ? "The app copy of this skill is not used in this project."
-                                        : nil
+                                        : nil,
+                                    isEnabled: environment.settings.isSkillEnabled(skill.name)
                                 )
                             }
                         }
@@ -248,6 +254,14 @@ struct SkillsView: View {
         }
     }
 
+    private func toggle(_ skill: Skill) {
+        environment.settings.setSkillEnabled(
+            !environment.settings.isSkillEnabled(skill.name),
+            for: skill.name
+        )
+        environment.reloadSkillsInOpenChats()
+    }
+
     private func delete(_ skill: Skill) async {
         do {
             try await environment.skills.delete(skill)
@@ -270,6 +284,7 @@ private struct SkillRow: View {
     let skill: Skill
     let update: SkillsStore.Update?
     var note: String?
+    var isEnabled: Bool = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -280,6 +295,12 @@ private struct SkillRow: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .accessibilityLabel("Only loads when asked for")
+                }
+                if !isEnabled {
+                    Image(systemName: "slash.circle")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel("Turned off")
                 }
                 if update != nil {
                     Text("Update")
@@ -300,6 +321,7 @@ private struct SkillRow: View {
                     .foregroundStyle(.orange)
             }
         }
+        .opacity(isEnabled ? 1 : 0.55)
     }
 }
 
@@ -382,6 +404,18 @@ private struct SkillDetailView: View {
                 Text(skill.description)
             } header: {
                 Text("When it applies")
+            }
+
+            Section {
+                Toggle("Offer to the agent", isOn: Binding(
+                    get: { environment.settings.isSkillEnabled(skill.name) },
+                    set: { enabled in
+                        environment.settings.setSkillEnabled(enabled, for: skill.name)
+                        environment.reloadSkillsInOpenChats()
+                    }
+                ))
+            } footer: {
+                Text("Turned off, the skill stays installed and /skill:\(skill.name) still loads it; the model just stops being offered it.")
             }
 
             if let provenance {

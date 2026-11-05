@@ -162,6 +162,62 @@ struct SkillSessionTests {
         #expect(user == "how do I /skill: this?")
     }
 
+    @Test func excludedSkillsLeaveThePromptButStayInvocable() async throws {
+        let project = try TestDirectory()
+        defer { project.cleanup() }
+        try project.write(
+            ".agents/skills/pdf-tools/SKILL.md",
+            frontmatter(name: "pdf-tools", description: "Extract text.", body: "STEP ONE")
+        )
+
+        let client = ScriptedModelClient([
+            ChatResponse(message: .assistant("First."), finishReason: "stop"),
+            ChatResponse(message: .assistant("Second."), finishReason: "stop")
+        ])
+        let session = AgentSession(
+            client: client,
+            workspace: FileWorkspace(root: project.url),
+            skills: SkillLocations(projectRoot: project.url),
+            excludedSkills: ["pdf-tools"]
+        )
+
+        try await session.send("hi", approval: { _ in [] }, onEvent: { _ in })
+        try await session.send("/skill:pdf-tools go", approval: { _ in [] }, onEvent: { _ in })
+
+        let requests = await client.recordedRequests()
+        let system = requests.first?.messages.first?.content ?? ""
+        #expect(system.contains("<name>pdf-tools</name>") == false)
+        #expect(system.contains("<available_skills>") == false)
+        let user = try #require(requests.last?.messages.last { $0.role == .user }?.content)
+        #expect(user.contains("STEP ONE"), "explicit commands still load a disabled skill")
+    }
+
+    @Test func setExcludedSkillsRewritesThePrompt() async throws {
+        let project = try TestDirectory()
+        defer { project.cleanup() }
+        try project.write(
+            ".agents/skills/pdf-tools/SKILL.md",
+            frontmatter(name: "pdf-tools", description: "Extract text.")
+        )
+
+        let client = ScriptedModelClient([
+            ChatResponse(message: .assistant("Done."), finishReason: "stop")
+        ])
+        let session = AgentSession(
+            client: client,
+            workspace: FileWorkspace(root: project.url),
+            skills: SkillLocations(projectRoot: project.url)
+        )
+        await session.setExcludedSkills(["pdf-tools"])
+
+        try await session.send("hi", approval: { _ in [] }, onEvent: { _ in })
+
+        let requests = await client.recordedRequests()
+        let system = requests.first?.messages.first?.content ?? ""
+        #expect(system.contains("<name>pdf-tools</name>") == false)
+        #expect(await session.loadedExcludedSkills == ["pdf-tools"])
+    }
+
     @Test func reloadSkillsPicksUpNewFiles() async throws {
         let project = try TestDirectory()
         defer { project.cleanup() }

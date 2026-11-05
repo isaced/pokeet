@@ -170,7 +170,7 @@ means anything to the agent, so offering a list next to prose would be noise.
 
 - **Phase 1 — shipped.** `SkillCatalog.swift` (catalog, frontmatter, loader), `read_file` dispatch, `/skill:` expansion.
 - **Phase 2 — shipped.** Settings → Skills, folder / single-file import, editing, delete, reload fan-out, repository import (shallow clone, picker, provenance), update checks.
-- **Not built.** zip import, per-skill enable, top-level `*.md` skills in a project, `/skill` autocomplete.
+- **Not built.** zip import, top-level `*.md` skills in a project.
 
 ## Tests
 
@@ -184,6 +184,7 @@ means anything to the agent, so offering a list next to prose would be noise.
 
 - `SkillCommandTests` — what counts as a command prefix, prefix filtering and its cap, insertion
   keeping typed arguments.
+- `AppSettingsTests.testDisabledSkillsPersistAndToggle` — the switch survives a relaunch.
 - `SessionRuntimeTests.testComposerOffersProjectSkills` — the composer's list comes from the live
   session and stays a single runtime.
 - `SessionRuntimeTests.testProjectSkillsReachTheSession` — a project skill reaches the real `AgentSession` and the `/skill:` body lands in the request.
@@ -235,6 +236,17 @@ check → swap. Rejected: no `SKILL.md`, missing description, more than 200 file
 any symlink. A failure removes the staging copy and leaves the live tree untouched; a replace moves
 the old folder aside, moves the new one in, and only then deletes the old one. The installed folder
 is always renamed to the skill's `name`, so `skill://<name>/` and the folder cannot disagree.
+
+### Turning a skill off
+
+A toggle in the detail view (and a swipe on the row) stops the model being *offered* a skill without
+touching the file: the prompt is composed from `SkillCatalog.excluding(disabled)`, while lookups keep
+the full catalog, so `/skill:<name>` still loads a skill the user turned off. The set lives in
+`AppSettings` (`settings.skills.disabled.v1`), is keyed by name, and is re-applied when a session
+reloads, so an open chat picks the change up. Turned-off rows are dimmed with a slash icon.
+
+This is the difference from `disable-model-invocation`: that flag is a property of the skill, written
+by whoever wrote it; the toggle is a preference of this device.
 
 ### Editing
 
@@ -300,7 +312,7 @@ path filter).
 collision, replace, rollback, delete, provenance, project listing, staging leftovers, update
 detection, one handshake per repository, update installs the new commit, failed checks reported,
 editing keeps bundled files, refuses a missing description / rename / project skill, shadowed
-global skills are marked),
+global skills are marked, a turned-off skill leaves the prompt but stays loadable by name),
 `GitSkillRepositoryFetcherTests` (live, gated by `POKEET_LIVE_SKILL_REPO=1`: real shallow clone of
 `vercel-labs/skills`, `.git/shallow` present, `find-skills` found, import works).
 
