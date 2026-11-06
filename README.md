@@ -8,11 +8,12 @@
 
 An agent that runs on your phone, not on a computer you connect to. It reads, searches, edits and explains your project — you approve every change, then commit and push.
 
+[![TestFlight](https://img.shields.io/badge/TestFlight-join%20the%20beta-0D96F6?logo=apple&logoColor=white)](https://testflight.apple.com/join/VZcpybTc)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 ![iOS](https://img.shields.io/badge/iOS-18%2B-black)
 ![Status](https://img.shields.io/badge/status-early%20development-orange)
 
-> ⚠️ Pokeet is in early development. We're building it in public — follow along, and watch this space for the first demo.
+> ⚠️ Pokeet is in early development. We're building it in public — [join the TestFlight beta](https://testflight.apple.com/join/VZcpybTc) and tell us what breaks.
 
 <!-- TODO: record the golden-path demo: clone → agent fixes a bug → diff cards → approve → commit & push, all on iPhone -->
 
@@ -172,7 +173,7 @@ What does not change:
 
 ## Get started
 
-1. **Install**: TestFlight link (coming soon). Or build it yourself — it's open source.
+1. **Install**: [join the TestFlight beta](https://testflight.apple.com/join/VZcpybTc) on an iPhone running iOS 18 or later. Or build it yourself — it's open source.
 2. **Add a model**: Settings → Model → Manage providers. Pick a template or add a provider, choose an API format, base URL and key, then fetch its model list (or add model IDs by hand). Back on the Model page, pick the active provider and model.
 3. **Optionally, add search**: Settings → Tools → Web Search. Toggle it on, pick a provider, paste that provider's key. Each provider keeps its own key in the Keychain, so switching does not lose one.
 4. **Poke it**: create a project — empty, or from an optional Git repository — then say what needs doing. Approve the changes you want, then use Changes → Commit & Push. Private repos use an HTTPS personal access token; SSH isn't supported yet.
