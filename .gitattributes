@@ -1,0 +1,3 @@
+# QuickJS is vendored third-party C. Left in the stats, its 2.8 MB outweighs
+# the Swift sources and GitHub reports the whole project as a C repository.
+Packages/PokeetScripting/Sources/CQuickJS/** linguist-vendored
