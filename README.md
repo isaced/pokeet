@@ -1,8 +1,9 @@
 <div align="center">
 
-<img src="docs/images/app-icon.png" width="128" height="128" alt="Pokeet app icon">
-
-# Pokeet
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/hero-dark.webp">
+  <img src="docs/images/hero-light.webp" alt="Pokeet — a coding agent that runs on your iPhone">
+</picture>
 
 **Poke it, it ships.**
 
