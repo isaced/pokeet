@@ -32,13 +32,14 @@ What that buys you:
 | --- | --- |
 | 🤖 **A real agent** | Reads, searches, edits, verifies — and keeps going until the job is done. |
 | 🎛️ **Review first** | Four modes, from read-only plans to fully automatic. Default: every edit waits for you. |
-| 🐍 **Real interpreters** | JavaScript and Python run on the device — a full stdlib, not a toy subset. |
+| 🐍 **Real interpreters** | JavaScript and Python run on the device — a real standard library, not a toy subset. |
 | 🧵 **A readable run** | Reasoning, tool calls and answers, each in its own shape. |
-| 📁 **Projects and sessions** | One sandbox per project, one conversation per session. Two panes in landscape. |
+| 📁 **Projects and sessions** | One sandbox per project, one conversation per session; leaving a chat doesn't cancel its run. |
+| 📚 **Skills** | `SKILL.md` procedures from the project or the app; the model sees names, loads the body when it matters, or you call `/skill:<name>`. |
 | 🌳 **Real git** | Clone, diff, commit and push on the phone. |
-| 🖼️ **Photos and project context** | Four photos per message, or files attached as `@` chips. `AGENTS.md` loads itself. |
+| 🖼️ **Photos and project context** | Four photos per message, or files attached as `@` chips. `AGENTS.md` or `CLAUDE.md` loads itself. |
 | 🔑 **Your key, your model** | OpenAI, Anthropic, Gemini, or anything compatible — each with its own key. |
-| 🔎 **Guarded web access** | HTTPS everywhere, plain HTTP only to your own network. Same-origin redirects. Your own search key. |
+| 🔎 **Guarded web access** | HTTPS everywhere, plain HTTP only to your own network. Redirects re-validated hop by hop. Your own search key. |
 | 🔒 **No server** | No account either. Your keys, your providers, your git remote — nothing else in the path. |
 
 ## See it in action
@@ -111,12 +112,14 @@ The tool set is the one a coding agent uses — files, search, git, web, scripts
 - **Code search** — `grep`, `find` (both respect `.gitignore`), `file_info` (size, lines, text vs binary)
 - **Git (read-only)** — `git_status`, `git_diff`, `git_log`, `git_show` (a file at any revision, or a commit)
 - **Images** — `read_image` (a screenshot or diagram from the project, downscaled and attached for vision models)
-- **Web** — `http_request` (GET and HEAD always; writes are reviewed, except in Bypass mode)
+- **Web** — `http_request` (GET and HEAD always; writes follow the mode's review policy)
 - **Web search** — `web_search` (your own search provider key; returns snippets, pages are read with `http_request`; see [docs/web-search.md](docs/web-search.md))
-- **Scripts** — `run_script` (sandboxed JavaScript via QuickJS; see [docs/scripts.md](docs/scripts.md))
+- **Scripts** — `run_script` (sandboxed JavaScript via QuickJS and Python via CPython 3.12; see [docs/scripts.md](docs/scripts.md))
 - **Planning** — `submit_plan`, `todo_write` (a running checklist for multi-step work)
 
-Guardrails: the agent cannot run shell commands and cannot commit or push — those are UI actions. Network egress is HTTPS-only. Addresses are not second-guessed: a phone behind a fake-IP proxy, or an agent pointed at a local service, should still work. Project instructions load from `AGENTS.md` or `CLAUDE.md` when a session starts.
+Guardrails: the agent cannot run shell commands and cannot commit or push — those are UI actions. Network egress is HTTPS-only, except plain HTTP to a local address. Addresses are not second-guessed: a phone behind a fake-IP proxy, or an agent pointed at a local service, should still work. Project instructions load from `AGENTS.md` or `CLAUDE.md` when a session starts.
+
+Skills follow the same on-demand idea: a `SKILL.md` folder in `.agents/skills`, `.pokeet/skills`, or the app's own library (Settings → Skills). The model sees only name and description until a task matches, then loads the body through `read_file`; `/skill:<name>` forces one. App-level skills can be imported from Files or a Git repository, edited in place, and turned off per device; project skills stay owned by the repo. See [docs/skills.md](docs/skills.md).
 
 ### Scripts: JavaScript and Python, on the device
 
@@ -209,6 +212,8 @@ swift test --package-path Packages/PokeetCore
 swift test --package-path Packages/PokeetScripting
 ```
 
+The Python runtime has its own tests, which link the host CPython 3.12 dylib — the exact command is in [docs/scripts.md](docs/scripts.md).
+
 App tests run from the generated `Pokeet` scheme in Xcode: pick any available simulator, or use `xcodebuild test -project Pokeet.xcodeproj -scheme Pokeet -destination 'platform=iOS Simulator,name=iPhone 17'`.
 
 Ship a build to a cabled iPhone — regenerate, build, install, launch:
@@ -230,7 +235,7 @@ Native Swift / SwiftUI. The agent kernel is isolated behind protocols so it can 
 │  PokeetApp (iOS app)                 │
 │  SwiftUI · workspace · Files         │
 │  SwiftGitX · libgit2 · review UI     │
-│  QuickJS sandbox · session snapshots │
+│  QuickJS/CPython · session snapshots │
 └───────────────┬──────────────────────┘
                 │  protocols
 ┌───────────────▼──────────────────────┐
@@ -240,14 +245,14 @@ Native Swift / SwiftUI. The agent kernel is isolated behind protocols so it can 
 └──────────────────────────────────────┘
 ```
 
-Session snapshots live in the app, so the kernel stays portable. QuickJS sits behind a `ScriptRuntime` protocol in the app, so another interpreter can be swapped in without touching the agent loop.
+Session snapshots live in the app, so the kernel stays portable. The QuickJS and CPython runtimes sit behind a `ScriptRuntime` protocol, so another interpreter can be swapped in without touching the agent loop.
 
 ## Roadmap
 
-- **v1** — Agent loop with four review modes, workspace, git (clone/diff/commit/push over HTTPS with a personal access token), diff review, guarded HTTP tool, web search, sandboxed `run_script`, context compaction, BYOK.
+- **v1 — built, in TestFlight.** Agent loop with four review modes, workspace, git (clone/diff/commit/push over HTTPS with a personal access token), diff review, guarded HTTP tool, web search, sandboxed `run_script` for JavaScript and Python, context compaction, skills, BYOK.
   The golden path: clone → fix → verify → review → commit & push, all on iPhone, no computer.
-- **v2** — Embedded CPython with an audit-hook sandbox, so Python projects can run their own tests on the device. For the handful of things a phone genuinely cannot execute, an optional hand-off to a machine you already own — never a requirement.
-- **Later** — SSH remotes, more tools, skills learned from your repos, maybe Android.
+- **v2 — next.** CPython is embedded and `run_script` already runs it; the missing piece is an audit-hook sandbox, so a Python project's own test suite can run on the device. For the handful of things a phone genuinely cannot execute, an optional hand-off to a machine you already own — never a requirement.
+- **Later** — SSH remotes, more tools, maybe Android.
 
 ## Contributing
 
