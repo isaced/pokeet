@@ -16,8 +16,6 @@ An agent that runs on your phone, not on a computer you connect to. It reads, se
 
 > ⚠️ Pokeet is in early development. We're building it in public — [join the TestFlight beta](https://testflight.apple.com/join/VZcpybTc) and tell us what breaks.
 
-<!-- TODO: record the golden-path demo: clone → agent fixes a bug → diff cards → approve → commit & push, all on iPhone -->
-
 </div>
 
 ## Why Pokeet?
@@ -43,6 +41,14 @@ What that buys you:
 | 🔒 **No server** | No account either. Your keys, your providers, your git remote — nothing else in the path. |
 
 ## See it in action
+
+<p align="center">
+  <a href="docs/videos/pokeet-demo.mp4">
+    <img src="docs/images/demo-poster.webp" width="300" alt="Watch the demo: a bug gets found, fixed and approved on the phone">
+  </a>
+  <br>
+  <sub><b>Watch the demo (27s)</b> — ask, watch it run code on the device, approve the diff.<br>Captions are burned in, so it reads with the sound off.</sub>
+</p>
 
 <table align="center">
   <tr>
